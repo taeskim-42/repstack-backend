@@ -1,6 +1,9 @@
 require "active_support/core_ext/integer/time"
 
 Rails.application.configure do
+  # Use SECRET_KEY_BASE environment variable
+  config.secret_key_base = ENV["SECRET_KEY_BASE"]
+
   # Code is not reloaded between requests.
   config.enable_reloading = false
 
