@@ -1,11 +1,8 @@
 [phases.setup]
-nixPkgs = ["ruby_3_3"]
+nixPkgs = ["ruby_3_3", "postgresql"]
 
 [phases.install]
 cmds = ["bundle install"]
 
-[phases.build]
-cmds = []
-
 [start]
-cmd = "bundle exec rails server -b 0.0.0.0 -p ${PORT:-3000}"
+cmd = "bundle exec rails db:prepare && bundle exec rails server -b 0.0.0.0 -p ${PORT:-3000}"
