@@ -67,6 +67,7 @@ class UserProfile < ApplicationRecord
   private
 
   def set_defaults
+    self.current_level ||= 'beginner'
     self.week_number ||= 1
     self.day_number ||= 1
     self.program_start_date ||= Date.current
