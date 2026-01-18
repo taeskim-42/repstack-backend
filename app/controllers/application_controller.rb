@@ -3,9 +3,6 @@
 class ApplicationController < ActionController::API
   include ExceptionHandler
 
-  # Skip authentication for specific controllers/actions that don't need it
-  skip_before_action :authorize_request, only: []
-
   # called before every action on controllers
   before_action :authorize_request
 
