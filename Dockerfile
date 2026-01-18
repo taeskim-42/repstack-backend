@@ -20,5 +20,6 @@ COPY . .
 
 RUN bundle exec bootsnap precompile app/ lib/
 
-EXPOSE 8080
-CMD bundle exec rails db:prepare && bundle exec rails server -b 0.0.0.0 -p ${PORT:-8080}
+ENV PORT=3000
+EXPOSE 3000
+CMD bundle exec rails db:prepare && bundle exec rails server -b 0.0.0.0 -p 3000
