@@ -15,6 +15,10 @@ gem "graphql"
 # HTTP client for Claude API
 gem "faraday"
 
+# Authentication
+gem "bcrypt", "~> 3.1.7"
+gem "jwt"
+
 group :development, :test do
   gem "debug", platforms: %i[ mri windows ], require: "debug/prelude"
 end

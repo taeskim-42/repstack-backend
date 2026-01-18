@@ -2,6 +2,7 @@
 
 module Types
   class QueryType < Types::BaseObject
+    # Node interface
     field :node, Types::NodeType, null: true, description: "Fetches an object given its ID." do
       argument :id, ID, required: true, description: "ID of the object."
     end
@@ -18,6 +19,7 @@ module Types
       ids.map { |id| context.schema.object_from_id(id, context) }
     end
 
+    # Health checks
     field :health, String, null: false, description: "Health check endpoint"
     def health
       "ok"
@@ -27,5 +29,12 @@ module Types
     def version
       "1.0.0"
     end
+
+    # User queries
+    field :me, resolver: Queries::Me
+    field :my_profile, resolver: Queries::MyProfile
+    field :my_sessions, resolver: Queries::MySessions
+    field :my_routines, resolver: Queries::MyRoutines
+    field :today_routine, resolver: Queries::TodayRoutine
   end
 end

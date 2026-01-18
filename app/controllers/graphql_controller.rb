@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
 class GraphqlController < ApplicationController
+  # Skip authentication requirement for GraphQL endpoint
+  # Individual resolvers can enforce authentication as needed
+  skip_before_action :authorize_request
+  before_action :set_current_user
+
   # If accessing from outside this domain, nullify the session
   # This allows for outside API access while preventing CSRF attacks,
   # but you'll have to authenticate your user separately
@@ -11,8 +16,10 @@ class GraphqlController < ApplicationController
     query = params[:query]
     operation_name = params[:operationName]
     context = {
-      # Query context goes here, for example:
-      # current_user: current_user,
+      # Include current_user in GraphQL context for resolvers to use
+      current_user: current_user,
+      # Add request context for additional information
+      request: request
     }
     result = RepstackBackendSchema.execute(query, variables: variables, context: context, operation_name: operation_name)
     render json: result
@@ -22,6 +29,18 @@ class GraphqlController < ApplicationController
   end
 
   private
+
+  # Set current_user without raising exceptions
+  def set_current_user
+    @current_user = (AuthorizeApiRequest.new(request.headers).call)[:user]
+  rescue ExceptionHandler::MissingToken, ExceptionHandler::InvalidToken
+    # Silently set current_user to nil if no valid token
+    @current_user = nil
+  end
+
+  def skip_authentication?
+    true
+  end
 
   # Handle variables in form data, JSON body, or a blank value
   def prepare_variables(variables_param)
