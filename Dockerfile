@@ -46,7 +46,37 @@ COPY . .
 RUN bundle exec bootsnap precompile app/ lib/
 
 # =============================================================================
-# Production stage - minimal runtime image
+# Development stage - includes dev/test dependencies
+# =============================================================================
+FROM base AS development
+
+# Install build dependencies for gem compilation
+RUN apt-get update -qq && \
+    apt-get install --no-install-recommends -y \
+      build-essential \
+      git \
+      pkg-config \
+    && rm -rf /var/lib/apt/lists /var/cache/apt/archives
+
+# Install all gems including dev/test
+ENV BUNDLE_DEPLOYMENT="0" \
+    BUNDLE_WITHOUT=""
+
+COPY Gemfile Gemfile.lock ./
+RUN bundle install
+
+# Set development environment
+ENV RAILS_ENV="development" \
+    PORT=3000 \
+    PROMETHEUS_EXPORTER_PORT=9394
+
+EXPOSE 3000 9394
+
+# Default command for development
+CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
+
+# =============================================================================
+# Production stage - minimal runtime image (MUST BE LAST for Railway)
 # =============================================================================
 FROM base AS production
 
@@ -77,33 +107,3 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 
 # Start server with database migration
 CMD ["sh", "-c", "bundle exec rails db:prepare && bundle exec rails server -b 0.0.0.0 -p 3000"]
-
-# =============================================================================
-# Development stage - includes dev/test dependencies
-# =============================================================================
-FROM base AS development
-
-# Install build dependencies for gem compilation
-RUN apt-get update -qq && \
-    apt-get install --no-install-recommends -y \
-      build-essential \
-      git \
-      pkg-config \
-    && rm -rf /var/lib/apt/lists /var/cache/apt/archives
-
-# Install all gems including dev/test
-ENV BUNDLE_DEPLOYMENT="0" \
-    BUNDLE_WITHOUT=""
-
-COPY Gemfile Gemfile.lock ./
-RUN bundle install
-
-# Set development environment
-ENV RAILS_ENV="development" \
-    PORT=3000 \
-    PROMETHEUS_EXPORTER_PORT=9394
-
-EXPOSE 3000 9394
-
-# Default command for development
-CMD ["bundle", "exec", "rails", "server", "-b", "0.0.0.0", "-p", "3000"]
