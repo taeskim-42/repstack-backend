@@ -9,6 +9,7 @@ module Types
     field :weight, Float, null: true
     field :weight_description, String, null: true
     field :bpm, Integer, null: true
+    field :set_duration_seconds, Integer, null: true
     field :rest_duration_seconds, Integer, null: true
     field :range_of_motion, String, null: true
     field :how_to, String, null: true

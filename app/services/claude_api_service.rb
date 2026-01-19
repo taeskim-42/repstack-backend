@@ -85,6 +85,7 @@ class ClaudeApiService
                   "weight": null,
                   "weightDescription": "10회 가능한 무게",
                   "bpm": 30,
+                  "setDurationSeconds": 45,
                   "restDurationSeconds": 60,
                   "rangeOfMotion": "short|medium|full",
                   "howTo": "운동 수행 방법",
@@ -103,6 +104,16 @@ class ClaudeApiService
     parts << "키: #{body_info[:height]}cm" if body_info[:height]
     parts << "체중: #{body_info[:weight]}kg" if body_info[:weight]
     parts << "체지방률: #{body_info[:body_fat]}%" if body_info[:body_fat]
+    
+    # Handle additional fields
+    if body_info[:max_lifts].present?
+      parts << "최대 중량 기록: #{body_info[:max_lifts]}"
+    end
+    
+    if body_info[:recent_workouts].present?
+      parts << "최근 운동 기록: #{body_info[:recent_workouts].length}개 기록"
+    end
+    
     parts.join("\n")
   end
 
@@ -238,6 +249,7 @@ class ClaudeApiService
           "weight" => nil,
           "weightDescription" => "체중",
           "bpm" => 30,
+          "setDurationSeconds" => 20,
           "restDurationSeconds" => 60,
           "rangeOfMotion" => "full",
           "howTo" => "가슴이 바닥에 닿을 때까지 내려간 후 팔을 완전히 펴서 올라옵니다.",
@@ -251,6 +263,7 @@ class ClaudeApiService
           "weight" => nil,
           "weightDescription" => "맨몸",
           "bpm" => 30,
+          "setDurationSeconds" => 20,
           "restDurationSeconds" => 60,
           "rangeOfMotion" => "full",
           "howTo" => "허벅지가 바닥과 평행이 될 때까지 앉았다 일어납니다.",
@@ -264,6 +277,7 @@ class ClaudeApiService
           "weight" => nil,
           "weightDescription" => "30초 유지",
           "bpm" => nil,
+          "setDurationSeconds" => 30,
           "restDurationSeconds" => 30,
           "rangeOfMotion" => "full",
           "howTo" => "팔꿈치를 바닥에 대고 몸을 일직선으로 유지합니다.",

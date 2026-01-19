@@ -37,6 +37,7 @@ module Mutations
               weight: ex["weight"],
               weight_description: ex["weightDescription"],
               bpm: ex["bpm"],
+              set_duration_seconds: ex["setDurationSeconds"],
               rest_duration_seconds: ex["restDurationSeconds"],
               range_of_motion: ex["rangeOfMotion"],
               how_to: ex["howTo"],
