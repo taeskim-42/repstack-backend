@@ -16,6 +16,7 @@ module Mutations
       raise GraphQL::ExecutionError, "Authentication required" unless user
       user
     end
+    alias authenticate_user! authenticate!
 
     # Returns the current user or nil (for optional authentication)
     def current_user

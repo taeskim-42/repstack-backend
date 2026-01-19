@@ -2,6 +2,7 @@
 
 module Types
   class LevelTestInputType < Types::BaseInputObject
+    graphql_name "LevelAssessmentInput"
     description "Input for level assessment test"
 
     argument :experience_level, String, required: true,

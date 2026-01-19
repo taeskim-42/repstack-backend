@@ -27,5 +27,10 @@ module Types
     field :check_condition, mutation: Mutations::CheckCondition
     field :record_workout, mutation: Mutations::RecordWorkout
     field :submit_feedback, mutation: Mutations::SubmitFeedback
+
+    # AI Trainer v2 - Infinite Routine Generation
+    field :generate_ai_routine, mutation: Mutations::GenerateAiRoutine
+    field :start_level_test, mutation: Mutations::StartLevelTest
+    field :submit_level_test_result, mutation: Mutations::SubmitLevelTestResult
   end
 end

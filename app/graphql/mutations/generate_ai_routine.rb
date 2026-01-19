@@ -1,0 +1,40 @@
+# frozen_string_literal: true
+
+module Mutations
+  class GenerateAiRoutine < BaseMutation
+    description "Generate a personalized workout routine using AI trainer with infinite variations"
+
+    argument :day_of_week, Integer, required: false, description: "Day of week (1-5, defaults to current day)"
+    argument :condition, Types::ConditionInputType, required: false, description: "User's current condition"
+
+    field :success, Boolean, null: false
+    field :routine, Types::AiRoutineType, null: true
+    field :error, String, null: true
+
+    def resolve(day_of_week: nil, condition: nil)
+      authenticate_user!
+
+      condition_inputs = condition&.to_h&.deep_transform_keys { |k| k.to_s.underscore.to_sym } || {}
+
+      routine = AiTrainerService.generate_routine(
+        user: current_user,
+        day_of_week: day_of_week,
+        condition_inputs: condition_inputs
+      )
+
+      if routine.is_a?(Hash) && routine[:success] == false
+        {
+          success: false,
+          routine: nil,
+          error: routine[:error]
+        }
+      else
+        {
+          success: true,
+          routine: routine,
+          error: nil
+        }
+      end
+    end
+  end
+end

@@ -41,5 +41,8 @@ module Types
     field :get_user_level_assessment, resolver: Queries::GetUserLevelAssessment
     field :get_user_condition_logs, resolver: Queries::GetUserConditionLogs
     field :get_workout_analytics, resolver: Queries::GetWorkoutAnalytics
+
+    # AI Trainer v2 queries
+    field :check_level_test_eligibility, resolver: Queries::CheckLevelTestEligibility
   end
 end

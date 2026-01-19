@@ -18,6 +18,22 @@ class AiTrainerService
     def analyze_feedback(input)
       new.analyze_feedback(input)
     end
+
+    def generate_routine(user:, day_of_week: nil, condition_inputs: {})
+      new.generate_routine(user: user, day_of_week: day_of_week, condition_inputs: condition_inputs)
+    end
+
+    def generate_level_test(user:)
+      new.generate_level_test_for_user(user)
+    end
+
+    def evaluate_level_test(user:, test_results:)
+      new.evaluate_level_test_results(user: user, test_results: test_results)
+    end
+
+    def check_test_eligibility(user:)
+      new.check_eligibility(user)
+    end
   end
 
   def level_test(input)
@@ -322,6 +338,52 @@ class AiTrainerService
       adaptations: adaptations,
       next_workout_recommendations: recommendations
     }
+  end
+
+  # ============ Routine Generation ============
+
+  def generate_routine(user:, day_of_week: nil, condition_inputs: {})
+    AiTrainer.generate_routine(
+      user: user,
+      day_of_week: day_of_week,
+      condition_inputs: condition_inputs
+    )
+  rescue StandardError => e
+    Rails.logger.error("AiTrainerService.generate_routine error: #{e.message}")
+    { success: false, error: "Routine generation failed: #{e.message}" }
+  end
+
+  # ============ Level Test ============
+
+  def generate_level_test_for_user(user)
+    AiTrainer.generate_level_test(user: user)
+  rescue StandardError => e
+    Rails.logger.error("AiTrainerService.generate_level_test error: #{e.message}")
+    { success: false, error: "Level test generation failed: #{e.message}" }
+  end
+
+  def evaluate_level_test_results(user:, test_results:)
+    result = AiTrainer.evaluate_level_test(user: user, test_results: test_results)
+
+    # Update user profile if passed
+    if result[:passed] && user.user_profile
+      user.user_profile.update!(
+        current_level: result[:new_level],
+        last_level_test_at: Time.current
+      )
+    end
+
+    result
+  rescue StandardError => e
+    Rails.logger.error("AiTrainerService.evaluate_level_test error: #{e.message}")
+    { success: false, error: "Level test evaluation failed: #{e.message}" }
+  end
+
+  def check_eligibility(user)
+    AiTrainer.check_test_eligibility(user: user)
+  rescue StandardError => e
+    Rails.logger.error("AiTrainerService.check_eligibility error: #{e.message}")
+    { eligible: false, reason: "Error checking eligibility: #{e.message}" }
   end
 
   # ============ Helpers ============
