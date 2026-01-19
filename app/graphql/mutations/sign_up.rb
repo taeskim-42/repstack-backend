@@ -2,6 +2,8 @@
 
 module Mutations
   class SignUp < BaseMutation
+    description "Create a new user account"
+
     argument :email, String, required: true
     argument :password, String, required: true
     argument :name, String, required: true
@@ -9,40 +11,47 @@ module Mutations
     field :auth_payload, Types::AuthPayloadType, null: true
     field :errors, [String], null: false
 
+    PASSWORD_MIN_LENGTH = 6
+    TOKEN_EXPIRY_HOURS = 24
+
     def resolve(email:, name:, password:)
-      user = User.new(
-        email: email,
-        name: name,
-        password: password,
-        password_confirmation: password
-      )
+      with_error_handling(auth_payload: nil) do
+        user = User.new(
+          email: email.strip.downcase,
+          name: name.strip,
+          password: password,
+          password_confirmation: password
+        )
 
-      if user.save
-        # Create user profile
-        user.create_user_profile!
+        ActiveRecord::Base.transaction do
+          user.save!
+          user.create_user_profile!
+        end
 
-        # Generate token
-        expires_at = 24.hours.from_now
-        token = JsonWebToken.encode(user_id: user.id, exp: expires_at.to_i)
+        token = generate_token(user)
+        MetricsService.record_signup(success: true)
 
-        {
-          auth_payload: {
-            token: token,
-            user: user
-          },
-          errors: []
-        }
-      else
-        {
-          auth_payload: nil,
-          errors: user.errors.full_messages
-        }
+        success_response(
+          auth_payload: { token: token, user: user }
+        )
+      rescue StandardError => e
+        MetricsService.record_signup(success: false)
+        raise e
       end
-    rescue StandardError => e
-      {
-        auth_payload: nil,
-        errors: [e.message]
-      }
+    end
+
+    private
+
+    def ready?(password:, **args)
+      if password.length < PASSWORD_MIN_LENGTH
+        raise GraphQL::ExecutionError, "Password must be at least #{PASSWORD_MIN_LENGTH} characters"
+      end
+      true
+    end
+
+    def generate_token(user)
+      expires_at = TOKEN_EXPIRY_HOURS.hours.from_now
+      JsonWebToken.encode(user_id: user.id, exp: expires_at.to_i)
     end
   end
 end

@@ -1,5 +1,9 @@
+# frozen_string_literal: true
+
 module Mutations
   class AddWorkoutSet < BaseMutation
+    description "Add a workout set to an active session"
+
     argument :session_id, ID, required: true
     argument :exercise_name, String, required: true
     argument :weight, Float, required: false
@@ -11,66 +15,36 @@ module Mutations
     field :workout_set, Types::WorkoutSetType, null: true
     field :errors, [String], null: false
 
+    VALID_WEIGHT_UNITS = %w[kg lbs].freeze
+
     def resolve(session_id:, exercise_name:, **args)
-      user = context[:current_user]
-      
-      unless user
-        return {
-          workout_set: nil,
-          errors: ['Authentication required']
-        }
+      with_error_handling(workout_set: nil) do
+        user = authenticate!
+
+        workout_session = user.workout_sessions.find_by(id: session_id)
+        return error_response("Workout session not found", workout_set: nil) unless workout_session
+        return error_response("Workout session is not active", workout_set: nil) unless workout_session.active?
+
+        workout_set = workout_session.workout_sets.create!(
+          exercise_name: exercise_name,
+          weight: args[:weight],
+          weight_unit: args[:weight_unit] || "kg",
+          reps: args[:reps],
+          duration_seconds: args[:duration_seconds],
+          notes: args[:notes]
+        )
+
+        MetricsService.record_workout_set_logged
+        success_response(workout_set: workout_set)
       end
-
-      workout_session = user.workout_sessions.find_by(id: session_id)
-
-      unless workout_session
-        return {
-          workout_set: nil,
-          errors: ['Workout session not found']
-        }
-      end
-
-      unless workout_session.active?
-        return {
-          workout_set: nil,
-          errors: ['Workout session is not active']
-        }
-      end
-
-      workout_set = workout_session.workout_sets.build(
-        exercise_name: exercise_name,
-        weight: args[:weight],
-        weight_unit: args[:weight_unit] || 'kg',
-        reps: args[:reps],
-        duration_seconds: args[:duration_seconds],
-        notes: args[:notes]
-      )
-
-      if workout_set.save
-        {
-          workout_set: workout_set,
-          errors: []
-        }
-      else
-        {
-          workout_set: nil,
-          errors: workout_set.errors.full_messages
-        }
-      end
-    rescue StandardError => e
-      {
-        workout_set: nil,
-        errors: [e.message]
-      }
     end
 
     private
 
     def ready?(weight_unit: nil, **args)
-      if weight_unit && !%w[kg lbs].include?(weight_unit)
-        raise GraphQL::ExecutionError, 'Invalid weight unit. Must be kg or lbs'
+      if weight_unit && !VALID_WEIGHT_UNITS.include?(weight_unit)
+        raise GraphQL::ExecutionError, "Invalid weight unit. Must be: #{VALID_WEIGHT_UNITS.join(', ')}"
       end
-
       true
     end
   end

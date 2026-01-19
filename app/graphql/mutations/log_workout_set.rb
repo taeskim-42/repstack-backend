@@ -8,64 +8,31 @@ module Mutations
     field :workout_set, Types::WorkoutSetType, null: true
     field :errors, [String], null: false
 
+    VALID_WEIGHT_UNITS = %w[kg lbs].freeze
+
     def resolve(session_id:, set_input:)
-      user = context[:current_user]
-      
-      unless user
-        return {
-          workout_set: nil,
-          errors: ['Authentication required']
-        }
+      with_error_handling(workout_set: nil) do
+        user = authenticate!
+
+        workout_session = user.workout_sessions.find_by(id: session_id)
+        return error_response("Workout session not found", workout_set: nil) unless workout_session
+        return error_response("Workout session is not active", workout_set: nil) unless workout_session.active?
+
+        set_attrs = set_input.to_h
+        set_attrs[:weight_unit] ||= "kg"
+
+        workout_set = workout_session.workout_sets.create!(set_attrs)
+        success_response(workout_set: workout_set)
       end
-
-      workout_session = user.workout_sessions.find_by(id: session_id)
-
-      unless workout_session
-        return {
-          workout_set: nil,
-          errors: ['Workout session not found']
-        }
-      end
-
-      unless workout_session.active?
-        return {
-          workout_set: nil,
-          errors: ['Workout session is not active']
-        }
-      end
-
-      # Convert input to hash and set default weight unit
-      set_attrs = set_input.to_h
-      set_attrs[:weight_unit] ||= 'kg'
-
-      workout_set = workout_session.workout_sets.build(set_attrs)
-
-      if workout_set.save
-        {
-          workout_set: workout_set,
-          errors: []
-        }
-      else
-        {
-          workout_set: nil,
-          errors: workout_set.errors.full_messages
-        }
-      end
-    rescue StandardError => e
-      {
-        workout_set: nil,
-        errors: [e.message]
-      }
     end
 
     private
 
     def ready?(set_input:, **args)
       weight_unit = set_input.weight_unit
-      if weight_unit && !%w[kg lbs].include?(weight_unit)
-        raise GraphQL::ExecutionError, 'Invalid weight unit. Must be kg or lbs'
+      if weight_unit && !VALID_WEIGHT_UNITS.include?(weight_unit)
+        raise GraphQL::ExecutionError, "Invalid weight unit. Must be: #{VALID_WEIGHT_UNITS.join(', ')}"
       end
-
       true
     end
   end

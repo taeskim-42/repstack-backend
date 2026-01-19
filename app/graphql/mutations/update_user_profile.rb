@@ -1,5 +1,9 @@
+# frozen_string_literal: true
+
 module Mutations
   class UpdateUserProfile < BaseMutation
+    description "Update individual user profile fields"
+
     argument :height, Float, required: false
     argument :weight, Float, required: false
     argument :body_fat_percentage, Float, required: false
@@ -11,45 +15,29 @@ module Mutations
     field :user_profile, Types::UserProfileType, null: true
     field :errors, [String], null: false
 
+    VALID_LEVELS = %w[beginner intermediate advanced].freeze
+    DAY_RANGE = (1..7).freeze
+
     def resolve(**args)
-      user = context[:current_user]
-      
-      unless user
-        return {
-          user_profile: nil,
-          errors: ['Authentication required']
-        }
-      end
+      with_error_handling(user_profile: nil) do
+        user = authenticate!
 
-      profile = user.user_profile || user.build_user_profile
+        profile = user.user_profile || user.build_user_profile
+        profile.update!(args.compact)
 
-      if profile.update(args.compact)
-        {
-          user_profile: profile,
-          errors: []
-        }
-      else
-        {
-          user_profile: nil,
-          errors: profile.errors.full_messages
-        }
+        success_response(user_profile: profile)
       end
-    rescue StandardError => e
-      {
-        user_profile: nil,
-        errors: [e.message]
-      }
     end
 
     private
 
     def ready?(**args)
-      if args[:current_level] && !%w[beginner intermediate advanced].include?(args[:current_level])
-        raise GraphQL::ExecutionError, 'Invalid level. Must be beginner, intermediate, or advanced'
+      if args[:current_level] && !VALID_LEVELS.include?(args[:current_level])
+        raise GraphQL::ExecutionError, "Invalid level. Must be: #{VALID_LEVELS.join(', ')}"
       end
 
-      if args[:day_number] && !(1..7).include?(args[:day_number])
-        raise GraphQL::ExecutionError, 'Invalid day number. Must be between 1 and 7'
+      if args[:day_number] && !DAY_RANGE.include?(args[:day_number])
+        raise GraphQL::ExecutionError, "Invalid day number. Must be between #{DAY_RANGE.first} and #{DAY_RANGE.last}"
       end
 
       true

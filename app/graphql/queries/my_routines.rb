@@ -5,15 +5,20 @@ module Queries
     description "Get current user's workout routines"
 
     type [Types::WorkoutRoutineType], null: false
-    argument :limit, Integer, required: false, default_value: 10
 
-    def resolve(limit: 10)
+    argument :limit, Integer, required: false, default_value: 10
+    argument :completed_only, Boolean, required: false, default_value: false
+
+    MAX_LIMIT = 100
+
+    def resolve(limit: 10, completed_only: false)
       user = context[:current_user]
       return [] unless user
 
-      user.workout_routines
-          .order(created_at: :desc)
-          .limit([limit, 100].min) # Cap at 100 for performance
+      scope = user.workout_routines.includes(:routine_exercises)
+      scope = scope.completed if completed_only
+      scope.order(created_at: :desc)
+           .limit([limit, MAX_LIMIT].min)
     end
   end
 end

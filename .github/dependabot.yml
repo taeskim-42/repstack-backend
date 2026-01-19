@@ -1,0 +1,37 @@
+version: 2
+updates:
+  # Ruby dependencies
+  - package-ecosystem: "bundler"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    groups:
+      rails:
+        patterns:
+          - "rails*"
+          - "activerecord*"
+          - "activesupport*"
+      testing:
+        patterns:
+          - "rspec*"
+          - "factory_bot*"
+          - "faker"
+      monitoring:
+        patterns:
+          - "prometheus*"
+          - "yabeda*"
+          - "opentelemetry*"
+
+  # Docker dependencies
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

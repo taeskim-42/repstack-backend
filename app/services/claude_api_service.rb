@@ -1,31 +1,204 @@
 # frozen_string_literal: true
 
 class ClaudeApiService
+  # Custom error classes for precise error handling
+  class Error < StandardError; end
+  class ConfigurationError < Error; end
+  class ApiError < Error
+    attr_reader :status_code, :response_body
+
+    def initialize(message, status_code: nil, response_body: nil)
+      @status_code = status_code
+      @response_body = response_body
+      super(message)
+    end
+  end
+  class TimeoutError < Error; end
+  class ParseError < Error; end
+  class ValidationError < Error; end
+  class RateLimitError < ApiError; end
+  class CircuitOpenError < Error; end
+
   API_URL = "https://api.anthropic.com/v1/messages"
   MODEL = "claude-sonnet-4-20250514"
   MAX_TOKENS = 4096
 
+  # Timeout configuration (in seconds)
+  CONNECT_TIMEOUT = 5
+  READ_TIMEOUT = 60
+  WRITE_TIMEOUT = 30
+
+  # Retry configuration
+  MAX_RETRIES = 2
+  RETRY_DELAY = 1
+
+  # Circuit breaker configuration
+  CIRCUIT_BREAKER_NAME = :claude_api
+  CIRCUIT_VOLUME_THRESHOLD = 5      # Minimum requests before circuit can open
+  CIRCUIT_ERROR_THRESHOLD = 50      # Error percentage to open circuit
+  CIRCUIT_SLEEP_WINDOW = 60         # Seconds to wait before trying again (must be >= time_window)
+  CIRCUIT_TIME_WINDOW = 60          # Time window for error rate calculation
+
+  # Valid input values for sanitization
+  VALID_LEVELS = %w[beginner intermediate advanced 초급 중급 고급].freeze
+  MAX_WEEK = 52
+  MAX_DAY = 7
+
+  # Required fields in AI response
+  REQUIRED_ROUTINE_FIELDS = %w[workoutType exercises].freeze
+  REQUIRED_EXERCISE_FIELDS = %w[exerciseName targetMuscle sets reps].freeze
+
   def initialize
     @api_key = ENV["ANTHROPIC_API_KEY"]
-    @conn = Faraday.new(url: API_URL) do |f|
+    @conn = build_connection
+  end
+
+  # Class method to access circuit breaker status
+  def self.circuit_breaker
+    Circuitbox.circuit(
+      CIRCUIT_BREAKER_NAME,
+      exceptions: [TimeoutError, ApiError, RateLimitError, Faraday::Error],
+      volume_threshold: CIRCUIT_VOLUME_THRESHOLD,
+      error_threshold: CIRCUIT_ERROR_THRESHOLD,
+      sleep_window: CIRCUIT_SLEEP_WINDOW,
+      time_window: CIRCUIT_TIME_WINDOW
+    )
+  end
+
+  def self.circuit_open?
+    circuit_breaker.open?
+  end
+
+  def self.circuit_stats
+    cb = circuit_breaker
+    {
+      open: cb.open?,
+      error_rate: cb.error_rate,
+      success_count: cb.success_count,
+      failure_count: cb.failure_count
+    }
+  end
+
+  # Returns a Result object with success/failure information
+  # Never silently falls back to mock data
+  # Uses circuit breaker pattern to prevent cascading failures
+  def generate_routine(level:, week:, day:, body_info: {}, recent_workouts: [])
+    # Validate and sanitize inputs first (before circuit breaker)
+    sanitized_params = sanitize_and_validate_inputs(level: level, week: week, day: day)
+
+    if @api_key.blank?
+      Rails.logger.warn("ClaudeApiService: API key not configured, using mock data")
+      return build_result(success: true, data: mock_routine, mock: true)
+    end
+
+    # Use circuit breaker for external API calls
+    self.class.circuit_breaker.run do
+      prompt = build_routine_prompt(
+        sanitized_params[:level],
+        sanitized_params[:week],
+        sanitized_params[:day],
+        body_info,
+        recent_workouts
+      )
+
+      response = call_api_with_retry(prompt)
+      parsed_response = parse_and_validate_response(response)
+
+      build_result(success: true, data: parsed_response)
+    end
+  rescue Circuitbox::OpenCircuitError
+    Rails.logger.warn("ClaudeApiService: Circuit breaker is open, using mock data")
+    build_result(
+      success: true,
+      data: mock_routine,
+      mock: true,
+      error: "AI 서비스가 일시적으로 불안정합니다. 기본 루틴을 제공합니다.",
+      error_type: :circuit_open
+    )
+  rescue ConfigurationError => e
+    Rails.logger.error("ClaudeApiService Configuration Error: #{e.message}")
+    build_result(success: false, error: e.message, error_type: :configuration)
+  rescue ValidationError => e
+    Rails.logger.error("ClaudeApiService Validation Error: #{e.message}")
+    build_result(success: false, error: e.message, error_type: :validation)
+  rescue RateLimitError => e
+    Rails.logger.error("ClaudeApiService Rate Limited: #{e.message}")
+    build_result(success: false, error: "서비스가 일시적으로 바쁩니다. 잠시 후 다시 시도해주세요.", error_type: :rate_limit)
+  rescue TimeoutError => e
+    Rails.logger.error("ClaudeApiService Timeout: #{e.message}")
+    build_result(success: false, error: "AI 서비스 응답 시간이 초과되었습니다.", error_type: :timeout)
+  rescue ApiError => e
+    Rails.logger.error("ClaudeApiService API Error: #{e.message} (status: #{e.status_code})")
+    build_result(success: false, error: "AI 서비스 오류가 발생했습니다.", error_type: :api)
+  rescue ParseError => e
+    Rails.logger.error("ClaudeApiService Parse Error: #{e.message}")
+    build_result(success: false, error: "AI 응답을 처리할 수 없습니다.", error_type: :parse)
+  rescue StandardError => e
+    Rails.logger.error("ClaudeApiService Unexpected Error: #{e.class} - #{e.message}")
+    Rails.logger.error(e.backtrace&.first(5)&.join("\n"))
+    build_result(success: false, error: "예상치 못한 오류가 발생했습니다.", error_type: :unknown)
+  end
+
+  private
+
+  def build_connection
+    Faraday.new(url: API_URL) do |f|
       f.request :json
       f.response :json
+      f.options.timeout = READ_TIMEOUT
+      f.options.open_timeout = CONNECT_TIMEOUT
+      f.options.write_timeout = WRITE_TIMEOUT
       f.adapter Faraday.default_adapter
     end
   end
 
-  def generate_routine(level:, week:, day:, body_info: {}, recent_workouts: [])
-    return mock_routine if @api_key.blank?
-
-    prompt = build_routine_prompt(level, week, day, body_info, recent_workouts)
-    response = call_api(prompt)
-    parse_routine_response(response)
-  rescue StandardError => e
-    Rails.logger.error("Claude API Error: #{e.message}")
-    mock_routine
+  def build_result(success:, data: nil, error: nil, error_type: nil, mock: false)
+    {
+      success: success,
+      data: data,
+      error: error,
+      error_type: error_type,
+      mock: mock
+    }
   end
 
-  private
+  def sanitize_and_validate_inputs(level:, week:, day:)
+    # Sanitize level - only allow known values
+    sanitized_level = level.to_s.downcase.strip
+    unless VALID_LEVELS.include?(sanitized_level)
+      raise ValidationError, "Invalid level: #{level}. Must be one of: #{VALID_LEVELS.join(', ')}"
+    end
+
+    # Sanitize week - must be positive integer within range
+    sanitized_week = week.to_i
+    unless sanitized_week.between?(1, MAX_WEEK)
+      raise ValidationError, "Invalid week: #{week}. Must be between 1 and #{MAX_WEEK}"
+    end
+
+    # Sanitize day - must be positive integer within range
+    sanitized_day = day.to_i
+    unless sanitized_day.between?(1, MAX_DAY)
+      raise ValidationError, "Invalid day: #{day}. Must be between 1 and #{MAX_DAY}"
+    end
+
+    { level: sanitized_level, week: sanitized_week, day: sanitized_day }
+  end
+
+  def call_api_with_retry(prompt)
+    retries = 0
+
+    begin
+      call_api(prompt)
+    rescue Faraday::TimeoutError, Faraday::ConnectionFailed => e
+      retries += 1
+      if retries <= MAX_RETRIES
+        Rails.logger.warn("ClaudeApiService: Retry #{retries}/#{MAX_RETRIES} after #{e.class}")
+        sleep(RETRY_DELAY * retries)
+        retry
+      end
+      raise TimeoutError, "Connection failed after #{MAX_RETRIES} retries: #{e.message}"
+    end
+  end
 
   def call_api(prompt)
     response = @conn.post do |req|
@@ -39,14 +212,71 @@ class ClaudeApiService
       }
     end
 
-    if response.success?
+    handle_api_response(response)
+  rescue Faraday::TimeoutError => e
+    raise TimeoutError, "Request timed out: #{e.message}"
+  end
+
+  def handle_api_response(response)
+    case response.status
+    when 200
       body = response.body
       content = body.dig("content", 0, "text")
-      content || ""
+      raise ApiError.new("Empty response from API", status_code: 200, response_body: body) if content.blank?
+      content
+    when 429
+      raise RateLimitError.new("Rate limit exceeded", status_code: 429, response_body: response.body)
+    when 401, 403
+      raise ConfigurationError, "Authentication failed. Please check API key."
+    when 400
+      raise ApiError.new("Bad request: #{response.body}", status_code: 400, response_body: response.body)
+    when 500..599
+      raise ApiError.new("Server error", status_code: response.status, response_body: response.body)
     else
-      Rails.logger.error("Claude API failed: #{response.status} - #{response.body}")
-      ""
+      raise ApiError.new("Unexpected status", status_code: response.status, response_body: response.body)
     end
+  end
+
+  def parse_and_validate_response(response)
+    parsed = parse_routine_response(response)
+    validate_routine_structure(parsed)
+    parsed
+  end
+
+  def validate_routine_structure(routine)
+    # Validate required top-level fields (excluding exercises which is checked separately)
+    missing_fields = (REQUIRED_ROUTINE_FIELDS - ["exercises"]).reject { |f| routine.key?(f) && routine[f].present? }
+    unless missing_fields.empty?
+      raise ValidationError, "Missing required fields in routine: #{missing_fields.join(', ')}"
+    end
+
+    # Validate exercises array separately (empty array should give specific message)
+    exercises = routine["exercises"]
+    unless exercises.is_a?(Array)
+      raise ValidationError, "Missing required fields in routine: exercises"
+    end
+    unless exercises.any?
+      raise ValidationError, "Routine must contain at least one exercise"
+    end
+
+    # Validate each exercise has required fields
+    exercises.each_with_index do |exercise, index|
+      missing_exercise_fields = REQUIRED_EXERCISE_FIELDS.reject { |f| exercise.key?(f) }
+      unless missing_exercise_fields.empty?
+        raise ValidationError, "Exercise #{index + 1} missing required fields: #{missing_exercise_fields.join(', ')}"
+      end
+
+      # Validate numeric fields
+      unless exercise["sets"].is_a?(Integer) && exercise["sets"].positive?
+        raise ValidationError, "Exercise #{index + 1}: sets must be a positive integer"
+      end
+
+      unless exercise["reps"].is_a?(Integer) && exercise["reps"].positive?
+        raise ValidationError, "Exercise #{index + 1}: reps must be a positive integer"
+      end
+    end
+
+    true
   end
 
   def build_routine_prompt(level, week, day, body_info, recent_workouts)
@@ -218,21 +448,60 @@ class ClaudeApiService
   end
 
   def parse_routine_response(response)
-    return mock_routine if response.blank?
+    raise ParseError, "Empty response received" if response.blank?
 
+    # Try to extract JSON from markdown code blocks first
+    json_str = extract_json_from_response(response)
+
+    begin
+      parsed = JSON.parse(json_str)
+
+      # Ensure we got a hash back
+      unless parsed.is_a?(Hash)
+        raise ParseError, "Expected JSON object, got #{parsed.class}"
+      end
+
+      parsed
+    rescue JSON::ParserError => e
+      # Log the problematic response for debugging (truncated)
+      truncated_response = response.length > 500 ? "#{response[0..500]}..." : response
+      Rails.logger.error("JSON parse error: #{e.message}")
+      Rails.logger.error("Response content: #{truncated_response}")
+      raise ParseError, "Failed to parse AI response as JSON: #{e.message}"
+    end
+  end
+
+  def extract_json_from_response(response)
+    # Try markdown code block first
     json_match = response.match(/```json\s*(.*?)\s*```/m)
-    json_str = json_match ? json_match[1] : response
+    return json_match[1].strip if json_match
 
-    if json_str.include?("{")
-      start_idx = json_str.index("{")
-      end_idx = json_str.rindex("}")
-      json_str = json_str[start_idx..end_idx] if start_idx && end_idx
+    # Try to find JSON object boundaries
+    if response.include?("{")
+      start_idx = response.index("{")
+      end_idx = response.rindex("}")
+
+      if start_idx && end_idx && end_idx > start_idx
+        # Validate that braces are balanced before returning
+        potential_json = response[start_idx..end_idx]
+        return potential_json if balanced_braces?(potential_json)
+      end
     end
 
-    JSON.parse(json_str)
-  rescue JSON::ParserError => e
-    Rails.logger.error("JSON parse error: #{e.message}")
-    mock_routine
+    # Return as-is and let JSON.parse handle errors
+    response
+  end
+
+  def balanced_braces?(str)
+    count = 0
+    str.each_char do |c|
+      case c
+      when "{" then count += 1
+      when "}" then count -= 1
+      end
+      return false if count.negative?
+    end
+    count.zero?
   end
 
   def mock_routine

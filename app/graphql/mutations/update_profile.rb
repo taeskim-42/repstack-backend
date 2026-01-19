@@ -2,42 +2,23 @@
 
 module Mutations
   class UpdateProfile < BaseMutation
+    description "Update user profile with body information and fitness settings"
+
     argument :profile_input, Types::UserProfileInputType, required: true
 
     field :user_profile, Types::UserProfileType, null: true
     field :errors, [String], null: false
 
     def resolve(profile_input:)
-      user = context[:current_user]
-      
-      unless user
-        return {
-          user_profile: nil,
-          errors: ['Authentication required']
-        }
+      with_error_handling(user_profile: nil) do
+        user = authenticate!
+
+        profile = user.user_profile || user.build_user_profile
+        profile_attrs = profile_input.to_h.compact
+
+        profile.update!(profile_attrs)
+        success_response(user_profile: profile)
       end
-
-      profile = user.user_profile || user.build_user_profile
-
-      # Convert input to hash and filter out nil values
-      profile_attrs = profile_input.to_h.compact
-
-      if profile.update(profile_attrs)
-        {
-          user_profile: profile,
-          errors: []
-        }
-      else
-        {
-          user_profile: nil,
-          errors: profile.errors.full_messages
-        }
-      end
-    rescue StandardError => e
-      {
-        user_profile: nil,
-        errors: [e.message]
-      }
     end
   end
 end
