@@ -94,11 +94,13 @@ RUN chown -R rails:rails /rails
 # Switch to non-root user
 USER rails
 
-# Expose ports
+# Expose ports and set bundle config
 # 3000 - Rails application
 # 9394 - Prometheus metrics exporter
 ENV PORT=3000 \
-    PROMETHEUS_EXPORTER_PORT=9394
+    PROMETHEUS_EXPORTER_PORT=9394 \
+    BUNDLE_WITHOUT="development:test" \
+    BUNDLE_DEPLOYMENT="1"
 EXPOSE 3000 9394
 
 # Health check
