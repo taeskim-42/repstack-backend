@@ -21,5 +21,11 @@ module Types
     field :save_routine, mutation: Mutations::SaveRoutine
     field :generate_routine, mutation: Mutations::GenerateRoutine
     field :complete_routine, mutation: Mutations::CompleteRoutine
+
+    # AI Trainer
+    field :level_test, mutation: Mutations::LevelTest
+    field :check_condition, mutation: Mutations::CheckCondition
+    field :record_workout, mutation: Mutations::RecordWorkout
+    field :submit_feedback, mutation: Mutations::SubmitFeedback
   end
 end

@@ -36,5 +36,10 @@ module Types
     field :my_sessions, resolver: Queries::MySessions
     field :my_routines, resolver: Queries::MyRoutines
     field :today_routine, resolver: Queries::TodayRoutine
+
+    # AI Trainer queries
+    field :get_user_level_assessment, resolver: Queries::GetUserLevelAssessment
+    field :get_user_condition_logs, resolver: Queries::GetUserConditionLogs
+    field :get_workout_analytics, resolver: Queries::GetWorkoutAnalytics
   end
 end

@@ -6,6 +6,9 @@ class User < ApplicationRecord
   has_many :workout_sessions, dependent: :destroy
   has_many :workout_routines, dependent: :destroy
   has_many :workout_sets, through: :workout_sessions
+  has_many :condition_logs, dependent: :destroy
+  has_many :workout_records, dependent: :destroy
+  has_many :workout_feedbacks, dependent: :destroy
 
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
