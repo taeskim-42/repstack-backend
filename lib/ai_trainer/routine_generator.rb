@@ -3,12 +3,16 @@
 require_relative "constants"
 
 module AiTrainer
-  # Generates workout routines using variable combinations
+  # Generates workout routines using Claude API with variable catalog
   # Creates infinite variations based on fitness factors, level, and condition
   class RoutineGenerator
     include Constants
 
-    attr_reader :user, :level, :day_of_week, :condition_score, :adjustment
+    API_URL = "https://api.anthropic.com/v1/messages"
+    MODEL = "claude-sonnet-4-20250514"
+    MAX_TOKENS = 4096
+
+    attr_reader :user, :level, :day_of_week, :condition_score, :adjustment, :condition_inputs
 
     def initialize(user:, day_of_week: nil)
       @user = user
@@ -18,20 +22,165 @@ module AiTrainer
       @day_of_week = 5 if @day_of_week > 5 # Weekend -> Friday
       @condition_score = 3.0
       @adjustment = Constants::CONDITION_ADJUSTMENTS[:good]
+      @condition_inputs = {}
     end
 
     # Set condition from user input
     def with_condition(condition_inputs)
+      @condition_inputs = condition_inputs
       @condition_score = Constants.calculate_condition_score(condition_inputs)
       @adjustment = Constants.adjustment_for_condition_score(@condition_score)
       self
     end
 
-    # Generate a complete routine
+    # Generate a complete routine using Claude API
     def generate
+      if api_configured?
+        generate_with_claude
+      else
+        Rails.logger.warn("RoutineGenerator: API key not configured, returning error")
+        { success: false, error: "ANTHROPIC_API_KEY가 설정되지 않았습니다." }
+      end
+    end
+
+    private
+
+    def api_configured?
+      ENV["ANTHROPIC_API_KEY"].present?
+    end
+
+    def generate_with_claude
+      prompt = build_prompt
+      response = call_claude_api(prompt)
+      parse_claude_response(response)
+    rescue StandardError => e
+      Rails.logger.error("RoutineGenerator Claude API error: #{e.message}")
+      { success: false, error: "루틴 생성 실패: #{e.message}" }
+    end
+
+    def build_prompt
+      fitness_factor = Constants.fitness_factor_for_day(@day_of_week)
+      factor_info = Constants::FITNESS_FACTORS[fitness_factor]
+      training_method = Constants::TRAINING_METHODS[Constants.training_method_for_factor(fitness_factor)]
+      height = @user.user_profile&.height || 170
+      weight = @user.user_profile&.weight
+
+      <<~PROMPT
+        당신은 전문 피트니스 트레이너입니다. 아래 정보를 바탕으로 오늘의 운동 루틴을 생성하세요.
+        매번 다른 운동 조합과 변수를 사용하여 사용자가 지루함을 느끼지 않도록 하세요.
+
+        ## 사용자 정보
+        - 레벨: #{@level}/8 (#{Constants.tier_for_level(@level)})
+        - 등급: #{get_grade_korean}
+        - 키: #{height}cm
+        - 체중: #{weight || '미입력'}kg
+
+        ## 오늘의 운동
+        - 요일: #{Constants::WEEKLY_STRUCTURE[@day_of_week][:korean]} (Day #{@day_of_week})
+        - 체력요인: #{factor_info[:korean]} (#{fitness_factor})
+        - 훈련방법: #{training_method[:korean]}
+        - 훈련방법 설명: #{training_method[:description]}
+
+        ## 사용자 컨디션
+        - 컨디션 점수: #{@condition_score.round(1)}/5.0 (#{@adjustment[:korean]})
+        - 볼륨 조정: #{(@adjustment[:volume_modifier] * 100).round}%
+        - 강도 조정: #{(@adjustment[:intensity_modifier] * 100).round}%
+        #{format_condition_details}
+
+        ## 운동 변수 카탈로그
+
+        ### 사용 가능한 운동 목록
+        #{format_exercises_catalog}
+
+        ### 중량 계산 공식 (바벨 운동)
+        - 벤치프레스: (키-100) × #{Constants.weight_multiplier_for_level(@level)} = #{((height - 100) * Constants.weight_multiplier_for_level(@level)).round(1)}kg
+        - 스쿼트: (키-100+20) × #{Constants.weight_multiplier_for_level(@level)} = #{((height - 80) * Constants.weight_multiplier_for_level(@level)).round(1)}kg
+        - 데드리프트: (키-100+40) × #{Constants.weight_multiplier_for_level(@level)} = #{((height - 60) * Constants.weight_multiplier_for_level(@level)).round(1)}kg
+
+        ### 훈련 변수
+        - BPM: #{get_bpm_for_level} (메트로놈 템포)
+        - 가동범위: #{get_rom_for_factor(fitness_factor)}
+        - 휴식: #{factor_info[:typical_rest]}초 (시간 기반) 또는 심박수 회복 후
+        #{format_training_method_details(training_method)}
+
+        ## 규칙
+        1. 오늘의 체력요인(#{factor_info[:korean]})에 맞는 훈련방법을 적용하세요
+        2. 사용자 레벨에 맞는 난이도의 운동을 선택하세요 (레벨 #{@level}이면 difficulty #{get_max_difficulty} 이하)
+        3. 컨디션에 따라 볼륨과 강도를 조절하세요
+        4. 매번 다른 조합으로 루틴을 생성하여 지루함을 방지하세요
+        5. 가슴, 등, 하체, 코어를 균형있게 포함하세요 (4-5개 운동)
+        6. 랜덤 시드: #{SecureRandom.hex(8)} (이 값을 참고하여 다양한 변이를 만드세요)
+
+        ## 출력 형식
+        반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트를 추가하지 마세요:
+        ```json
+        {
+          "exercises": [
+            {
+              "order": 1,
+              "exercise_id": "EX_XX00",
+              "exercise_name": "운동명",
+              "exercise_name_english": "Exercise Name",
+              "target_muscle": "chest|back|legs|shoulders|arms|core|cardio",
+              "target_muscle_korean": "타겟 근육 한글",
+              "equipment": "none|barbell|dumbbell|cable|machine|shark_rack|pull_up_bar",
+              "sets": 3,
+              "reps": 10,
+              "target_total_reps": null,
+              "bpm": 30,
+              "rest_seconds": 60,
+              "rest_type": "time_based|heart_rate_based",
+              "heart_rate_threshold": null,
+              "range_of_motion": "full|medium|short",
+              "target_weight_kg": null,
+              "weight_description": "체중|10회 가능한 무게|목표 중량: XXkg",
+              "work_seconds": null,
+              "rounds": null,
+              "instructions": "운동 수행 방법 및 주의사항"
+            }
+          ],
+          "estimated_duration_minutes": 45,
+          "notes": ["오늘의 포인트", "주의사항"],
+          "variation_seed": "이 루틴의 특징을 한 문장으로"
+        }
+        ```
+      PROMPT
+    end
+
+    def call_claude_api(prompt)
+      uri = URI(API_URL)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.read_timeout = 60
+
+      request = Net::HTTP::Post.new(uri.path)
+      request["Content-Type"] = "application/json"
+      request["x-api-key"] = ENV["ANTHROPIC_API_KEY"]
+      request["anthropic-version"] = "2023-06-01"
+
+      request.body = {
+        model: MODEL,
+        max_tokens: MAX_TOKENS,
+        messages: [{ role: "user", content: prompt }]
+      }.to_json
+
+      response = http.request(request)
+
+      if response.code.to_i == 200
+        data = JSON.parse(response.body)
+        data.dig("content", 0, "text")
+      else
+        Rails.logger.error("Claude API error: #{response.code} - #{response.body}")
+        raise "Claude API returned #{response.code}"
+      end
+    end
+
+    def parse_claude_response(response_text)
+      json_str = extract_json(response_text)
+      data = JSON.parse(json_str)
+
       fitness_factor = Constants.fitness_factor_for_day(@day_of_week)
       training_method = Constants.training_method_for_factor(fitness_factor)
-      exercises = select_exercises(fitness_factor)
 
       {
         routine_id: generate_routine_id,
@@ -50,294 +199,96 @@ module AiTrainer
           volume_modifier: @adjustment[:volume_modifier],
           intensity_modifier: @adjustment[:intensity_modifier]
         },
-        estimated_duration_minutes: calculate_duration(exercises, fitness_factor),
-        exercises: exercises,
-        notes: generate_notes(fitness_factor)
+        estimated_duration_minutes: data["estimated_duration_minutes"] || 45,
+        exercises: data["exercises"] || [],
+        notes: data["notes"] || [],
+        variation_seed: data["variation_seed"]
       }
     end
 
-    private
+    def extract_json(text)
+      if text =~ /```(?:json)?\s*(\{.*?\})\s*```/m
+        Regexp.last_match(1)
+      elsif text.include?("{")
+        start_idx = text.index("{")
+        end_idx = text.rindex("}")
+        text[start_idx..end_idx] if start_idx && end_idx
+      else
+        text
+      end
+    end
 
     def generate_routine_id
       "RT-#{@level}-#{@day_of_week}-#{Time.current.to_i}-#{SecureRandom.hex(4)}"
     end
 
-    def select_exercises(fitness_factor)
-      muscle_groups = select_muscle_groups_for_day
-      exercises = []
-
-      muscle_groups.each_with_index do |muscle_group, index|
-        available = Constants.exercises_for_muscle(muscle_group)
-        selected = select_exercise_with_variation(available, muscle_group)
-
-        next unless selected
-
-        exercise_config = build_exercise_config(
-          selected,
-          muscle_group,
-          fitness_factor,
-          index
-        )
-        exercises << exercise_config
+    # Helper methods for prompt building
+    def get_grade_korean
+      case @level
+      when 1..3 then "정상인"
+      when 4..5 then "건강인"
+      when 6..8 then "운동인"
+      else "정상인"
       end
-
-      # Add core exercise at the end
-      add_core_exercise(exercises, fitness_factor)
-
-      exercises
     end
 
-    def select_muscle_groups_for_day
-      case @day_of_week
-      when 1, 4 # Monday, Thursday - Strength
-        %i[chest back legs]
-      when 2 # Tuesday - Muscular Endurance
-        %i[chest back legs shoulders]
-      when 3 # Wednesday - Sustainability
-        %i[chest back legs]
-      when 5 # Friday - Cardiovascular
-        [:cardio]
+    def get_bpm_for_level
+      case Constants.tier_for_level(@level)
+      when "beginner" then "30"
+      when "intermediate" then "30-40"
+      when "advanced" then "20-60 (자유 설정)"
+      else "30"
+      end
+    end
+
+    def get_rom_for_factor(factor)
+      Constants::TRAINING_VARIABLES.dig(:range_of_motion, :default_by_factor, factor) || :full
+    end
+
+    def get_max_difficulty
+      case Constants.tier_for_level(@level)
+      when "beginner" then 2
+      when "intermediate" then 3
+      else 4
+      end
+    end
+
+    def format_condition_details
+      return "" if @condition_inputs.empty?
+
+      details = []
+      details << "- 수면: #{@condition_inputs[:sleep]}/5" if @condition_inputs[:sleep]
+      details << "- 피로도: #{@condition_inputs[:fatigue]}/5" if @condition_inputs[:fatigue]
+      details << "- 스트레스: #{@condition_inputs[:stress]}/5" if @condition_inputs[:stress]
+      details << "- 근육통: #{@condition_inputs[:soreness]}/5" if @condition_inputs[:soreness]
+      details << "- 의욕: #{@condition_inputs[:motivation]}/5" if @condition_inputs[:motivation]
+      details.join("\n")
+    end
+
+    def format_exercises_catalog
+      catalog = []
+      Constants::EXERCISES.each do |muscle, data|
+        exercises = data[:exercises].map { |e| "#{e[:name]}(#{e[:id]}, 난이도:#{e[:difficulty]}, 장비:#{e[:equipment]})" }
+        catalog << "- #{data[:korean]}: #{exercises.join(', ')}"
+      end
+      catalog.join("\n")
+    end
+
+    def format_training_method_details(method)
+      case method[:id]
+      when "TM01" # fixed_sets_reps
+        "- 근력 훈련: BPM에 맞춰 정해진 세트/횟수 정확히 수행"
+      when "TM02" # total_reps_fill
+        "- 근지구력 훈련(채우기): 총 목표 개수를 채울 때까지 세트 수 무관하게 수행"
+      when "TM03" # max_sets_at_fixed_reps
+        "- 지속력 훈련: 10개씩 몇 세트까지 지속 가능한지 측정"
+      when "TM04" # tabata
+        "- 심폐지구력 훈련(타바타): 20초 운동 + 10초 휴식, 8라운드"
+      when "TM05" # explosive
+        "- 순발력 훈련: 최대 파워로 폭발적 수행, 충분한 휴식 후 다음 세트"
       else
-        %i[chest back legs]
+        ""
       end
-    end
-
-    def select_exercise_with_variation(available, muscle_group)
-      return nil if available.empty?
-
-      # Filter by difficulty appropriate for level
-      max_difficulty = case Constants.tier_for_level(@level)
-                       when "beginner" then 2
-                       when "intermediate" then 3
-                       else 4
-                       end
-
-      suitable = available.select { |e| e[:difficulty] <= max_difficulty }
-      suitable = available.take(3) if suitable.empty? # Fallback
-
-      # Add randomness for variation
-      suitable.sample
-    end
-
-    def build_exercise_config(exercise, muscle_group, fitness_factor, order)
-      factor_config = Constants::FITNESS_FACTORS[fitness_factor]
-      training_method = factor_config[:training_method]
-
-      base_config = {
-        order: order + 1,
-        exercise_id: exercise[:id],
-        exercise_name: exercise[:name],
-        exercise_name_english: exercise[:english],
-        target_muscle: muscle_group.to_s,
-        target_muscle_korean: Constants::EXERCISES[muscle_group][:korean],
-        equipment: exercise[:equipment]
-      }
-
-      # Add training-specific parameters
-      case training_method
-      when "fixed_sets_reps"
-        add_strength_params(base_config, factor_config)
-      when "total_reps_fill"
-        add_endurance_params(base_config, factor_config)
-      when "max_sets_at_fixed_reps"
-        add_sustainability_params(base_config, factor_config)
-      when "tabata"
-        add_tabata_params(base_config)
-      when "explosive"
-        add_power_params(base_config, factor_config)
-      end
-
-      # Apply condition adjustments
-      apply_condition_adjustments(base_config)
-
-      # Add weight calculation for applicable exercises
-      add_weight_info(base_config, exercise)
-
-      base_config
-    end
-
-    def add_strength_params(config, factor_config)
-      config[:sets] = apply_variation(3, 0.2)
-      config[:reps] = 10
-      config[:bpm] = factor_config[:typical_bpm]
-      config[:rest_seconds] = factor_config[:typical_rest]
-      config[:rest_type] = "time_based"
-      config[:range_of_motion] = "full"
-      config[:instructions] = "BPM에 맞춰 정확한 자세로 #{config[:sets]}세트 #{config[:reps]}회 수행"
-    end
-
-    def add_endurance_params(config, factor_config)
-      total_target = apply_variation(50, 0.2)
-      config[:target_total_reps] = total_target
-      config[:sets] = "until_complete"
-      config[:reps] = "max_per_set"
-      config[:bpm] = factor_config[:typical_bpm]
-      config[:rest_seconds] = factor_config[:typical_rest]
-      config[:rest_type] = "time_based"
-      config[:range_of_motion] = "full"
-      config[:instructions] = "총 #{total_target}회를 채우세요. 세트당 최대 횟수 수행"
-    end
-
-    def add_sustainability_params(config, factor_config)
-      config[:reps] = 10
-      config[:sets] = "max_sustainable"
-      config[:bpm] = factor_config[:typical_bpm]
-      config[:rest_seconds] = factor_config[:typical_rest]
-      config[:rest_type] = "time_based"
-      config[:range_of_motion] = "full"
-      config[:instructions] = "#{config[:reps]}회씩 몇 세트까지 지속 가능한지 측정"
-    end
-
-    def add_tabata_params(config)
-      tabata = Constants::TRAINING_METHODS[:tabata]
-      config[:work_seconds] = tabata[:work_duration]
-      config[:rest_seconds] = tabata[:rest_duration]
-      config[:rounds] = tabata[:rounds]
-      config[:rest_type] = "fixed"
-      config[:range_of_motion] = "short"
-      config[:instructions] = "#{tabata[:work_duration]}초 운동 + #{tabata[:rest_duration]}초 휴식을 #{tabata[:rounds]}라운드"
-    end
-
-    def add_power_params(config, factor_config)
-      config[:sets] = 5
-      config[:reps] = apply_variation(5, 0.2)
-      config[:bpm] = nil
-      config[:rest_seconds] = factor_config[:typical_rest]
-      config[:rest_type] = "heart_rate_based"
-      config[:heart_rate_threshold] = 0.6
-      config[:range_of_motion] = "medium"
-      config[:instructions] = "최대 폭발력으로 수행, 심박수 회복 후 다음 세트"
-    end
-
-    def apply_condition_adjustments(config)
-      return config if @adjustment.nil?
-
-      # Adjust volume
-      if config[:sets].is_a?(Integer)
-        config[:sets] = (config[:sets] * @adjustment[:volume_modifier]).round
-        config[:sets] = [config[:sets], 1].max
-      end
-
-      if config[:target_total_reps]
-        config[:target_total_reps] = (config[:target_total_reps] * @adjustment[:volume_modifier]).round
-      end
-
-      # Adjust rest based on condition
-      if config[:rest_seconds].is_a?(Integer) && @adjustment[:volume_modifier] < 1.0
-        config[:rest_seconds] = (config[:rest_seconds] * 1.2).round
-      end
-
-      config
-    end
-
-    def add_weight_info(config, exercise)
-      # Only calculate weight for barbell exercises
-      if exercise[:equipment] == "barbell"
-        height = @user.user_profile&.height
-        return add_bodyweight_instruction(config, exercise) unless height
-
-        weight_type = case config[:target_muscle]
-                      when "chest" then :bench
-                      when "back" then :deadlift
-                      when "legs" then :squat
-                      end
-
-        if weight_type
-          target_weight = Constants.calculate_target_weight(
-            exercise_type: weight_type,
-            height: height,
-            level: @level
-          )
-
-          if target_weight
-            config[:target_weight_kg] = (target_weight * @adjustment[:intensity_modifier]).round(1)
-            config[:weight_description] = "목표 중량: #{config[:target_weight_kg]}kg"
-            return config
-          end
-        end
-      end
-
-      # For non-barbell exercises, use bodyweight instruction
-      add_bodyweight_instruction(config, exercise)
-    end
-
-    def add_bodyweight_instruction(config, exercise)
-      config[:weight_description] = case exercise[:equipment]
-                                    when "none"
-                                      "체중"
-                                    when "shark_rack"
-                                      "10회 가능한 칸 위치"
-                                    when "dumbbell"
-                                      "10회 가능한 무게"
-                                    when "cable"
-                                      "10회 가능한 무게"
-                                    when "machine"
-                                      "10회 가능한 무게"
-                                    when "pull_up_bar"
-                                      "체중 (어시스트 가능)"
-                                    else
-                                      "적절한 무게 선택"
-                                    end
-      config
-    end
-
-    def add_core_exercise(exercises, fitness_factor)
-      core_exercises = Constants.exercises_for_muscle(:core)
-      selected = select_exercise_with_variation(core_exercises, :core)
-
-      return unless selected
-
-      config = build_exercise_config(
-        selected,
-        :core,
-        fitness_factor,
-        exercises.length
-      )
-
-      # Override core-specific settings
-      config[:weight_description] = "체중"
-      exercises << config
-    end
-
-    def calculate_duration(exercises, fitness_factor)
-      return 20 if fitness_factor == :cardiovascular # Tabata is short
-
-      total_seconds = exercises.sum do |ex|
-        sets = ex[:sets].is_a?(Integer) ? ex[:sets] : 4
-        reps = ex[:reps].is_a?(Integer) ? ex[:reps] : 10
-        rest = ex[:rest_seconds] || 60
-
-        work_time = sets * (reps * 2) # ~2 seconds per rep
-        rest_time = (sets - 1) * rest
-
-        work_time + rest_time
-      end
-
-      (total_seconds / 60.0).ceil + 5 # Add 5 min for warmup/transition
-    end
-
-    def apply_variation(base_value, variance_ratio)
-      variance = (base_value * variance_ratio).round
-      base_value + rand(-variance..variance)
-    end
-
-    def generate_notes(fitness_factor)
-      notes = []
-
-      notes << "오늘의 체력요인: #{Constants::FITNESS_FACTORS[fitness_factor][:korean]}"
-
-      if @condition_score < 3.0
-        notes << "컨디션이 좋지 않습니다. 무리하지 마세요."
-      elsif @condition_score > 4.0
-        notes << "컨디션이 좋습니다! 조금 더 도전해보세요."
-      end
-
-      tier = Constants.tier_for_level(@level)
-      if tier == "beginner"
-        notes << "자세에 집중하세요. 무게보다 폼이 중요합니다."
-      end
-
-      notes
     end
   end
 end
