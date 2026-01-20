@@ -532,6 +532,8 @@ input ExerciseInput {
   sets: Int!                 # 세트 수
   reps: Int!                 # 반복 횟수
   weight: Float              # 권장 무게
+  weightDescription: String  # 무게 설명 (예: "체중의 80%")
+  bpm: Int                   # 유산소 운동용 BPM
   restDurationSeconds: Int!  # 휴식 시간 (초)
   rangeOfMotion: String!     # 가동 범위 설명
   howTo: String!             # 운동 방법
@@ -827,15 +829,29 @@ input WorkoutRecordInput {
   date: String                          # ISO 8601 (기본: 오늘)
   exercises: [ExerciseRecordInput!]!
   totalDuration: Int!                   # 총 운동 시간 (초)
+  caloriesBurned: Int                   # 소모 칼로리 (선택)
+  averageHeartRate: Int                 # 평균 심박수 (선택)
   perceivedExertion: Int!               # RPE (1-10)
+  notes: String                         # 운동 메모 (선택)
   completionStatus: CompletionStatus!   # COMPLETED, PARTIAL, SKIPPED
 }
 
 input ExerciseRecordInput {
   exerciseName: String!
-  sets: Int!
-  reps: Int!
-  weight: Float
+  targetMuscle: String!                 # 타겟 근육 (CHEST, BACK, LEGS 등)
+  plannedSets: Int!                     # 계획된 세트 수
+  completedSets: [SetRecordInput!]!     # 완료한 세트들
+  restTimeBetweenSets: [Int]            # 각 세트 사이 휴식 시간 (초)
+}
+
+input SetRecordInput {
+  setNumber: Int!                       # 세트 번호 (1부터 시작)
+  reps: Int!                            # 완료한 반복 수
+  weight: Float                         # 사용 무게 (kg)
+  duration: Int                         # 시간 기반 운동용 시간 (초)
+  restAfterSet: Int                     # 세트 후 휴식 시간 (초)
+  rpe: Int                              # 해당 세트 RPE (1-10)
+  notes: String                         # 세트 메모
 }
 ```
 
