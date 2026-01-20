@@ -175,7 +175,9 @@ func handleAppleSignIn(credential: ASAuthorizationAppleIDCredential) {
 
 ### devSignIn
 
-개발/테스트 환경 전용 로그인입니다. **프로덕션에서는 비활성화됩니다.**
+개발/테스트 환경 전용 로그인입니다.
+
+> **활성화 조건**: `RAILS_ENV=development` / `RAILS_ENV=test` / `ALLOW_DEV_SIGN_IN=true`
 
 **인증 필요**: ❌
 
