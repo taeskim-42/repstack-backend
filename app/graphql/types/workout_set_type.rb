@@ -9,6 +9,9 @@ module Types
     field :reps, Integer, null: true
     field :duration_seconds, Integer, null: true
     field :notes, String, null: true
+    field :set_number, Integer, null: true
+    field :target_muscle, String, null: true
+    field :rpe, Integer, null: true
     field :workout_session, Types::WorkoutSessionType, null: false
 
     # Computed fields

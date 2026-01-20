@@ -11,6 +11,9 @@ module Mutations
     argument :reps, Integer, required: false
     argument :duration_seconds, Integer, required: false
     argument :notes, String, required: false
+    argument :target_muscle, String, required: false
+    argument :rpe, Integer, required: false
+    argument :set_number, Integer, required: false
 
     field :workout_set, Types::WorkoutSetType, null: true
     field :errors, [String], null: false
@@ -31,7 +34,10 @@ module Mutations
           weight_unit: args[:weight_unit] || "kg",
           reps: args[:reps],
           duration_seconds: args[:duration_seconds],
-          notes: args[:notes]
+          notes: args[:notes],
+          target_muscle: args[:target_muscle],
+          rpe: args[:rpe],
+          set_number: args[:set_number]
         )
 
         MetricsService.record_workout_set_logged

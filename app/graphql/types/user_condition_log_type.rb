@@ -4,6 +4,7 @@ module Types
   class UserConditionLogType < Types::BaseObject
     description "User's daily condition log"
 
+    field :id, ID, null: false, description: "Condition log ID"
     field :user_id, ID, null: false, description: "User ID"
     field :date, String, null: false, description: "Log date ISO 8601"
     field :energy_level, Integer, null: false, description: "Energy level 1-5"

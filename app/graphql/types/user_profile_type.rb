@@ -11,6 +11,12 @@ module Types
     field :day_number, Integer, null: false
     field :fitness_goal, String, null: true
     field :program_start_date, String, null: true
+    field :numeric_level, Integer, null: true
+    field :fitness_factors, GraphQL::Types::JSON, null: true
+    field :max_lifts, GraphQL::Types::JSON, null: true
+    field :total_workouts_completed, Integer, null: true
+    field :level_assessed_at, String, null: true
+    field :last_level_test_at, String, null: true
     field :user, Types::UserType, null: false
 
     # Computed fields
@@ -20,6 +26,14 @@ module Types
 
     def program_start_date
       object.program_start_date&.iso8601
+    end
+
+    def level_assessed_at
+      object.level_assessed_at&.iso8601
+    end
+
+    def last_level_test_at
+      object.last_level_test_at&.iso8601
     end
 
     def bmi
