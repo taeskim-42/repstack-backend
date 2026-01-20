@@ -102,11 +102,14 @@ module AiTrainer
         min_workouts = minimum_workouts_for_test
 
         if completed_workouts < min_workouts
+          remaining = min_workouts - completed_workouts
           return {
             eligible: false,
-            reason: "승급 시험을 위해 최소 #{min_workouts}회 운동을 완료해야 합니다.",
+            reason: "#{remaining}회 더 운동하면 승급 시험에 도전할 수 있어요!",
             current_workouts: completed_workouts,
-            required_workouts: min_workouts
+            required_workouts: min_workouts,
+            current_level: @current_level,
+            target_level: [@current_level + 1, 8].min
           }
         end
       end

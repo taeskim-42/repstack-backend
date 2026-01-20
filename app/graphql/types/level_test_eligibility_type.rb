@@ -11,6 +11,13 @@ module Types
     field :target_tier, String, null: true
     field :current_workouts, Integer, null: true
     field :required_workouts, Integer, null: true
+    field :remaining_workouts, Integer, null: true, description: "Workouts remaining before eligible"
     field :days_until_eligible, Integer, null: true
+
+    def remaining_workouts
+      return nil unless object[:required_workouts] && object[:current_workouts]
+
+      [object[:required_workouts] - object[:current_workouts], 0].max
+    end
   end
 end
