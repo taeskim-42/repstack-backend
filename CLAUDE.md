@@ -3,15 +3,26 @@
 ## 필수 작업
 
 ### GraphQL 스키마 수정 시
-GraphQL 타입, Mutation, Query 등을 수정한 후 **반드시** 문서 재생성:
+GraphQL 타입, Mutation, Query 등을 수정한 후 **반드시**:
 
 ```bash
+# 1. 스키마 검증 (DB와 일치 확인)
+bundle exec rails graphql:schema:validate
+
+# 2. 배포 후 문서 재생성
 npm run docs:build
 ```
 
-이 명령어는:
-1. Production 서버에서 최신 스키마 덤프 (`schema.graphql`)
-2. SpectaQL로 API 문서 자동 생성 (`docs/api/index.html`)
+### 스키마 검증 명령어
+```bash
+# GraphQL-DB 일치 검증
+bundle exec rails graphql:schema:validate
+
+# 전체 검사 (검증 + 덤프 + 문서생성)
+bundle exec rails graphql:schema:full_check
+```
+
+검증이 실패하면 `app/services/schema_validator.rb`의 설정을 확인하세요.
 
 ### 배포
 코드 수정 후 Railway 배포 필요 시:

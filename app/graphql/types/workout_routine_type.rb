@@ -6,9 +6,9 @@ module Types
     field :level, String, null: false
     field :week_number, Integer, null: false
     field :day_number, Integer, null: false
-    field :workout_type, String, null: false
-    field :day_of_week, String, null: false
-    field :estimated_duration, Integer, null: false
+    field :workout_type, String, null: true
+    field :day_of_week, String, null: true
+    field :estimated_duration, Integer, null: true
     field :is_completed, Boolean, null: false
     field :completed_at, String, null: true
     field :generated_at, String, null: false

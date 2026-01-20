@@ -4,17 +4,17 @@ module Types
   class RoutineExerciseType < Types::BaseObject
     field :id, ID, null: false
     field :exercise_name, String, null: false
-    field :target_muscle, String, null: false
+    field :target_muscle, String, null: true
     field :order_index, Integer, null: false
-    field :sets, Integer, null: false
-    field :reps, Integer, null: false
+    field :sets, Integer, null: true
+    field :reps, Integer, null: true
     field :weight, Float, null: true
     field :weight_description, String, null: true
     field :bpm, Integer, null: true
-    field :rest_duration_seconds, Integer, null: false
-    field :range_of_motion, String, null: false
-    field :how_to, String, null: false
-    field :purpose, String, null: false
+    field :rest_duration_seconds, Integer, null: true
+    field :range_of_motion, String, null: true
+    field :how_to, String, null: true
+    field :purpose, String, null: true
     field :workout_routine, Types::WorkoutRoutineType, null: false
 
     # Computed fields

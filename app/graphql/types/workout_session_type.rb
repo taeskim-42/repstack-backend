@@ -6,6 +6,8 @@ module Types
     field :name, String, null: true
     field :start_time, String, null: false
     field :end_time, String, null: true
+    field :status, String, null: true, description: "Session status (pending, in_progress, completed)"
+    field :total_duration, Integer, null: true, description: "Total duration in seconds (from DB)"
     field :notes, String, null: true
     field :workout_sets, [Types::WorkoutSetType], null: false
     field :user, Types::UserType, null: false
