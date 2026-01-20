@@ -226,23 +226,32 @@ curl -X POST http://localhost:3000/graphql \
 
 ### updateProfile
 
-사용자 기본 정보를 수정합니다.
+신체 정보와 피트니스 설정을 수정합니다.
 
 **인증 필요**: ✅
 
 ```graphql
-mutation UpdateProfile($name: String, $email: String) {
-  updateProfile(input: {
-    name: $name
-    email: $email
-  }) {
-    user {
+mutation UpdateProfile($input: UserProfileInput!) {
+  updateProfile(input: { profileInput: $input }) {
+    userProfile {
       id
-      name
-      email
+      height
+      weight
+      bodyFatPercentage
+      fitnessGoal
     }
     errors
   }
+}
+```
+
+**UserProfileInput Type**
+```graphql
+input UserProfileInput {
+  height: Float           # 키 (cm)
+  weight: Float           # 몸무게 (kg)
+  bodyFatPercentage: Float # 체지방률 (%)
+  fitnessGoal: String      # 운동 목표
 }
 ```
 
@@ -250,39 +259,49 @@ mutation UpdateProfile($name: String, $email: String) {
 
 | 이름 | 타입 | 필수 | 설명 |
 |------|------|:----:|------|
-| `name` | `String` | | 변경할 이름 |
-| `email` | `String` | | 변경할 이메일 |
+| `height` | `Float` | | 키 (cm) |
+| `weight` | `Float` | | 몸무게 (kg) |
+| `bodyFatPercentage` | `Float` | | 체지방률 (%) |
+| `fitnessGoal` | `String` | | 운동 목표 |
 
 ---
 
 ### updateUserProfile
 
-운동 관련 프로필을 수정합니다.
+개별 프로필 필드를 수정합니다.
 
 **인증 필요**: ✅
 
 ```graphql
 mutation UpdateUserProfile(
-  $fitnessGoal: String
-  $experienceLevel: String
+  $height: Float
+  $weight: Float
+  $bodyFatPercentage: Float
   $currentLevel: String
+  $fitnessGoal: String
   $weekNumber: Int
   $dayNumber: Int
 ) {
   updateUserProfile(input: {
-    fitnessGoal: $fitnessGoal
-    experienceLevel: $experienceLevel
+    height: $height
+    weight: $weight
+    bodyFatPercentage: $bodyFatPercentage
     currentLevel: $currentLevel
+    fitnessGoal: $fitnessGoal
     weekNumber: $weekNumber
     dayNumber: $dayNumber
   }) {
     userProfile {
       id
-      fitnessGoal
-      experienceLevel
+      height
+      weight
+      bodyFatPercentage
       currentLevel
+      fitnessGoal
       weekNumber
       dayNumber
+      bmi
+      bmiCategory
     }
     errors
   }
@@ -293,9 +312,11 @@ mutation UpdateUserProfile(
 
 | 이름 | 타입 | 필수 | 설명 |
 |------|------|:----:|------|
-| `fitnessGoal` | `String` | | 운동 목표 (muscle_gain, weight_loss, endurance, general_fitness) |
-| `experienceLevel` | `String` | | 경험 수준 (beginner, intermediate, advanced) |
-| `currentLevel` | `String` | | 현재 레벨 |
+| `height` | `Float` | | 키 (cm) |
+| `weight` | `Float` | | 몸무게 (kg) |
+| `bodyFatPercentage` | `Float` | | 체지방률 (%) |
+| `currentLevel` | `String` | | 현재 레벨 (beginner, intermediate, advanced) |
+| `fitnessGoal` | `String` | | 운동 목표 |
 | `weekNumber` | `Int` | | 현재 주차 (1-52) |
 | `dayNumber` | `Int` | | 현재 일차 (1-7) |
 
@@ -310,16 +331,17 @@ mutation UpdateUserProfile(
 **인증 필요**: ✅
 
 ```graphql
-mutation StartWorkoutSession($name: String, $routineId: ID) {
+mutation StartWorkoutSession($name: String, $notes: String) {
   startWorkoutSession(input: {
     name: $name
-    routineId: $routineId
+    notes: $notes
   }) {
     workoutSession {
       id
       name
       startTime
-      status
+      notes
+      active
     }
     errors
   }
@@ -331,7 +353,7 @@ mutation StartWorkoutSession($name: String, $routineId: ID) {
 | 이름 | 타입 | 필수 | 설명 |
 |------|------|:----:|------|
 | `name` | `String` | | 세션 이름 |
-| `routineId` | `ID` | | 연결할 루틴 ID |
+| `notes` | `String` | | 메모 |
 
 **Example Response**
 ```json
@@ -342,7 +364,8 @@ mutation StartWorkoutSession($name: String, $routineId: ID) {
         "id": "123",
         "name": "오늘의 운동",
         "startTime": "2024-01-20T10:00:00Z",
-        "status": "in_progress"
+        "notes": null,
+        "active": true
       },
       "errors": []
     }
@@ -365,9 +388,8 @@ mutation AddWorkoutSet(
   $weight: Float
   $weightUnit: String
   $reps: Int
-  $duration: Int
-  $setNumber: Int
-  $rpe: Int
+  $durationSeconds: Int
+  $notes: String
 ) {
   addWorkoutSet(input: {
     sessionId: $sessionId
@@ -375,9 +397,8 @@ mutation AddWorkoutSet(
     weight: $weight
     weightUnit: $weightUnit
     reps: $reps
-    duration: $duration
-    setNumber: $setNumber
-    rpe: $rpe
+    durationSeconds: $durationSeconds
+    notes: $notes
   }) {
     workoutSet {
       id
@@ -385,9 +406,9 @@ mutation AddWorkoutSet(
       weight
       weightUnit
       reps
-      duration
-      setNumber
-      rpe
+      durationSeconds
+      notes
+      volume
     }
     errors
   }
@@ -403,9 +424,8 @@ mutation AddWorkoutSet(
 | `weight` | `Float` | | | 무게 |
 | `weightUnit` | `String` | | `kg` | 무게 단위 (kg, lbs) |
 | `reps` | `Int` | | | 반복 횟수 |
-| `duration` | `Int` | | | 운동 시간 (초) - 플랭크 등 |
-| `setNumber` | `Int` | | | 세트 번호 |
-| `rpe` | `Int` | | | 운동 자각도 (1-10) |
+| `durationSeconds` | `Int` | | | 운동 시간 (초) - 플랭크 등 |
+| `notes` | `String` | | | 메모 |
 
 ---
 
@@ -422,8 +442,12 @@ mutation EndWorkoutSession($id: ID!) {
       id
       startTime
       endTime
-      totalDuration
-      status
+      durationInSeconds
+      durationFormatted
+      active
+      completed
+      totalSets
+      totalVolume
     }
     errors
   }
@@ -440,8 +464,12 @@ mutation EndWorkoutSession($id: ID!) {
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `totalDuration` | `Int` | 총 운동 시간 (초) |
-| `status` | `String` | 세션 상태 (completed) |
+| `durationInSeconds` | `Int` | 총 운동 시간 (초) |
+| `durationFormatted` | `String` | 포맷된 운동 시간 (예: "1h 30m") |
+| `active` | `Boolean` | 활성 여부 (종료 후 false) |
+| `completed` | `Boolean` | 완료 여부 (종료 후 true) |
+| `totalSets` | `Int` | 총 세트 수 |
+| `totalVolume` | `Float` | 총 볼륨 (무게 × 반복수) |
 
 ---
 
@@ -1006,28 +1034,41 @@ query Me {
     id
     email
     name
+    createdAt
+    updatedAt
     userProfile {
+      id
+      height
+      weight
+      bodyFatPercentage
       currentLevel
-      numericLevel
       weekNumber
       dayNumber
       fitnessGoal
-      experienceLevel
-      totalWorkoutsCompleted
+      programStartDate
+      bmi
+      bmiCategory
+      daysSinceStart
     }
   }
 }
 ```
 
-**Response Fields**
+**Response Fields - UserProfile**
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
+| `height` | `Float` | 키 (cm) |
+| `weight` | `Float` | 몸무게 (kg) |
+| `bodyFatPercentage` | `Float` | 체지방률 (%) |
 | `currentLevel` | `String` | 현재 레벨 (beginner, intermediate, advanced) |
-| `numericLevel` | `Int` | 수치화된 레벨 (1-100) |
 | `weekNumber` | `Int` | 현재 주차 |
-| `dayNumber` | `Int` | 현재 일차 |
-| `totalWorkoutsCompleted` | `Int` | 총 완료한 운동 수 |
+| `dayNumber` | `Int` | 현재 일차 (1-7) |
+| `fitnessGoal` | `String` | 운동 목표 |
+| `programStartDate` | `String` | 프로그램 시작일 (ISO8601) |
+| `bmi` | `Float` | BMI 지수 (computed) |
+| `bmiCategory` | `String` | BMI 분류 (Underweight, Normal, Overweight, Obese) |
+| `daysSinceStart` | `Int` | 프로그램 시작 후 경과일 (computed) |
 
 ---
 
@@ -1053,7 +1094,9 @@ query TodayRoutine {
       sets
       reps
       weight
-      restDuration
+      weightDescription
+      restDurationSeconds
+      restDurationFormatted
       orderIndex
       rangeOfMotion
       howTo
@@ -1107,16 +1150,23 @@ query MySessions($limit: Int, $includeSets: Boolean) {
     name
     startTime
     endTime
-    totalDuration
-    status
+    notes
+    active
+    completed
+    durationInSeconds
+    durationFormatted
+    totalSets
+    totalVolume
+    exercisesPerformed
     workoutSets {
       id
       exerciseName
       weight
       weightUnit
       reps
-      duration
-      setNumber
+      durationSeconds
+      notes
+      volume
     }
   }
 }
@@ -1257,8 +1307,15 @@ query CheckLevelTestEligibility {
 type User {
   id: ID!
   email: String!
-  name: String
+  name: String!
+  createdAt: String!
+  updatedAt: String!
   userProfile: UserProfile
+  workoutSessions(limit: Int = 10): [WorkoutSession!]!
+  workoutRoutines(limit: Int = 10): [WorkoutRoutine!]!
+  currentWorkoutSession: WorkoutSession
+  hasActiveWorkout: Boolean!
+  totalWorkoutSessions: Int!
 }
 ```
 
@@ -1266,13 +1323,18 @@ type User {
 ```graphql
 type UserProfile {
   id: ID!
-  currentLevel: String
-  numericLevel: Int
-  weekNumber: Int
-  dayNumber: Int
-  fitnessGoal: String
-  experienceLevel: String
-  totalWorkoutsCompleted: Int
+  height: Float              # 키 (cm)
+  weight: Float              # 몸무게 (kg)
+  bodyFatPercentage: Float   # 체지방률 (%)
+  currentLevel: String       # beginner, intermediate, advanced
+  weekNumber: Int!           # 현재 주차
+  dayNumber: Int!            # 현재 일차 (1-7)
+  fitnessGoal: String        # 운동 목표
+  programStartDate: String   # 프로그램 시작일 (ISO8601)
+  # Computed fields
+  bmi: Float                 # BMI 지수
+  bmiCategory: String!       # Underweight, Normal, Overweight, Obese
+  daysSinceStart: Int!       # 프로그램 시작 후 경과일
 }
 ```
 
@@ -1283,9 +1345,16 @@ type WorkoutSession {
   name: String
   startTime: ISO8601DateTime!
   endTime: ISO8601DateTime
-  totalDuration: Int
-  status: String!
-  workoutSets: [WorkoutSet!]
+  notes: String
+  workoutSets: [WorkoutSet!]!
+  # Computed fields
+  active: Boolean!           # 활성 세션 여부
+  completed: Boolean!        # 완료 여부
+  durationInSeconds: Int     # 운동 시간 (초)
+  durationFormatted: String  # 포맷된 시간 (예: "1h 30m")
+  totalSets: Int!            # 총 세트 수
+  exercisesPerformed: [String!]!  # 수행한 운동 목록
+  totalVolume: Float!        # 총 볼륨
 }
 ```
 
@@ -1295,11 +1364,17 @@ type WorkoutSet {
   id: ID!
   exerciseName: String!
   weight: Float
-  weightUnit: String
+  weightUnit: String!        # kg 또는 lbs
   reps: Int
-  duration: Int
-  setNumber: Int
-  rpe: Int
+  durationSeconds: Int       # 시간 기반 운동용 (플랭크 등)
+  notes: String
+  # Computed fields
+  volume: Float!             # 무게 × 반복수
+  isTimedExercise: Boolean!  # 시간 기반 운동 여부
+  isWeightedExercise: Boolean! # 중량 운동 여부
+  durationFormatted: String  # 포맷된 시간
+  weightInKg: Float          # kg 단위 무게
+  weightInLbs: Float         # lbs 단위 무게
 }
 ```
 
@@ -1327,10 +1402,19 @@ type RoutineExercise {
   sets: Int!
   reps: Int!
   weight: Float
-  restDuration: Int
+  weightDescription: String  # 무게 설명 (예: "체중의 80%")
+  restDurationSeconds: Int   # 휴식 시간 (초)
   rangeOfMotion: String
   howTo: String
   purpose: String
+  bpm: Int                   # 유산소 운동용 BPM
+  # Computed fields
+  estimatedExerciseDuration: Int  # 예상 운동 시간 (초)
+  restDurationFormatted: String   # 포맷된 휴식 시간
+  isCardio: Boolean!
+  isStrength: Boolean!
+  exerciseSummary: String
+  targetMuscleGroup: String
 }
 ```
 
