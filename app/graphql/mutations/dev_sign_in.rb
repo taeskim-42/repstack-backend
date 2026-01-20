@@ -15,8 +15,8 @@ module Mutations
     TOKEN_EXPIRY_HOURS = 24
 
     def resolve(email: nil, name: nil)
-      # Only allow in development/test environments
-      unless Rails.env.development? || Rails.env.test?
+      # Only allow in development/test environments or when explicitly enabled
+      unless Rails.env.development? || Rails.env.test? || ENV["ALLOW_DEV_SIGN_IN"] == "true"
         return { auth_payload: nil, errors: ["devSignIn is only available in development/test environments"] }
       end
 
