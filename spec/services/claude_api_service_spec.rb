@@ -9,20 +9,10 @@ RSpec.describe ClaudeApiService do
   before do
     allow(ENV).to receive(:[]).and_call_original
     allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return(api_key)
-    # Completely reset circuit breaker state for each test
-    reset_circuit_breaker!
-  end
-
-  after do
-    # Clean up circuit state after each test
-    reset_circuit_breaker!
-  end
-
-  def reset_circuit_breaker!
-    # Clear cached circuits
-    Circuitbox.instance_variable_set(:@circuits, {}) if Circuitbox.instance_variable_defined?(:@circuits)
-    # Create a fresh memory store
-    Circuitbox.default_circuit_store = Circuitbox::MemoryStore.new
+    # Mock the circuit breaker to always execute the block (never open)
+    mock_circuit = instance_double(Circuitbox::CircuitBreaker)
+    allow(mock_circuit).to receive(:run) { |&block| block.call }
+    allow(Circuitbox).to receive(:circuit).and_return(mock_circuit)
   end
 
   describe "#generate_routine" do
