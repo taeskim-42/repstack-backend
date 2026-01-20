@@ -15,6 +15,8 @@ module Types
     field :range_of_motion, String, null: true
     field :how_to, String, null: true
     field :purpose, String, null: true
+    field :created_at, String, null: false
+    field :updated_at, String, null: false
     field :workout_routine, Types::WorkoutRoutineType, null: false
 
     # Computed fields
@@ -47,6 +49,14 @@ module Types
 
     def target_muscle_group
       object.target_muscle_group
+    end
+
+    def created_at
+      object.created_at.iso8601
+    end
+
+    def updated_at
+      object.updated_at.iso8601
     end
   end
 end

@@ -9,6 +9,8 @@ module Types
     field :status, String, null: true, description: "Session status (pending, in_progress, completed)"
     field :total_duration, Integer, null: true, description: "Total duration in seconds (from DB)"
     field :notes, String, null: true
+    field :created_at, String, null: false
+    field :updated_at, String, null: false
     field :workout_sets, [Types::WorkoutSetType], null: false
     field :user, Types::UserType, null: false
 
@@ -27,6 +29,14 @@ module Types
 
     def end_time
       object.end_time&.iso8601
+    end
+
+    def created_at
+      object.created_at.iso8601
+    end
+
+    def updated_at
+      object.updated_at.iso8601
     end
 
     def active

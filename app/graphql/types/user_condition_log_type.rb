@@ -15,5 +15,14 @@ module Types
     field :available_time, Integer, null: false, description: "Available time in minutes"
     field :notes, String, null: true, description: "Additional notes"
     field :created_at, String, null: false, description: "Created timestamp ISO 8601"
+    field :updated_at, String, null: false, description: "Updated timestamp ISO 8601"
+
+    def created_at
+      object.created_at.iso8601
+    end
+
+    def updated_at
+      object.updated_at.iso8601
+    end
   end
 end

@@ -12,6 +12,8 @@ module Types
     field :is_completed, Boolean, null: false
     field :completed_at, String, null: true
     field :generated_at, String, null: false
+    field :created_at, String, null: false
+    field :updated_at, String, null: false
     field :routine_exercises, [Types::RoutineExerciseType], null: false
     field :user, Types::UserType, null: false
 
@@ -28,6 +30,14 @@ module Types
 
     def generated_at
       object.generated_at.iso8601
+    end
+
+    def created_at
+      object.created_at.iso8601
+    end
+
+    def updated_at
+      object.updated_at.iso8601
     end
 
     def total_exercises

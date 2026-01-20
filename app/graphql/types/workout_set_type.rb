@@ -12,6 +12,8 @@ module Types
     field :set_number, Integer, null: true
     field :target_muscle, String, null: true
     field :rpe, Integer, null: true
+    field :created_at, String, null: false
+    field :updated_at, String, null: false
     field :workout_session, Types::WorkoutSessionType, null: false
 
     # Computed fields
@@ -44,6 +46,14 @@ module Types
 
     def weight_in_lbs
       object.weight_in_lbs
+    end
+
+    def created_at
+      object.created_at.iso8601
+    end
+
+    def updated_at
+      object.updated_at.iso8601
     end
   end
 end

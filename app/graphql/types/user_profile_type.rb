@@ -17,6 +17,8 @@ module Types
     field :total_workouts_completed, Integer, null: true
     field :level_assessed_at, String, null: true
     field :last_level_test_at, String, null: true
+    field :created_at, String, null: false
+    field :updated_at, String, null: false
     field :user, Types::UserType, null: false
 
     # Computed fields
@@ -34,6 +36,14 @@ module Types
 
     def last_level_test_at
       object.last_level_test_at&.iso8601
+    end
+
+    def created_at
+      object.created_at.iso8601
+    end
+
+    def updated_at
+      object.updated_at.iso8601
     end
 
     def bmi
