@@ -1268,12 +1268,18 @@ query Me {
 query TodayRoutine {
   todayRoutine {
     id
-    name
     level
     weekNumber
     dayNumber
+    workoutType
+    dayOfWeek
+    estimatedDuration
     isCompleted
-    exercises {
+    generatedAt
+    totalExercises
+    totalSets
+    dayName
+    routineExercises {
       id
       exerciseName
       targetMuscle
@@ -1304,12 +1310,16 @@ query TodayRoutine {
 query MyRoutines($limit: Int, $completedOnly: Boolean) {
   myRoutines(limit: $limit, completedOnly: $completedOnly) {
     id
-    name
     level
     weekNumber
     dayNumber
+    workoutType
+    dayOfWeek
+    estimatedDuration
     isCompleted
-    createdAt
+    generatedAt
+    totalExercises
+    totalSets
   }
 }
 ```
@@ -1574,13 +1584,21 @@ type WorkoutSet {
 ```graphql
 type WorkoutRoutine {
   id: ID!
-  name: String
   level: String!
   weekNumber: Int!
   dayNumber: Int!
-  dayOfWeek: String
+  workoutType: String!
+  dayOfWeek: String!
+  estimatedDuration: Int!
   isCompleted: Boolean!
-  exercises: [RoutineExercise!]
+  completedAt: String           # ISO8601 (완료 시)
+  generatedAt: String!          # ISO8601
+  routineExercises: [RoutineExercise!]!
+  # Computed fields
+  totalExercises: Int!
+  totalSets: Int!
+  estimatedDurationFormatted: String
+  dayName: String!
 }
 ```
 
