@@ -57,6 +57,13 @@ RSpec.describe HealthController, type: :request do
       # Allow ENV.fetch to work normally but provide a default for APP_VERSION
       allow(ENV).to receive(:fetch).and_call_original
       allow(ENV).to receive(:fetch).with("APP_VERSION").and_return("test-version")
+      # Mock circuit stats for consistent test behavior
+      allow(ClaudeApiService).to receive(:circuit_stats).and_return({
+        open: false,
+        error_rate: 0.0,
+        success_count: 0,
+        failure_count: 0
+      })
     end
 
     it "returns detailed health information" do
@@ -97,6 +104,12 @@ RSpec.describe HealthController, type: :request do
       before do
         allow(ENV).to receive(:fetch).and_call_original
         allow(ENV).to receive(:fetch).with("APP_VERSION").and_return("test-version")
+        allow(ClaudeApiService).to receive(:circuit_stats).and_return({
+          open: false,
+          error_rate: 0.0,
+          success_count: 0,
+          failure_count: 0
+        })
         # Mock ps command output (in KB) - 600MB = 614400KB
         allow_any_instance_of(HealthController).to receive(:`).with(/ps -o rss=/).and_return("614400")
       end
