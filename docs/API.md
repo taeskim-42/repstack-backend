@@ -577,14 +577,53 @@ mutation GenerateAiRoutine($dayOfWeek: Int, $condition: ConditionInput) {
   }) {
     success
     routine {
-      name
+      routineId
+      generatedAt
+      userLevel
+      tier
+      dayOfWeek
+      dayKorean
+      fitnessFactor
+      fitnessFactorKorean
+      trainingMethod
+      trainingMethodInfo {
+        id
+        korean
+        description
+        workDuration
+        restDuration
+        rounds
+      }
+      condition {
+        score
+        status
+        volumeModifier
+        intensityModifier
+      }
+      estimatedDurationMinutes
       exercises {
+        order
+        exerciseId
         exerciseName
+        exerciseNameEnglish
         targetMuscle
+        targetMuscleKorean
+        equipment
         sets
         reps
-        weight
+        targetTotalReps
+        bpm
+        restSeconds
+        restType
+        heartRateThreshold
+        rangeOfMotion
+        targetWeightKg
+        weightDescription
+        workSeconds
+        rounds
+        instructions
       }
+      notes
     }
     error
   }
@@ -595,8 +634,52 @@ mutation GenerateAiRoutine($dayOfWeek: Int, $condition: ConditionInput) {
 
 | 이름 | 타입 | 필수 | 설명 |
 |------|------|:----:|------|
-| `dayOfWeek` | `Int` | | 요일 (1=월요일, 7=일요일) |
+| `dayOfWeek` | `Int` | | 요일 (1-5, 기본값: 현재 요일) |
 | `condition` | `ConditionInput` | | 현재 컨디션 |
+
+**AiRoutine Fields**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `routineId` | `String!` | 고유 루틴 ID |
+| `generatedAt` | `ISO8601DateTime!` | 생성 일시 |
+| `userLevel` | `Int!` | 사용자 레벨 (1-8) |
+| `tier` | `String!` | 티어 (beginner/intermediate/advanced) |
+| `dayOfWeek` | `String!` | 요일 (영문) |
+| `dayKorean` | `String!` | 요일 (한글) |
+| `fitnessFactor` | `String!` | 오늘의 운동 요소 |
+| `fitnessFactorKorean` | `String!` | 운동 요소 (한글) |
+| `trainingMethod` | `String` | 훈련 방식 |
+| `trainingMethodInfo` | `TrainingMethodInfo` | 훈련 방식 상세 |
+| `condition` | `ConditionStatus!` | 컨디션 상태 |
+| `estimatedDurationMinutes` | `Int!` | 예상 소요 시간 (분) |
+| `exercises` | `[AiExercise!]!` | 운동 목록 |
+| `notes` | `[String]` | 루틴 안내 메시지 |
+
+**AiExercise Fields**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `order` | `Int!` | 운동 순서 |
+| `exerciseId` | `String!` | 운동 ID |
+| `exerciseName` | `String!` | 운동 이름 (한글) |
+| `exerciseNameEnglish` | `String` | 운동 이름 (영문) |
+| `targetMuscle` | `String!` | 타겟 근육 |
+| `targetMuscleKorean` | `String` | 타겟 근육 (한글) |
+| `equipment` | `String` | 필요 장비 |
+| `sets` | `JSON` | 세트 수 또는 "until_complete" |
+| `reps` | `JSON` | 반복 수 또는 "max_per_set" |
+| `targetTotalReps` | `Int` | 지구력 훈련용 총 목표 반복 수 |
+| `bpm` | `Int` | 템포 훈련용 BPM |
+| `restSeconds` | `Int` | 휴식 시간 (초) |
+| `restType` | `String` | 휴식 유형 (time_based/heart_rate_based) |
+| `heartRateThreshold` | `Float` | 심박수 기반 휴식 임계값 |
+| `rangeOfMotion` | `String` | 가동 범위 (full/medium/short) |
+| `targetWeightKg` | `Float` | 목표 무게 (kg) |
+| `weightDescription` | `String` | 무게 설명 |
+| `workSeconds` | `Int` | 타바타용 운동 시간 (초) |
+| `rounds` | `Int` | 타바타용 라운드 수 |
+| `instructions` | `String` | 운동 안내 |
 
 ---
 
@@ -885,10 +968,34 @@ mutation StartLevelTest {
     success
     test {
       testId
+      currentLevel
+      targetLevel
+      testType
+      criteria {
+        benchPressKg
+        squatKg
+        deadliftKg
+        description
+      }
       exercises {
+        order
+        exerciseName
         exerciseType
         targetWeightKg
         targetReps
+        restMinutes
+        instructions
+      }
+      instructions
+      timeLimitMinutes
+      passConditions {
+        allExercisesRequired
+        minimumExercises
+        exercises {
+          exercise
+          weightKg
+          reps
+        }
       }
     }
     error
@@ -900,11 +1007,35 @@ mutation StartLevelTest {
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `testId` | `String` | 시험 ID |
-| `exercises` | `[LevelTestExercise]` | 시험 운동 목록 |
-| `exercises.exerciseType` | `String` | 운동 유형 (bench, squat, deadlift) |
-| `exercises.targetWeightKg` | `Float` | 목표 무게 (kg) |
-| `exercises.targetReps` | `Int` | 목표 반복 횟수 |
+| `success` | `Boolean!` | 성공 여부 |
+| `test` | `LevelTestDetail` | 시험 상세 정보 |
+| `error` | `String` | 에러 메시지 |
+
+**LevelTestDetail Fields**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `testId` | `String!` | 시험 ID |
+| `currentLevel` | `Int!` | 현재 레벨 |
+| `targetLevel` | `Int!` | 목표 레벨 |
+| `testType` | `String!` | 시험 유형 (form_test, strength_test, comprehensive_test) |
+| `criteria` | `LevelTestCriteria!` | 통과 기준 |
+| `exercises` | `[LevelTestExercise!]!` | 시험 운동 목록 |
+| `instructions` | `[String!]!` | 시험 안내 메시지 |
+| `timeLimitMinutes` | `Int!` | 제한 시간 (분) |
+| `passConditions` | `PassConditions!` | 통과 조건 |
+
+**LevelTestExercise Fields**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `order` | `Int!` | 운동 순서 |
+| `exerciseName` | `String!` | 운동 이름 (한글) |
+| `exerciseType` | `String!` | 운동 유형 (bench, squat, deadlift) |
+| `targetWeightKg` | `Float!` | 목표 무게 (kg) |
+| `targetReps` | `Int!` | 목표 반복 횟수 |
+| `restMinutes` | `Int!` | 휴식 시간 (분) |
+| `instructions` | `String` | 운동 안내 |
 
 ---
 
@@ -926,6 +1057,23 @@ mutation SubmitLevelTestResult(
     success
     passed
     newLevel
+    results {
+      passedExercises {
+        exercise
+        required
+        achieved
+        status
+      }
+      failedExercises {
+        exercise
+        required
+        achieved
+        status
+        gap
+      }
+      totalExercises
+      passRate
+    }
     feedback
     nextSteps
     error
@@ -946,10 +1094,32 @@ input LevelTestExerciseResultInput {
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
+| `success` | `Boolean!` | 성공 여부 |
 | `passed` | `Boolean` | 합격 여부 |
-| `newLevel` | `String` | 새로운 레벨 (합격 시) |
-| `feedback` | `String` | AI 피드백 |
-| `nextSteps` | `[String]` | 다음 단계 권고 |
+| `newLevel` | `Int` | 새로운 레벨 (합격 시) |
+| `results` | `LevelTestResults` | 상세 결과 |
+| `feedback` | `[String]` | 피드백 메시지 배열 |
+| `nextSteps` | `[String]` | 다음 단계 권고 배열 |
+| `error` | `String` | 에러 메시지 |
+
+**LevelTestResults Fields**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `passedExercises` | `[ExerciseResult!]!` | 통과한 운동 목록 |
+| `failedExercises` | `[ExerciseResult!]!` | 실패한 운동 목록 |
+| `totalExercises` | `Int!` | 총 운동 수 |
+| `passRate` | `Float!` | 통과율 (0-100) |
+
+**ExerciseResult Fields**
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `exercise` | `String!` | 운동 유형 |
+| `required` | `Float!` | 요구 무게 (kg) |
+| `achieved` | `Float!` | 달성 무게 (kg) |
+| `status` | `String!` | passed 또는 failed |
+| `gap` | `Float` | 부족한 무게 (실패 시) |
 
 ---
 
@@ -1281,9 +1451,12 @@ query CheckLevelTestEligibility {
   checkLevelTestEligibility {
     eligible
     reason
-    nextEligibleDate
-    workoutsCompleted
-    workoutsRequired
+    currentLevel
+    targetLevel
+    targetTier
+    currentWorkouts
+    requiredWorkouts
+    daysUntilEligible
   }
 }
 ```
@@ -1292,11 +1465,14 @@ query CheckLevelTestEligibility {
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `eligible` | `Boolean` | 시험 자격 여부 |
+| `eligible` | `Boolean!` | 시험 자격 여부 |
 | `reason` | `String` | 자격/비자격 사유 |
-| `nextEligibleDate` | `String` | 다음 자격 예상일 |
-| `workoutsCompleted` | `Int` | 완료한 운동 수 |
-| `workoutsRequired` | `Int` | 필요한 운동 수 |
+| `currentLevel` | `Int` | 현재 레벨 |
+| `targetLevel` | `Int` | 목표 레벨 |
+| `targetTier` | `String` | 목표 티어 (beginner/intermediate/advanced) |
+| `currentWorkouts` | `Int` | 완료한 운동 수 |
+| `requiredWorkouts` | `Int` | 필요한 운동 수 |
+| `daysUntilEligible` | `Int` | 시험 가능까지 남은 일수 |
 
 ---
 
@@ -1403,18 +1579,177 @@ type RoutineExercise {
   reps: Int!
   weight: Float
   weightDescription: String  # 무게 설명 (예: "체중의 80%")
-  restDurationSeconds: Int   # 휴식 시간 (초)
-  rangeOfMotion: String
-  howTo: String
-  purpose: String
+  restDurationSeconds: Int!  # 휴식 시간 (초)
+  rangeOfMotion: String!
+  howTo: String!
+  purpose: String!
   bpm: Int                   # 유산소 운동용 BPM
   # Computed fields
-  estimatedExerciseDuration: Int  # 예상 운동 시간 (초)
-  restDurationFormatted: String   # 포맷된 휴식 시간
+  estimatedExerciseDuration: Int!  # 예상 운동 시간 (초)
+  restDurationFormatted: String    # 포맷된 휴식 시간
   isCardio: Boolean!
   isStrength: Boolean!
-  exerciseSummary: String
-  targetMuscleGroup: String
+  exerciseSummary: String!
+  targetMuscleGroup: String!
+}
+```
+
+## AiRoutine
+```graphql
+type AiRoutine {
+  routineId: String!
+  generatedAt: ISO8601DateTime!
+  userLevel: Int!
+  tier: String!
+  dayOfWeek: String!
+  dayKorean: String!
+  fitnessFactor: String!
+  fitnessFactorKorean: String!
+  trainingMethod: String
+  trainingMethodInfo: TrainingMethodInfo
+  condition: ConditionStatus!
+  estimatedDurationMinutes: Int!
+  exercises: [AiExercise!]!
+  notes: [String]
+}
+```
+
+## AiExercise
+```graphql
+type AiExercise {
+  order: Int!
+  exerciseId: String!
+  exerciseName: String!
+  exerciseNameEnglish: String
+  targetMuscle: String!
+  targetMuscleKorean: String
+  equipment: String
+  sets: JSON               # 숫자 또는 "until_complete"
+  reps: JSON               # 숫자 또는 "max_per_set"
+  targetTotalReps: Int     # 지구력 훈련용
+  bpm: Int                 # 템포 훈련용
+  restSeconds: Int
+  restType: String         # time_based 또는 heart_rate_based
+  heartRateThreshold: Float
+  rangeOfMotion: String    # full, medium, short
+  targetWeightKg: Float
+  weightDescription: String
+  workSeconds: Int         # 타바타용
+  rounds: Int              # 타바타용
+  instructions: String
+}
+```
+
+## ConditionStatus
+```graphql
+type ConditionStatus {
+  score: Float!            # 컨디션 점수 (1.0-5.0)
+  status: String!          # 상태 (최상/양호/보통/나쁨)
+  volumeModifier: Float!   # 볼륨 조절 계수
+  intensityModifier: Float! # 강도 조절 계수
+}
+```
+
+## TrainingMethodInfo
+```graphql
+type TrainingMethodInfo {
+  id: String
+  korean: String
+  description: String
+  workDuration: Int        # 타바타용 운동 시간 (초)
+  restDuration: Int        # 타바타용 휴식 시간 (초)
+  rounds: Int              # 타바타용 라운드 수
+}
+```
+
+## LevelTestDetail
+```graphql
+type LevelTestDetail {
+  testId: String!
+  currentLevel: Int!
+  targetLevel: Int!
+  testType: String!        # form_test, strength_test, comprehensive_test
+  criteria: LevelTestCriteria!
+  exercises: [LevelTestExercise!]!
+  instructions: [String!]!
+  timeLimitMinutes: Int!
+  passConditions: PassConditions!
+}
+```
+
+## LevelTestCriteria
+```graphql
+type LevelTestCriteria {
+  benchPressKg: Float!
+  squatKg: Float!
+  deadliftKg: Float!
+  description: String
+}
+```
+
+## LevelTestExercise
+```graphql
+type LevelTestExercise {
+  order: Int!
+  exerciseName: String!
+  exerciseType: String!    # bench, squat, deadlift
+  targetWeightKg: Float!
+  targetReps: Int!
+  restMinutes: Int!
+  instructions: String
+}
+```
+
+## PassConditions
+```graphql
+type PassConditions {
+  allExercisesRequired: Boolean!
+  minimumExercises: Int!
+  exercises: [PassConditionExercise!]!
+}
+```
+
+## PassConditionExercise
+```graphql
+type PassConditionExercise {
+  exercise: String!
+  weightKg: Float!
+  reps: Int!
+}
+```
+
+## LevelTestEligibility
+```graphql
+type LevelTestEligibility {
+  eligible: Boolean!
+  reason: String
+  currentLevel: Int
+  targetLevel: Int
+  targetTier: String
+  currentWorkouts: Int
+  requiredWorkouts: Int
+  daysUntilEligible: Int
+}
+```
+
+## LevelTestResults
+```graphql
+type LevelTestResults {
+  passedExercises: [ExerciseResult!]!
+  failedExercises: [ExerciseResult!]!
+  totalExercises: Int!
+  passRate: Float!
+}
+```
+
+## ExerciseResult
+```graphql
+type ExerciseResult {
+  exercise: String!
+  required: Float!
+  achieved: Float!
+  status: String!          # passed 또는 failed
+  gap: Float               # 부족한 무게 (실패 시)
 }
 ```
 
