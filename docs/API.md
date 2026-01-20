@@ -859,7 +859,7 @@ mutation StartLevelTest {
       testId
       exercises {
         exerciseType
-        targetWeight
+        targetWeightKg
         targetReps
       }
     }
@@ -875,7 +875,7 @@ mutation StartLevelTest {
 | `testId` | `String` | 시험 ID |
 | `exercises` | `[LevelTestExercise]` | 시험 운동 목록 |
 | `exercises.exerciseType` | `String` | 운동 유형 (bench, squat, deadlift) |
-| `exercises.targetWeight` | `Float` | 목표 무게 (kg) |
+| `exercises.targetWeightKg` | `Float` | 목표 무게 (kg) |
 | `exercises.targetReps` | `Int` | 목표 반복 횟수 |
 
 ---
