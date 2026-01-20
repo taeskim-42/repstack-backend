@@ -85,6 +85,9 @@ jobs:
           bundle exec rails db:create
           bundle exec rails db:schema:load
 
+      - name: Validate GraphQL-DB schema sync
+        run: bundle exec rails graphql:schema:validate
+
       - name: Run tests
         run: bundle exec rspec --format progress --format RspecJunitFormatter --out tmp/rspec_results.xml
 
