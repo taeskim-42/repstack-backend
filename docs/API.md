@@ -1353,7 +1353,7 @@ type WorkoutSession {
   durationInSeconds: Int     # 운동 시간 (초)
   durationFormatted: String  # 포맷된 시간 (예: "1h 30m")
   totalSets: Int!            # 총 세트 수
-  exercisesPerformed: [String!]!  # 수행한 운동 목록
+  exercisesPerformed: Int!   # 수행한 운동 종류 수
   totalVolume: Float!        # 총 볼륨
 }
 ```
