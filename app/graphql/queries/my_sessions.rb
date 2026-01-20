@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Queries
-  class MySessions < GraphQL::Schema::Resolver
+  class MySessions < BaseQuery
     description "Get current user's workout sessions"
 
     type [Types::WorkoutSessionType], null: false
@@ -12,10 +12,9 @@ module Queries
     MAX_LIMIT = 100
 
     def resolve(limit: 10, include_sets: true)
-      user = context[:current_user]
-      return [] unless user
+      authenticate_user!
 
-      scope = user.workout_sessions
+      scope = current_user.workout_sessions
       scope = scope.includes(:workout_sets) if include_sets
       scope.order(created_at: :desc)
            .limit([limit, MAX_LIMIT].min)

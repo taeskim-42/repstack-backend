@@ -1,5 +1,7 @@
+# frozen_string_literal: true
+
 class User < ApplicationRecord
-  has_secure_password
+  has_secure_password validations: false
 
   # Associations
   has_one :user_profile, dependent: :destroy
@@ -15,6 +17,7 @@ class User < ApplicationRecord
   validates :email, format: { with: URI::MailTo::EMAIL_REGEXP }
   validates :name, presence: true, length: { minimum: 2, maximum: 50 }
   validates :password, length: { minimum: 6 }, if: :password_required?
+  validates :apple_user_id, uniqueness: true, allow_nil: true
 
   # Callbacks
   before_save :downcase_email
@@ -22,7 +25,31 @@ class User < ApplicationRecord
   # Scopes
   scope :with_profiles, -> { includes(:user_profile) }
 
+  # Class methods
+  def self.find_or_create_from_apple(apple_user_id:, email:, name: nil)
+    user = find_by(apple_user_id: apple_user_id)
+    return user if user
+
+    # Check if user exists with the same email
+    user = find_by(email: email.downcase)
+    if user
+      user.update!(apple_user_id: apple_user_id)
+      return user
+    end
+
+    # Create new user
+    create!(
+      apple_user_id: apple_user_id,
+      email: email,
+      name: name || email.split("@").first
+    )
+  end
+
   # Instance methods
+  def apple_user?
+    apple_user_id.present?
+  end
+
   def current_workout_session
     workout_sessions.where(end_time: nil).first
   end
@@ -51,6 +78,7 @@ class User < ApplicationRecord
   end
 
   def password_required?
+    return false if apple_user?
     new_record? || password.present?
   end
 end

@@ -2,7 +2,7 @@
 
 module Types
   class QueryType < Types::BaseObject
-    # Node interface
+    # Node interface (Relay standard)
     field :node, Types::NodeType, null: true, description: "Fetches an object given its ID." do
       argument :id, ID, required: true, description: "ID of the object."
     end
@@ -32,17 +32,14 @@ module Types
 
     # User queries
     field :me, resolver: Queries::Me
-    field :my_profile, resolver: Queries::MyProfile
     field :my_sessions, resolver: Queries::MySessions
     field :my_routines, resolver: Queries::MyRoutines
     field :today_routine, resolver: Queries::TodayRoutine
 
-    # AI Trainer queries
+    # Analytics
     field :get_user_level_assessment, resolver: Queries::GetUserLevelAssessment
     field :get_user_condition_logs, resolver: Queries::GetUserConditionLogs
     field :get_workout_analytics, resolver: Queries::GetWorkoutAnalytics
-
-    # AI Trainer v2 queries
     field :check_level_test_eligibility, resolver: Queries::CheckLevelTestEligibility
   end
 end

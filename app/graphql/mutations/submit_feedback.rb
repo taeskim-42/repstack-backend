@@ -48,6 +48,8 @@ module Mutations
           error: nil
         }
       else
+        # Feedback saved successfully, but AI analysis failed
+        # Return success since primary action (saving feedback) succeeded
         {
           success: true,
           feedback: {
@@ -56,7 +58,7 @@ module Mutations
             feedback_type: feedback_record.feedback_type
           },
           analysis: nil,
-          error: analysis_result[:error]
+          error: nil
         }
       end
     rescue ActiveRecord::RecordInvalid => e

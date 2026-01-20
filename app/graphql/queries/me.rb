@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
 module Queries
-  class Me < GraphQL::Schema::Resolver
+  class Me < BaseQuery
     description "Get current user information"
 
     type Types::UserType, null: true
 
     def resolve
-      context[:current_user]
+      authenticate_user!
+      current_user
     end
   end
 end

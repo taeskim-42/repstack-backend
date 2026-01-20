@@ -63,9 +63,10 @@ RSpec.describe Queries::MySessions, type: :graphql do
   end
 
   describe "when not authenticated" do
-    it "returns empty array" do
+    it "returns authentication error" do
       result = execute_graphql(query: query, context: { current_user: nil })
-      expect(result["data"]["mySessions"]).to eq([])
+      expect(result["errors"]).to be_present
+      expect(result["errors"].first["message"]).to include("sign in")
     end
   end
 end

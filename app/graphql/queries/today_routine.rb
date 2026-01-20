@@ -1,12 +1,11 @@
 # frozen_string_literal: true
 
 module Queries
-  class TodayRoutine < GraphQL::Schema::Resolver
+  class TodayRoutine < BaseQuery
     description "Get today's workout routine for the current user"
 
     type Types::WorkoutRoutineType, null: true
 
-    # Map of day name variants for flexible matching
     DAY_NAME_VARIANTS = {
       "Monday" => %w[Monday MONDAY monday Mon MON],
       "Tuesday" => %w[Tuesday TUESDAY tuesday Tue TUE],
@@ -18,19 +17,15 @@ module Queries
     }.freeze
 
     def resolve
-      user = context[:current_user]
-      return nil unless user
+      authenticate_user!
 
-      profile = user.user_profile
+      profile = current_user.user_profile
       return nil unless profile
 
-      # Get current day name in standard format
       current_day = Date.current.strftime("%A")
       day_variants = DAY_NAME_VARIANTS[current_day] || [current_day]
 
-      # Find routine matching user's progress and today's day
-      # Use includes to prevent N+1 when accessing routine_exercises
-      user.workout_routines
+      current_user.workout_routines
           .includes(:routine_exercises)
           .where(
             level: profile.current_level,

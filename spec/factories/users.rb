@@ -30,5 +30,11 @@ FactoryBot.define do
         create(:user_profile, :advanced, user: user)
       end
     end
+
+    trait :apple_user do
+      sequence(:apple_user_id) { |n| "apple_user_#{n}" }
+      password { nil }
+      password_confirmation { nil }
+    end
   end
 end

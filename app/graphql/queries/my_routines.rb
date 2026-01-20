@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module Queries
-  class MyRoutines < GraphQL::Schema::Resolver
+  class MyRoutines < BaseQuery
     description "Get current user's workout routines"
 
     type [Types::WorkoutRoutineType], null: false
@@ -12,10 +12,9 @@ module Queries
     MAX_LIMIT = 100
 
     def resolve(limit: 10, completed_only: false)
-      user = context[:current_user]
-      return [] unless user
+      authenticate_user!
 
-      scope = user.workout_routines.includes(:routine_exercises)
+      scope = current_user.workout_routines.includes(:routine_exercises)
       scope = scope.completed if completed_only
       scope.order(created_at: :desc)
            .limit([limit, MAX_LIMIT].min)

@@ -41,10 +41,10 @@ RSpec.describe Queries::MyRoutines, type: :graphql do
   end
 
   describe "when not authenticated" do
-    it "returns nil or empty array" do
+    it "returns authentication error" do
       result = execute_graphql(query: query, context: { current_user: nil })
-      # Query returns nil for unauthenticated users
-      expect(result["data"]["myRoutines"]).to be_nil.or(be_empty)
+      expect(result["errors"]).to be_present
+      expect(result["errors"].first["message"]).to include("sign in")
     end
   end
 end

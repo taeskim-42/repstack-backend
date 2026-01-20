@@ -29,8 +29,8 @@ RSpec.describe GraphqlController, type: :request do
     context "with mutation" do
       let(:mutation) do
         <<~GRAPHQL
-          mutation SignUp($email: String!, $password: String!, $name: String!) {
-            signUp(input: { email: $email, password: $password, name: $name }) {
+          mutation SignInWithApple($identityToken: String!, $userName: String) {
+            signInWithApple(input: { identityToken: $identityToken, userName: $userName }) {
               authPayload { token }
               errors
             }
@@ -38,11 +38,22 @@ RSpec.describe GraphqlController, type: :request do
         GRAPHQL
       end
 
+      let(:apple_data) do
+        {
+          apple_user_id: "test.apple.user.id",
+          email: "graphql-controller-test@example.com",
+          email_verified: true
+        }
+      end
+
+      before do
+        allow_any_instance_of(AppleSignInService).to receive(:verify).and_return(apple_data)
+      end
+
       it "executes mutation with variables" do
         variables = {
-          email: "graphql-controller-test-#{SecureRandom.hex(4)}@example.com",
-          password: "password123",
-          name: "GraphQL Test"
+          identityToken: "mock.apple.token",
+          userName: "GraphQL Test"
         }
 
         post "/graphql",
@@ -51,7 +62,7 @@ RSpec.describe GraphqlController, type: :request do
 
         expect(response).to have_http_status(:ok)
         json = JSON.parse(response.body)
-        expect(json["data"]["signUp"]["authPayload"]["token"]).to be_present
+        expect(json["data"]["signInWithApple"]["authPayload"]["token"]).to be_present
       end
     end
 
