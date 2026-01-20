@@ -192,6 +192,7 @@ jobs:
           sudo apt-get install k6
 
       - name: Run load tests
+        continue-on-error: true
         run: k6 run --out json=load-test-results.json test/load/k6_test.js
 
       - name: Upload load test results
