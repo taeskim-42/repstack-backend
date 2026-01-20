@@ -326,9 +326,10 @@ class UserSimulator
   end
 
   def record_workout(routine, performance)
+    # Use Relay-style nested input
     query = <<~GQL
-      mutation RecordWorkout($input: WorkoutRecordInput!) {
-        recordWorkout(input: $input) {
+      mutation RecordWorkout($workoutInput: WorkoutRecordInput!) {
+        recordWorkout(input: { input: $workoutInput }) {
           success
           error
           workoutRecord { id }
@@ -339,10 +340,13 @@ class UserSimulator
     # Build exercises with proper format
     exercises = performance[:exercises].map do |ex|
       weight = rand(10..30).to_f
-      completed_sets = (1..ex[:actual_sets]).map do |set_num|
+      sets_count = [ex[:actual_sets], 1].max
+      reps_count = [ex[:actual_reps], 1].max
+
+      completed_sets = (1..sets_count).map do |set_num|
         {
           setNumber: set_num,
-          reps: ex[:actual_reps],
+          reps: reps_count,
           weight: weight,
           rpe: rand(6..9)
         }
@@ -350,7 +354,7 @@ class UserSimulator
 
       {
         exerciseName: ex[:exercise_name],
-        targetMuscle: "CHEST", # Placeholder
+        targetMuscle: ex[:target_muscle]&.upcase || "CHEST",
         plannedSets: ex[:target_sets],
         completedSets: completed_sets
       }
@@ -366,9 +370,9 @@ class UserSimulator
           end
 
     graphql_request(query,
-      input: {
+      workoutInput: {
         routineId: routine[:routine_id],
-        totalDuration: performance[:duration_minutes] * 60, # Convert to seconds
+        totalDuration: performance[:duration_minutes] * 60,
         perceivedExertion: rpe,
         completionStatus: "COMPLETED",
         exercises: exercises
