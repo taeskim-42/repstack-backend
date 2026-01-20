@@ -1,0 +1,23 @@
+spectaql:
+  targetDir: ./docs/api
+  displayAllServers: true
+
+introspection:
+  schemaFile: ./schema.graphql
+  queryNameStrategy: capitalizeFirst
+  fieldExpansionDepth: 2
+  removeTrailingPeriodFromDescriptions: false
+
+info:
+  title: RepStack API
+  description: AI 기반 피트니스 트래킹 및 운동 루틴 생성 API
+  version: 1.0.0
+  contact:
+    name: RepStack Team
+    url: https://github.com/taeskim-42/repstack-backend
+
+servers:
+  - url: https://repstack-backend-production.up.railway.app/graphql
+    description: Production
+  - url: http://localhost:3000/graphql
+    description: Development

@@ -35,3 +35,4 @@
 # Coverage
 coverage/
 .rspec_status
+node_modules/
