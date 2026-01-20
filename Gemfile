@@ -25,6 +25,7 @@ group :development, :test do
 
   # Testing
   gem "rspec-rails", "~> 7.0"
+  gem "rspec_junit_formatter"
   gem "factory_bot_rails"
   gem "faker"
   gem "shoulda-matchers"
