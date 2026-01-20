@@ -92,21 +92,26 @@ module AiTrainer
       profile = @user.user_profile
       return { eligible: false, reason: "프로필이 없습니다." } unless profile
 
-      # Check minimum workouts completed
-      completed_workouts = @user.workout_sessions.where.not(end_time: nil).count
-      min_workouts = minimum_workouts_for_test
-
-      if completed_workouts < min_workouts
-        return {
-          eligible: false,
-          reason: "승급 시험을 위해 최소 #{min_workouts}회 운동을 완료해야 합니다.",
-          current_workouts: completed_workouts,
-          required_workouts: min_workouts
-        }
-      end
-
       # Check last test date (cooldown period)
       last_test = profile.last_level_test_at
+
+      # Skip workout count check for initial level test (never taken a test before)
+      unless last_test.nil?
+        # Check minimum workouts completed (only for promotion tests)
+        completed_workouts = @user.workout_sessions.where.not(end_time: nil).count
+        min_workouts = minimum_workouts_for_test
+
+        if completed_workouts < min_workouts
+          return {
+            eligible: false,
+            reason: "승급 시험을 위해 최소 #{min_workouts}회 운동을 완료해야 합니다.",
+            current_workouts: completed_workouts,
+            required_workouts: min_workouts
+          }
+        end
+      end
+
+      # Check cooldown period
       if last_test && last_test > 7.days.ago
         days_remaining = ((last_test + 7.days - Time.current) / 1.day).ceil
         return {
