@@ -227,7 +227,21 @@ input ChatInput {
   A unique identifier for the client performing the mutation.
   """
   clientMutationId: String
-  input: ChatMessageInput!
+
+  """
+  User message (natural language)
+  """
+  message: String!
+
+  """
+  Current routine ID (for context)
+  """
+  routineId: ID
+
+  """
+  Chat session ID (for continuous conversation)
+  """
+  sessionId: String
 }
 
 """
@@ -268,26 +282,6 @@ enum ChatIntentEnum {
   Submitting feedback (e.g., '런지가 힘들었어')
   """
   SUBMIT_FEEDBACK
-}
-
-"""
-Input for chat API
-"""
-input ChatMessageInput {
-  """
-  User message (natural language)
-  """
-  message: String!
-
-  """
-  Current routine ID (for context)
-  """
-  routineId: ID
-
-  """
-  Chat session ID (for continuous conversation)
-  """
-  sessionId: String
 }
 
 """

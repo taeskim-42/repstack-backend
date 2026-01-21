@@ -70,11 +70,12 @@ class ChatRecordService
 
     # Create a new "quick log" session with end_time set (so it's not "active")
     # This allows multiple quick log sessions per day
+    now = Time.current
     user.workout_sessions.create!(
       name: "퀵 로그 - #{Date.current.strftime('%Y-%m-%d %H:%M')}",
       source: "chat",
-      start_time: Time.current,
-      end_time: Time.current, # Set end_time to avoid active session conflict
+      start_time: now,
+      end_time: now + 1.hour, # Set end_time after start_time to pass validation
       status: "completed"
     )
   end

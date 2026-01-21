@@ -4,7 +4,9 @@ module Mutations
   class Chat < BaseMutation
     description "ChatGPT-style conversational AI trainer endpoint"
 
-    argument :input, Types::ChatInputType, required: true
+    argument :message, String, required: true, description: "User message (natural language)"
+    argument :routine_id, ID, required: false, description: "Current routine ID (for context)"
+    argument :session_id, String, required: false, description: "Chat session ID (for continuous conversation)"
 
     field :success, Boolean, null: false
     field :message, String, null: true
@@ -12,14 +14,14 @@ module Mutations
     field :data, Types::ChatDataType, null: true
     field :error, String, null: true
 
-    def resolve(input:)
+    def resolve(message:, routine_id: nil, session_id: nil)
       authenticate_user!
 
       result = ChatService.process(
         user: current_user,
-        message: input[:message],
-        routine_id: input[:routine_id],
-        session_id: input[:session_id]
+        message: message,
+        routine_id: routine_id,
+        session_id: session_id
       )
 
       {
@@ -29,6 +31,8 @@ module Mutations
         data: result[:data],
         error: result[:error]
       }
+    rescue GraphQL::ExecutionError
+      raise
     rescue StandardError => e
       Rails.logger.error("Chat mutation error: #{e.message}")
       Rails.logger.error(e.backtrace.first(10).join("\n"))
