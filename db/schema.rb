@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2025_01_20_000002) do
+ActiveRecord::Schema[8.1].define(version: 2025_01_21_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -138,16 +138,19 @@ ActiveRecord::Schema[8.1].define(version: 2025_01_20_000002) do
     t.datetime "end_time"
     t.string "name"
     t.text "notes"
+    t.string "source", default: "app"
     t.datetime "start_time", null: false
     t.string "status", default: "pending"
     t.integer "total_duration"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
+    t.index ["source"], name: "index_workout_sessions_on_source"
     t.index ["status"], name: "index_workout_sessions_on_status"
     t.index ["user_id", "start_time"], name: "index_workout_sessions_on_user_id_and_start_time"
   end
 
   create_table "workout_sets", force: :cascade do |t|
+    t.string "client_id"
     t.datetime "created_at", null: false
     t.integer "duration_seconds"
     t.string "exercise_name", null: false
@@ -155,11 +158,14 @@ ActiveRecord::Schema[8.1].define(version: 2025_01_20_000002) do
     t.integer "reps"
     t.integer "rpe"
     t.integer "set_number"
+    t.string "source", default: "app"
     t.string "target_muscle"
     t.datetime "updated_at", null: false
     t.decimal "weight", precision: 8, scale: 2
     t.string "weight_unit", default: "kg"
     t.bigint "workout_session_id", null: false
+    t.index ["client_id"], name: "index_workout_sets_on_client_id", unique: true
+    t.index ["source"], name: "index_workout_sets_on_source"
     t.index ["target_muscle"], name: "index_workout_sets_on_target_muscle"
     t.index ["workout_session_id", "exercise_name"], name: "index_workout_sets_on_workout_session_id_and_exercise_name"
   end

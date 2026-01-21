@@ -16,10 +16,16 @@ module Mutations
 
       condition_inputs = condition&.to_h&.deep_transform_keys { |k| k.to_s.underscore.to_sym } || {}
 
+      # Fetch recent feedbacks for personalization
+      recent_feedbacks = current_user.workout_feedbacks
+                                     .order(created_at: :desc)
+                                     .limit(5)
+
       routine = AiTrainerService.generate_routine(
         user: current_user,
         day_of_week: day_of_week,
-        condition_inputs: condition_inputs
+        condition_inputs: condition_inputs,
+        recent_feedbacks: recent_feedbacks
       )
 
       if routine.is_a?(Hash) && routine[:success] == false

@@ -27,8 +27,8 @@ class AiTrainerService
       new.analyze_feedback_from_voice(voice_text, routine_id: routine_id)
     end
 
-    def generate_routine(user:, day_of_week: nil, condition_inputs: {})
-      new.generate_routine(user: user, day_of_week: day_of_week, condition_inputs: condition_inputs)
+    def generate_routine(user:, day_of_week: nil, condition_inputs: {}, recent_feedbacks: nil)
+      new.generate_routine(user: user, day_of_week: day_of_week, condition_inputs: condition_inputs, recent_feedbacks: recent_feedbacks)
     end
 
     def generate_level_test(user:)
@@ -126,11 +126,12 @@ class AiTrainerService
 
   # ============ Routine Generation (Public) ============
 
-  def generate_routine(user:, day_of_week: nil, condition_inputs: {})
+  def generate_routine(user:, day_of_week: nil, condition_inputs: {}, recent_feedbacks: nil)
     AiTrainer.generate_routine(
       user: user,
       day_of_week: day_of_week,
-      condition_inputs: condition_inputs
+      condition_inputs: condition_inputs,
+      recent_feedbacks: recent_feedbacks
     )
   rescue StandardError => e
     Rails.logger.error("AiTrainerService.generate_routine error: #{e.message}")

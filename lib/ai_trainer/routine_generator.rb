@@ -12,7 +12,7 @@ module AiTrainer
     MODEL = "claude-sonnet-4-20250514"
     MAX_TOKENS = 4096
 
-    attr_reader :user, :level, :day_of_week, :condition_score, :adjustment, :condition_inputs
+    attr_reader :user, :level, :day_of_week, :condition_score, :adjustment, :condition_inputs, :recent_feedbacks
 
     def initialize(user:, day_of_week: nil)
       @user = user
@@ -23,6 +23,7 @@ module AiTrainer
       @condition_score = 3.0
       @adjustment = Constants::CONDITION_ADJUSTMENTS[:good]
       @condition_inputs = {}
+      @recent_feedbacks = []
     end
 
     # Set condition from user input
@@ -30,6 +31,12 @@ module AiTrainer
       @condition_inputs = condition_inputs
       @condition_score = Constants.calculate_condition_score(condition_inputs)
       @adjustment = Constants.adjustment_for_condition_score(@condition_score)
+      self
+    end
+
+    # Set recent feedbacks for personalization
+    def with_feedbacks(feedbacks)
+      @recent_feedbacks = feedbacks || []
       self
     end
 
@@ -86,6 +93,7 @@ module AiTrainer
         - 볼륨 조정: #{(@adjustment[:volume_modifier] * 100).round}%
         - 강도 조정: #{(@adjustment[:intensity_modifier] * 100).round}%
         #{format_condition_details}
+        #{format_feedback_context}
 
         ## 운동 변수 카탈로그
 
@@ -263,6 +271,26 @@ module AiTrainer
       details << "- 근육통: #{@condition_inputs[:soreness]}/5" if @condition_inputs[:soreness]
       details << "- 의욕: #{@condition_inputs[:motivation]}/5" if @condition_inputs[:motivation]
       details.join("\n")
+    end
+
+    def format_feedback_context
+      return "" if @recent_feedbacks.blank?
+
+      feedback_lines = @recent_feedbacks.first(5).map do |fb|
+        suggestions = fb.suggestions.is_a?(Array) ? fb.suggestions.join(", ") : fb.suggestions.to_s
+        "- #{fb.created_at.strftime('%Y-%m-%d')}: #{fb.feedback.truncate(100)}\n  → 적용사항: #{suggestions}"
+      end
+
+      <<~FEEDBACK
+
+        ## 최근 사용자 피드백 (다음 루틴에 반영 필요)
+        #{feedback_lines.join("\n")}
+
+        위 피드백을 고려하여 루틴을 생성하세요:
+        - 어려웠던 운동은 대체 또는 강도 조절
+        - 쉬웠던 운동은 무게/횟수 증가 고려
+        - 통증 호소 시 해당 부위 운동 제외 또는 대체
+      FEEDBACK
     end
 
     def format_exercises_catalog

@@ -3,9 +3,10 @@
 # AI Trainer module - handles workout routine generation and level management
 module AiTrainer
   class << self
-    def generate_routine(user:, day_of_week: nil, condition_inputs: {})
+    def generate_routine(user:, day_of_week: nil, condition_inputs: {}, recent_feedbacks: nil)
       generator = RoutineGenerator.new(user: user, day_of_week: day_of_week)
       generator.with_condition(condition_inputs) if condition_inputs.present?
+      generator.with_feedbacks(recent_feedbacks) if recent_feedbacks.present?
       generator.generate
     end
 
@@ -33,3 +34,7 @@ end
 require_relative "ai_trainer/constants"
 require_relative "ai_trainer/routine_generator"
 require_relative "ai_trainer/level_test_service"
+require_relative "ai_trainer/condition_service"
+require_relative "ai_trainer/feedback_service"
+require_relative "ai_trainer/chat_service"
+require_relative "ai_trainer/routine_service"

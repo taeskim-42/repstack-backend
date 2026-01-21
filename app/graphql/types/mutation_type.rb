@@ -20,6 +20,7 @@ module Types
     field :complete_routine, mutation: Mutations::CompleteRoutine
 
     # AI Trainer
+    field :chat, mutation: Mutations::Chat
     field :check_condition, mutation: Mutations::CheckCondition
     field :check_condition_from_voice, mutation: Mutations::CheckConditionFromVoice
     field :record_workout, mutation: Mutations::RecordWorkout
@@ -30,5 +31,12 @@ module Types
     field :generate_ai_routine, mutation: Mutations::GenerateAiRoutine
     field :start_level_test, mutation: Mutations::StartLevelTest
     field :submit_level_test_result, mutation: Mutations::SubmitLevelTestResult
+
+    # Offline sync
+    field :sync_offline_records, mutation: Mutations::SyncOfflineRecords
+
+    # Routine management
+    field :add_exercise_to_routine, mutation: Mutations::AddExerciseToRoutine
+    field :save_routine_to_calendar, mutation: Mutations::SaveRoutineToCalendar
   end
 end

@@ -12,6 +12,8 @@ module Types
     field :set_number, Integer, null: true
     field :target_muscle, String, null: true
     field :rpe, Integer, null: true
+    field :source, String, null: true, description: "Source of the set (app, chat, siri, watch, offline)"
+    field :client_id, String, null: true, description: "Client-generated ID for offline sync"
     field :created_at, String, null: false
     field :updated_at, String, null: false
     field :workout_session, Types::WorkoutSessionType, null: false

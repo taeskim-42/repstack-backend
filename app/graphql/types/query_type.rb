@@ -36,6 +36,9 @@ module Types
     field :my_routines, resolver: Queries::MyRoutines
     field :today_routine, resolver: Queries::TodayRoutine
 
+    # Workout records
+    field :query_workout_records, resolver: Queries::QueryWorkoutRecords
+
     # Analytics
     field :get_user_level_assessment, resolver: Queries::GetUserLevelAssessment
     field :get_user_condition_logs, resolver: Queries::GetUserConditionLogs
