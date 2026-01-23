@@ -31,6 +31,7 @@ module Types
     field :generate_ai_routine, mutation: Mutations::GenerateAiRoutine
     field :start_level_test, mutation: Mutations::StartLevelTest
     field :submit_level_test_result, mutation: Mutations::SubmitLevelTestResult
+    field :submit_level_test_verification, mutation: Mutations::SubmitLevelTestVerification
 
     # Offline sync
     field :sync_offline_records, mutation: Mutations::SyncOfflineRecords

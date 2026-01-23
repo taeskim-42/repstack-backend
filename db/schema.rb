@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2025_01_21_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_01_23_031506) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -28,6 +28,26 @@ ActiveRecord::Schema[8.1].define(version: 2025_01_21_000001) do
     t.bigint "user_id", null: false
     t.index ["user_id", "date"], name: "index_condition_logs_on_user_id_and_date"
     t.index ["user_id"], name: "index_condition_logs_on_user_id"
+  end
+
+  create_table "level_test_verifications", force: :cascade do |t|
+    t.text "ai_feedback"
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.integer "current_level", null: false
+    t.jsonb "exercises", default: [], null: false
+    t.integer "new_level"
+    t.boolean "passed", default: false
+    t.datetime "started_at"
+    t.string "status", default: "pending", null: false
+    t.integer "target_level", null: false
+    t.string "test_id", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["created_at"], name: "index_level_test_verifications_on_created_at"
+    t.index ["test_id"], name: "index_level_test_verifications_on_test_id", unique: true
+    t.index ["user_id", "status"], name: "index_level_test_verifications_on_user_id_and_status"
+    t.index ["user_id"], name: "index_level_test_verifications_on_user_id"
   end
 
   create_table "routine_exercises", force: :cascade do |t|
@@ -171,6 +191,7 @@ ActiveRecord::Schema[8.1].define(version: 2025_01_21_000001) do
   end
 
   add_foreign_key "condition_logs", "users"
+  add_foreign_key "level_test_verifications", "users"
   add_foreign_key "routine_exercises", "workout_routines"
   add_foreign_key "user_profiles", "users"
   add_foreign_key "workout_feedbacks", "users"

@@ -44,5 +44,6 @@ module Types
     field :get_user_condition_logs, resolver: Queries::GetUserConditionLogs
     field :get_workout_analytics, resolver: Queries::GetWorkoutAnalytics
     field :check_level_test_eligibility, resolver: Queries::CheckLevelTestEligibility
+    field :check_promotion_readiness, resolver: Queries::CheckPromotionReadiness
   end
 end
