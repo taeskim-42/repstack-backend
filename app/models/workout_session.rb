@@ -25,12 +25,12 @@ class WorkoutSession < ApplicationRecord
 
   def duration_in_seconds
     return nil unless completed?
-    
+
     (end_time - start_time).to_i
   end
 
   def duration_formatted
-    return 'In progress' if active?
+    return "In progress" if active?
     return nil unless duration_in_seconds
 
     hours = duration_in_seconds / 3600
@@ -52,7 +52,7 @@ class WorkoutSession < ApplicationRecord
   end
 
   def total_volume
-    workout_sets.sum('weight * reps')
+    workout_sets.sum("weight * reps")
   end
 
   def complete!
@@ -74,13 +74,13 @@ class WorkoutSession < ApplicationRecord
   def end_time_after_start_time
     return unless end_time && start_time
 
-    errors.add(:end_time, 'must be after start time') if end_time <= start_time
+    errors.add(:end_time, "must be after start time") if end_time <= start_time
   end
 
   def only_one_active_session_per_user
     return unless user_id
 
     existing_active = user.workout_sessions.active.where.not(id: id)
-    errors.add(:base, 'User already has an active workout session') if existing_active.exists?
+    errors.add(:base, "User already has an active workout session") if existing_active.exists?
   end
 end

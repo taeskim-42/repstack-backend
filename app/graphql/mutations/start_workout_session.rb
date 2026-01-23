@@ -8,7 +8,7 @@ module Mutations
     argument :notes, String, required: false
 
     field :workout_session, Types::WorkoutSessionType, null: true
-    field :errors, [String], null: false
+    field :errors, [ String ], null: false
 
     def resolve(name: nil, notes: nil)
       with_error_handling(workout_session: nil) do

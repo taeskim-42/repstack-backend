@@ -55,28 +55,28 @@ class RoutineExercise < ApplicationRecord
     summary += " @ #{weight}kg" if weight.present?
     summary += " (#{bpm} BPM)" if bpm.present?
     summary += " - Rest: #{rest_duration_formatted}" if rest_duration_seconds.present?
-    
+
     summary || exercise_name
   end
 
   def target_muscle_group
     case target_muscle&.downcase
-    when 'chest', 'pecs', 'pectorals'
-      'Chest'
-    when 'back', 'lats', 'latissimus', 'rhomboids', 'traps'
-      'Back'
-    when 'shoulders', 'delts', 'deltoids'
-      'Shoulders'
-    when 'arms', 'biceps', 'triceps'
-      'Arms'
-    when 'legs', 'quads', 'hamstrings', 'glutes', 'calves'
-      'Legs'
-    when 'core', 'abs', 'abdominals'
-      'Core'
-    when 'cardio', 'conditioning'
-      'Cardio'
+    when "chest", "pecs", "pectorals"
+      "Chest"
+    when "back", "lats", "latissimus", "rhomboids", "traps"
+      "Back"
+    when "shoulders", "delts", "deltoids"
+      "Shoulders"
+    when "arms", "biceps", "triceps"
+      "Arms"
+    when "legs", "quads", "hamstrings", "glutes", "calves"
+      "Legs"
+    when "core", "abs", "abdominals"
+      "Core"
+    when "cardio", "conditioning"
+      "Cardio"
     else
-      target_muscle&.titleize || 'Other'
+      target_muscle&.titleize || "Other"
     end
   end
 

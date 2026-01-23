@@ -16,7 +16,7 @@ module Types
     field :training_method_info, Types::TrainingMethodInfoType, null: true
     field :condition, Types::ConditionStatusType, null: false
     field :estimated_duration_minutes, Integer, null: false
-    field :exercises, [Types::AiExerciseType], null: false
-    field :notes, [String], null: true
+    field :exercises, [ Types::AiExerciseType ], null: false
+    field :notes, [ String ], null: true
   end
 end

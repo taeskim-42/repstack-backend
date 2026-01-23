@@ -13,11 +13,11 @@ module Types
       description: "Current strength level (BEGINNER, INTERMEDIATE, ADVANCED)"
     argument :endurance_level, String, required: true,
       description: "Current endurance level (BEGINNER, INTERMEDIATE, ADVANCED)"
-    argument :injury_history, [String], required: false,
+    argument :injury_history, [ String ], required: false,
       description: "List of past injuries"
-    argument :fitness_goals, [String], required: true,
+    argument :fitness_goals, [ String ], required: true,
       description: "Fitness goals (MUSCLE_GAIN, STRENGTH, WEIGHT_LOSS, etc.)"
-    argument :available_equipment, [String], required: false,
+    argument :available_equipment, [ String ], required: false,
       description: "Available equipment (bodyweight, dumbbells, barbell, etc.)"
   end
 end

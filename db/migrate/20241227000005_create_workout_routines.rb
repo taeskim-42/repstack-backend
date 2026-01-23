@@ -15,7 +15,7 @@ class CreateWorkoutRoutines < ActiveRecord::Migration[8.0]
       t.timestamps
     end
 
-    add_index :workout_routines, [:user_id, :level, :week_number, :day_number]
-    add_index :workout_routines, [:user_id, :is_completed]
+    add_index :workout_routines, [ :user_id, :level, :week_number, :day_number ]
+    add_index :workout_routines, [ :user_id, :is_completed ]
   end
 end

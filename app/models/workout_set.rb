@@ -22,7 +22,7 @@ class WorkoutSet < ApplicationRecord
   # Instance methods
   def volume
     return 0 unless weight.present? && reps.present?
-    
+
     weight * reps
   end
 
@@ -48,14 +48,14 @@ class WorkoutSet < ApplicationRecord
   end
 
   def weight_in_kg
-    return weight if weight_unit == 'kg'
+    return weight if weight_unit == "kg"
     return nil unless weight
 
     (weight * 0.453592).round(2) # Convert lbs to kg
   end
 
   def weight_in_lbs
-    return weight if weight_unit == 'lbs'
+    return weight if weight_unit == "lbs"
     return nil unless weight
 
     (weight * 2.20462).round(2) # Convert kg to lbs
@@ -64,12 +64,12 @@ class WorkoutSet < ApplicationRecord
   private
 
   def set_defaults
-    self.weight_unit ||= 'kg'
+    self.weight_unit ||= "kg"
   end
 
   def has_either_reps_or_duration
     if reps.blank? && duration_seconds.blank?
-      errors.add(:base, 'Must have either reps or duration')
+      errors.add(:base, "Must have either reps or duration")
     end
   end
 end

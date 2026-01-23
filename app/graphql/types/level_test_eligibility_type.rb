@@ -17,7 +17,7 @@ module Types
     def remaining_workouts
       return nil unless object[:required_workouts] && object[:current_workouts]
 
-      [object[:required_workouts] - object[:current_workouts], 0].max
+      [ object[:required_workouts] - object[:current_workouts], 0 ].max
     end
   end
 end

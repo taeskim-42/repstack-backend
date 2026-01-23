@@ -10,7 +10,7 @@ module AiTrainer
         id: "FF01",
         korean: "근력",
         description: "Maximum force production",
-        days: [1, 4], # Monday, Thursday
+        days: [ 1, 4 ], # Monday, Thursday
         training_method: "fixed_sets_reps",
         typical_bpm: 30,
         typical_rest: 60
@@ -19,7 +19,7 @@ module AiTrainer
         id: "FF02",
         korean: "근지구력",
         description: "Sustained muscle performance",
-        days: [2], # Tuesday
+        days: [ 2 ], # Tuesday
         training_method: "total_reps_fill",
         typical_bpm: 30,
         typical_rest: 30
@@ -28,7 +28,7 @@ module AiTrainer
         id: "FF03",
         korean: "지속력",
         description: "Continuous performance capacity",
-        days: [3], # Wednesday
+        days: [ 3 ], # Wednesday
         training_method: "max_sets_at_fixed_reps",
         typical_bpm: 30,
         typical_rest: 45
@@ -37,7 +37,7 @@ module AiTrainer
         id: "FF04",
         korean: "순발력",
         description: "Explosive force production",
-        days: [1], # Monday (intermediate+)
+        days: [ 1 ], # Monday (intermediate+)
         training_method: "explosive",
         typical_bpm: nil,
         typical_rest: 90
@@ -46,7 +46,7 @@ module AiTrainer
         id: "FF05",
         korean: "심폐지구력",
         description: "Heart and lung endurance",
-        days: [5], # Friday
+        days: [ 5 ], # Friday
         training_method: "tabata",
         typical_bpm: nil,
         typical_rest: 10
@@ -71,9 +71,9 @@ module AiTrainer
     # GRADES (등급 시스템)
     # ============================================================
     GRADES = {
-      normal: { id: "GR01", korean: "정상인", description: "Basic health maintenance", levels: [1, 2, 3] },
-      healthy: { id: "GR02", korean: "건강인", description: "Active lifestyle", levels: [4, 5] },
-      athletic: { id: "GR03", korean: "운동인", description: "Athletic performance", levels: [6, 7, 8] }
+      normal: { id: "GR01", korean: "정상인", description: "Basic health maintenance", levels: [ 1, 2, 3 ] },
+      healthy: { id: "GR02", korean: "건강인", description: "Active lifestyle", levels: [ 4, 5 ] },
+      athletic: { id: "GR03", korean: "운동인", description: "Athletic performance", levels: [ 6, 7, 8 ] }
     }.freeze
 
     # ============================================================
@@ -210,7 +210,7 @@ module AiTrainer
         description: "메트로놈 템포 (beats per minute)"
       },
       range_of_motion: {
-        options: [:full, :medium, :short],
+        options: [ :full, :medium, :short ],
         korean: { full: "풀", medium: "중간", short: "깔" },
         default_by_factor: {
           strength: :full,
@@ -248,19 +248,19 @@ module AiTrainer
         id: "TM01",
         korean: "정해진 세트/횟수",
         description: "Perform exactly X sets of Y reps",
-        applies_to: [:strength]
+        applies_to: [ :strength ]
       },
       total_reps_fill: {
         id: "TM02",
         korean: "채우기",
         description: "Complete target total reps regardless of sets",
-        applies_to: [:muscular_endurance]
+        applies_to: [ :muscular_endurance ]
       },
       max_sets_at_fixed_reps: {
         id: "TM03",
         korean: "지속력 측정",
         description: "How many sets of fixed reps can you sustain?",
-        applies_to: [:sustainability]
+        applies_to: [ :sustainability ]
       },
       tabata: {
         id: "TM04",
@@ -269,13 +269,13 @@ module AiTrainer
         work_duration: 20,
         rest_duration: 10,
         rounds: 8,
-        applies_to: [:cardiovascular]
+        applies_to: [ :cardiovascular ]
       },
       explosive: {
         id: "TM05",
         korean: "폭발적 수행",
         description: "Maximum speed/power per rep with full recovery",
-        applies_to: [:power]
+        applies_to: [ :power ]
       }
     }.freeze
 

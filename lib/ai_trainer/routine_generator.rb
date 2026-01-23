@@ -169,7 +169,7 @@ module AiTrainer
       request.body = {
         model: MODEL,
         max_tokens: MAX_TOKENS,
-        messages: [{ role: "user", content: prompt }]
+        messages: [ { role: "user", content: prompt } ]
       }.to_json
 
       response = http.request(request)

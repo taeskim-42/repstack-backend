@@ -201,6 +201,75 @@ jobs:
           name: load-test-results
           path: load-test-results.json
 
+  update-docs:
+    name: Update API Documentation
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.ref == 'refs/heads/main'
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: repstack_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ env.RUBY_VERSION }}
+          bundler-cache: true
+
+      - name: Set up Node.js (for SpectaQL)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install SpectaQL
+        run: npm install -g spectaql
+
+      - name: Set up database
+        run: |
+          bundle exec rails db:create
+          bundle exec rails db:schema:load
+
+      - name: Generate GraphQL schema and docs
+        run: |
+          bundle exec rails graphql:schema:dump
+          bundle exec rails graphql:schema:docs
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet schema.graphql docs/; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push docs
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add schema.graphql docs/
+          git commit -m "docs: API 문서 자동 업데이트 [skip ci]"
+          git push
+
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest

@@ -5,6 +5,6 @@ module Types
     graphql_name "SyncOfflineInput"
     description "Input for syncing offline workout records"
 
-    argument :records, [Types::OfflineRecordInputType], required: true, description: "List of offline records to sync"
+    argument :records, [ Types::OfflineRecordInputType ], required: true, description: "List of offline records to sync"
   end
 end

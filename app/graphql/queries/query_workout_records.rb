@@ -126,7 +126,7 @@ module Queries
     end
 
     def format_records(sets)
-      grouped = sets.group_by { |s| [s.created_at.to_date, s.exercise_name] }
+      grouped = sets.group_by { |s| [ s.created_at.to_date, s.exercise_name ] }
 
       grouped.map do |(date, exercise_name), exercise_sets|
         total_sets = exercise_sets.count

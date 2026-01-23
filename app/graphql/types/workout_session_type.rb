@@ -12,7 +12,7 @@ module Types
     field :notes, String, null: true
     field :created_at, String, null: false
     field :updated_at, String, null: false
-    field :workout_sets, [Types::WorkoutSetType], null: false
+    field :workout_sets, [ Types::WorkoutSetType ], null: false
     field :user, Types::UserType, null: false
 
     # Computed fields

@@ -10,14 +10,14 @@ module Mutations
       description: "Name for test user (default: Test User)"
 
     field :auth_payload, Types::AuthPayloadType, null: true
-    field :errors, [String], null: false
+    field :errors, [ String ], null: false
 
     TOKEN_EXPIRY_HOURS = 24
 
     def resolve(email: nil, name: nil)
       # Only allow in development/test environments or when explicitly enabled
       unless Rails.env.development? || Rails.env.test? || ENV["ALLOW_DEV_SIGN_IN"] == "true"
-        return { auth_payload: nil, errors: ["devSignIn is only available in development/test environments"] }
+        return { auth_payload: nil, errors: [ "devSignIn is only available in development/test environments" ] }
       end
 
       email ||= "test@example.com"
@@ -42,7 +42,7 @@ module Mutations
         errors: []
       }
     rescue ActiveRecord::RecordInvalid => e
-      { auth_payload: nil, errors: [e.message] }
+      { auth_payload: nil, errors: [ e.message ] }
     end
   end
 end

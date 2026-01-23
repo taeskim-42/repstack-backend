@@ -18,7 +18,7 @@ class CreateRoutineExercises < ActiveRecord::Migration[8.0]
       t.timestamps
     end
 
-    add_index :routine_exercises, [:workout_routine_id, :order_index]
-    add_index :routine_exercises, [:exercise_name, :target_muscle]
+    add_index :routine_exercises, [ :workout_routine_id, :order_index ]
+    add_index :routine_exercises, [ :exercise_name, :target_muscle ]
   end
 end

@@ -16,7 +16,7 @@ module Mutations
     argument :set_number, Integer, required: false
 
     field :workout_set, Types::WorkoutSetType, null: true
-    field :errors, [String], null: false
+    field :errors, [ String ], null: false
 
     VALID_WEIGHT_UNITS = %w[kg lbs].freeze
 

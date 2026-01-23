@@ -8,7 +8,7 @@ module Mutations
     argument :user_name, String, required: false, description: "User's name (only provided on first sign in)"
 
     field :auth_payload, Types::AuthPayloadType, null: true
-    field :errors, [String], null: false
+    field :errors, [ String ], null: false
 
     TOKEN_EXPIRY_HOURS = 24
 

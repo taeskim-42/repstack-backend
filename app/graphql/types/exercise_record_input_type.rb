@@ -10,9 +10,9 @@ module Types
       description: "Target muscle group (CHEST, BACK, LEGS, etc.)"
     argument :planned_sets, Integer, required: true,
       description: "Number of planned sets"
-    argument :completed_sets, [Types::SetRecordInputType], required: true,
+    argument :completed_sets, [ Types::SetRecordInputType ], required: true,
       description: "Array of completed sets"
-    argument :rest_time_between_sets, [Integer], required: false,
+    argument :rest_time_between_sets, [ Integer ], required: false,
       description: "Rest time between each set in seconds"
   end
 end

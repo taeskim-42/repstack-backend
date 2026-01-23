@@ -120,7 +120,7 @@ class UserSimulator
         workoutFrequency: 3,
         strengthLevel: "BEGINNER",
         enduranceLevel: "BEGINNER",
-        fitnessGoals: ["MUSCLE_GAIN", "STRENGTH"]
+        fitnessGoals: [ "MUSCLE_GAIN", "STRENGTH" ]
       }
     )
 
@@ -194,20 +194,20 @@ class UserSimulator
     base_energy = 3 + rand(3) # 3-5
     base_stress = 1 + rand(4) # 1-4
     base_motivation = 2 + rand(4) # 2-5
-    base_time = [30, 45, 60, 75, 90].sample # Available time in minutes
+    base_time = [ 30, 45, 60, 75, 90 ].sample # Available time in minutes
 
     # Worse conditions on Monday (back from weekend) and Friday (accumulated fatigue)
     if @day == 1
-      base_energy = [base_energy - 1, 1].max
+      base_energy = [ base_energy - 1, 1 ].max
     elsif @day == 5
-      base_energy = [base_energy - 1, 1].max
-      base_stress = [base_stress + 1, 5].min
+      base_energy = [ base_energy - 1, 1 ].max
+      base_stress = [ base_stress + 1, 5 ].min
     end
 
     # Occasional bad days (10% chance)
     if rand < 0.1
-      base_sleep_quality = [1, 2].sample
-      base_energy = [1, 2].sample
+      base_sleep_quality = [ 1, 2 ].sample
+      base_energy = [ 1, 2 ].sample
     end
 
     {
@@ -296,7 +296,7 @@ class UserSimulator
     base_rate = 0.6 + (condition_score / 5.0) * 0.4  # 0.6 - 1.0
 
     # Add some randomness
-    completion_rate = [0.3, [1.0, base_rate + (rand - 0.5) * 0.3].min].max
+    completion_rate = [ 0.3, [ 1.0, base_rate + (rand - 0.5) * 0.3 ].min ].max
 
     # Simulate actual reps completed for each exercise
     exercises_performance = routine[:exercises].map do |ex|
@@ -340,8 +340,8 @@ class UserSimulator
     # Build exercises with proper format
     exercises = performance[:exercises].map do |ex|
       weight = rand(10..30).to_f
-      sets_count = [ex[:actual_sets], 1].max
-      reps_count = [ex[:actual_reps], 1].max
+      sets_count = [ ex[:actual_sets], 1 ].max
+      reps_count = [ ex[:actual_reps], 1 ].max
 
       completed_sets = (1..sets_count).map do |set_num|
         {
@@ -363,11 +363,11 @@ class UserSimulator
     # RPE based on completion rate
     rpe = if performance[:completion_rate] >= 0.9
             rand(4..6)
-          elsif performance[:completion_rate] >= 0.7
+    elsif performance[:completion_rate] >= 0.7
             rand(6..8)
-          else
+    else
             rand(8..10)
-          end
+    end
 
     graphql_request(query,
       workoutInput: {
@@ -382,20 +382,20 @@ class UserSimulator
 
   def generate_random_feedback(performance)
     rating = if performance[:completion_rate] >= 0.9
-               [4, 5].sample
-             elsif performance[:completion_rate] >= 0.7
-               [3, 4].sample
-             else
-               [2, 3].sample
-             end
+               [ 4, 5 ].sample
+    elsif performance[:completion_rate] >= 0.7
+               [ 3, 4 ].sample
+    else
+               [ 2, 3 ].sample
+    end
 
     difficulty = if performance[:completion_rate] >= 0.9
-                   ["EASY", "JUST_RIGHT"].sample
-                 elsif performance[:completion_rate] >= 0.6
-                   ["JUST_RIGHT", "HARD"].sample
-                 else
-                   ["HARD", "TOO_HARD"].sample
-                 end
+                   [ "EASY", "JUST_RIGHT" ].sample
+    elsif performance[:completion_rate] >= 0.6
+                   [ "JUST_RIGHT", "HARD" ].sample
+    else
+                   [ "HARD", "TOO_HARD" ].sample
+    end
 
     feedback_texts = [
       "오늘 운동 잘 했어요",
@@ -509,7 +509,7 @@ class UserSimulator
         {
           exerciseType: ex["exerciseType"],
           weightKg: target_weight - rand(5..15),
-          reps: [1, target_reps - rand(2..4)].max
+          reps: [ 1, target_reps - rand(2..4) ].max
         }
       end
     end

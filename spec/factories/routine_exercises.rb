@@ -4,7 +4,7 @@ FactoryBot.define do
   factory :routine_exercise do
     association :workout_routine
     sequence(:order_index) { |n| n }
-    sequence(:exercise_name) { |n| ["푸시업", "스쿼트", "플랭크", "턱걸이"][n % 4] }
+    sequence(:exercise_name) { |n| [ "푸시업", "스쿼트", "플랭크", "턱걸이" ][n % 4] }
     target_muscle { %w[chest legs core back][rand(4)] }
     sets { 3 }
     reps { 10 }

@@ -39,7 +39,7 @@ Yabeda.configure do
     histogram :workout_session_duration_seconds do
       comment "Duration of workout sessions in seconds"
       unit :seconds
-      buckets [60, 300, 600, 900, 1800, 3600, 5400, 7200]
+      buckets [ 60, 300, 600, 900, 1800, 3600, 5400, 7200 ]
     end
 
     # AI routine generation metrics
@@ -51,7 +51,7 @@ Yabeda.configure do
     histogram :routine_generation_duration_seconds do
       comment "Duration of AI routine generation in seconds"
       unit :seconds
-      buckets [0.1, 0.5, 1, 2, 5, 10, 30, 60]
+      buckets [ 0.1, 0.5, 1, 2, 5, 10, 30, 60 ]
     end
 
     # Circuit breaker metrics
@@ -77,7 +77,7 @@ Yabeda.configure do
     histogram :query_duration_seconds do
       comment "Database query duration in seconds"
       unit :seconds
-      buckets [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1]
+      buckets [ 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1 ]
       tags %i[operation]
     end
 

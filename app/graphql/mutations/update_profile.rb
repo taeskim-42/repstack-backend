@@ -7,7 +7,7 @@ module Mutations
     argument :profile_input, Types::UserProfileInputType, required: true
 
     field :user_profile, Types::UserProfileType, null: true
-    field :errors, [String], null: false
+    field :errors, [ String ], null: false
 
     def resolve(profile_input:)
       with_error_handling(user_profile: nil) do

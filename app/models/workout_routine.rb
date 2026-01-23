@@ -23,7 +23,7 @@ class WorkoutRoutine < ApplicationRecord
   # Instance methods
   def complete!
     update!(is_completed: true, completed_at: Time.current)
-    
+
     # Advance user to next day
     user.user_profile&.advance_day!
   end
@@ -52,7 +52,7 @@ class WorkoutRoutine < ApplicationRecord
   def workout_summary
     muscle_groups = routine_exercises.distinct.pluck(:target_muscle).compact
     exercise_count = total_exercises
-    
+
     {
       level: level,
       week: week_number,

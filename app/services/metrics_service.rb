@@ -67,11 +67,11 @@ class MetricsService
       return unless metrics_enabled?
 
       state_value = case state
-                    when :closed then 0
-                    when :open then 1
-                    when :half_open then 2
-                    else 0
-                    end
+      when :closed then 0
+      when :open then 1
+      when :half_open then 2
+      else 0
+      end
 
       Yabeda.repstack.circuit_breaker_state.set({ circuit_name: circuit_name.to_s }, state_value)
     rescue StandardError => e
@@ -119,7 +119,7 @@ class MetricsService
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       result = yield
       duration = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
-      [result, duration]
+      [ result, duration ]
     end
 
     private

@@ -8,10 +8,10 @@ module Mutations
     argument :workout_type, String, required: true
     argument :day_of_week, String, required: true
     argument :estimated_duration, Integer, required: true
-    argument :exercises, [Types::ExerciseInputType], required: true
+    argument :exercises, [ Types::ExerciseInputType ], required: true
 
     field :workout_routine, Types::WorkoutRoutineType, null: true
-    field :errors, [String], null: false
+    field :errors, [ String ], null: false
 
     VALID_LEVELS = %w[beginner intermediate advanced].freeze
     VALID_DAYS_OF_WEEK = %w[Monday Tuesday Wednesday Thursday Friday Saturday Sunday].freeze

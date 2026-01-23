@@ -10,10 +10,10 @@ module Types
 
     # Associations with pagination support to prevent loading too much data
     field :user_profile, Types::UserProfileType, null: true
-    field :workout_sessions, [Types::WorkoutSessionType], null: false do
+    field :workout_sessions, [ Types::WorkoutSessionType ], null: false do
       argument :limit, Integer, required: false, default_value: 10
     end
-    field :workout_routines, [Types::WorkoutRoutineType], null: false do
+    field :workout_routines, [ Types::WorkoutRoutineType ], null: false do
       argument :limit, Integer, required: false, default_value: 10
     end
 
@@ -36,14 +36,14 @@ module Types
       object.workout_sessions
             .includes(:workout_sets)
             .order(created_at: :desc)
-            .limit([limit, MAX_LIMIT].min)
+            .limit([ limit, MAX_LIMIT ].min)
     end
 
     def workout_routines(limit: 10)
       object.workout_routines
             .includes(:routine_exercises)
             .order(created_at: :desc)
-            .limit([limit, MAX_LIMIT].min)
+            .limit([ limit, MAX_LIMIT ].min)
     end
 
     def current_workout_session

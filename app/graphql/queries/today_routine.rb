@@ -23,7 +23,7 @@ module Queries
       return nil unless profile
 
       current_day = Date.current.strftime("%A")
-      day_variants = DAY_NAME_VARIANTS[current_day] || [current_day]
+      day_variants = DAY_NAME_VARIANTS[current_day] || [ current_day ]
 
       current_user.workout_routines
           .includes(:routine_exercises)

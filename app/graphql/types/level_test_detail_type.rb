@@ -9,8 +9,8 @@ module Types
     field :target_level, Integer, null: false
     field :test_type, String, null: false
     field :criteria, Types::LevelTestCriteriaType, null: false
-    field :exercises, [Types::LevelTestExerciseType], null: false
-    field :instructions, [String], null: false
+    field :exercises, [ Types::LevelTestExerciseType ], null: false
+    field :instructions, [ String ], null: false
     field :time_limit_minutes, Integer, null: false
     field :pass_conditions, Types::PassConditionsType, null: false
   end

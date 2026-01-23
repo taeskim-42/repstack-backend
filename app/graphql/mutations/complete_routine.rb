@@ -8,7 +8,7 @@ module Mutations
 
     field :workout_routine, Types::WorkoutRoutineType, null: true
     field :user_profile, Types::UserProfileType, null: true
-    field :errors, [String], null: false
+    field :errors, [ String ], null: false
 
     def resolve(routine_id:)
       with_error_handling(workout_routine: nil, user_profile: nil) do

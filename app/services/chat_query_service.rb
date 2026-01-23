@@ -93,7 +93,7 @@ class ChatQueryService
 
   def format_records(sets)
     # Group by date and exercise for cleaner output
-    grouped = sets.group_by { |s| [s.created_at.to_date, s.exercise_name] }
+    grouped = sets.group_by { |s| [ s.created_at.to_date, s.exercise_name ] }
 
     grouped.map do |(date, exercise_name), exercise_sets|
       total_sets = exercise_sets.count
@@ -145,14 +145,14 @@ class ChatQueryService
 
   def build_interpretation(time_range, exercise_name, count)
     time_desc = case time_range
-                when :today then "오늘"
-                when :yesterday then "어제"
-                when :this_week then "이번주"
-                when :last_week then "지난주"
-                when :this_month then "이번달"
-                when :last_month then "지난달"
-                else "최근 30일"
-                end
+    when :today then "오늘"
+    when :yesterday then "어제"
+    when :this_week then "이번주"
+    when :last_week then "지난주"
+    when :this_month then "이번달"
+    when :last_month then "지난달"
+    else "최근 30일"
+    end
 
     exercise_desc = exercise_name ? "#{exercise_name} " : ""
 

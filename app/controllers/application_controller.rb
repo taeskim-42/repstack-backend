@@ -21,7 +21,7 @@ class ApplicationController < ActionController::API
   end
 
   def authenticate_user!
-    raise ExceptionHandler::AuthenticationError, 'Unauthorized request' unless current_user
+    raise ExceptionHandler::AuthenticationError, "Unauthorized request" unless current_user
   end
 
   # Override this method in controllers that should allow unauthenticated access

@@ -14,7 +14,7 @@ module Types
     field :generated_at, String, null: false
     field :created_at, String, null: false
     field :updated_at, String, null: false
-    field :routine_exercises, [Types::RoutineExerciseType], null: false
+    field :routine_exercises, [ Types::RoutineExerciseType ], null: false
     field :user, Types::UserType, null: false
 
     # Computed fields

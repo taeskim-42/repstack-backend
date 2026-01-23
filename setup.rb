@@ -41,21 +41,21 @@ env_example_path = File.join(__dir__, '.env.example')
 
 unless File.exist?(env_file_path)
   puts "📄 Creating .env file from template..."
-  
+
   env_content = <<~ENV
     # Claude AI API Key (required for AI routine generation)
     ANTHROPIC_API_KEY=your_claude_api_key_here
-    
+
     # JWT Secret Key (required for authentication)
     JWT_SECRET_KEY=#{SecureRandom.hex(32)}
-    
+
     # Database Configuration (if needed)
     # DATABASE_URL=postgresql://username:password@localhost/repstack_backend_development
-    
+
     # Rails Environment
     RAILS_ENV=development
   ENV
-  
+
   File.write(env_file_path, env_content)
   puts "✅ Created .env file with default configuration"
   puts "⚠️  Please update ANTHROPIC_API_KEY in .env file"
@@ -68,7 +68,7 @@ puts "\n💎 Checking Gemfile..."
 gemfile_path = File.join(__dir__, 'Gemfile')
 gemfile_content = File.read(gemfile_path)
 
-required_gems = ['bcrypt', 'jwt', 'graphql', 'pg', 'rails']
+required_gems = [ 'bcrypt', 'jwt', 'graphql', 'pg', 'rails' ]
 missing_gems = required_gems.reject { |gem| gemfile_content.include?(gem) }
 
 if missing_gems.empty?
@@ -80,7 +80,7 @@ end
 # Check if models exist
 puts "\n🗄️  Checking models..."
 models_path = File.join(__dir__, 'app', 'models')
-required_models = ['user.rb', 'user_profile.rb', 'workout_session.rb', 'workout_set.rb', 'workout_routine.rb', 'routine_exercise.rb']
+required_models = [ 'user.rb', 'user_profile.rb', 'workout_session.rb', 'workout_set.rb', 'workout_routine.rb', 'routine_exercise.rb' ]
 
 missing_models = required_models.reject { |model| File.exist?(File.join(models_path, model)) }
 

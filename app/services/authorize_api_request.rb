@@ -33,8 +33,8 @@ class AuthorizeApiRequest
 
   # check for token in `Authorization` header
   def http_auth_header
-    if headers['Authorization'].present?
-      return headers['Authorization'].split(' ').last
+    if headers["Authorization"].present?
+      return headers["Authorization"].split(" ").last
     end
     raise(ExceptionHandler::MissingToken, Message.missing_token)
   end
@@ -42,35 +42,35 @@ end
 
 # Message class for standardized messages
 class Message
-  def self.not_found(record = 'record')
+  def self.not_found(record = "record")
     "Sorry, #{record} not found."
   end
 
   def self.invalid_credentials
-    'Invalid credentials'
+    "Invalid credentials"
   end
 
   def self.invalid_token
-    'Invalid token'
+    "Invalid token"
   end
 
   def self.missing_token
-    'Missing token'
+    "Missing token"
   end
 
   def self.unauthorized
-    'Unauthorized request'
+    "Unauthorized request"
   end
 
   def self.account_created
-    'Account created successfully'
+    "Account created successfully"
   end
 
   def self.account_not_created
-    'Account could not be created'
+    "Account could not be created"
   end
 
   def self.expired_token
-    'Sorry, your token has expired. Please login to continue.'
+    "Sorry, your token has expired. Please login to continue."
   end
 end

@@ -23,14 +23,14 @@ class UserProfile < ApplicationRecord
 
   # Scopes
   scope :by_level, ->(level) { where(current_level: level) }
-  scope :beginners, -> { where(current_level: 'beginner') }
-  scope :intermediate, -> { where(current_level: 'intermediate') }
-  scope :advanced, -> { where(current_level: 'advanced') }
+  scope :beginners, -> { where(current_level: "beginner") }
+  scope :intermediate, -> { where(current_level: "intermediate") }
+  scope :advanced, -> { where(current_level: "advanced") }
 
   # Instance methods
   def bmi
     return nil unless height.present? && weight.present?
-    
+
     height_m = height / 100.0
     (weight / (height_m * height_m)).round(1)
   end
@@ -38,21 +38,21 @@ class UserProfile < ApplicationRecord
   def bmi_category
     case bmi
     when nil
-      'Unknown'
+      "Unknown"
     when 0..18.4
-      'Underweight'
+      "Underweight"
     when 18.5..24.9
-      'Normal'
+      "Normal"
     when 25.0..29.9
-      'Overweight'
+      "Overweight"
     else
-      'Obese'
+      "Obese"
     end
   end
 
   def days_since_start
     return 0 unless program_start_date.present?
-    
+
     (Date.current - program_start_date).to_i
   end
 
@@ -66,10 +66,10 @@ class UserProfile < ApplicationRecord
 
   def advance_level!
     case current_level
-    when 'beginner'
-      update!(current_level: 'intermediate', week_number: 1, day_number: 1)
-    when 'intermediate'
-      update!(current_level: 'advanced', week_number: 1, day_number: 1)
+    when "beginner"
+      update!(current_level: "intermediate", week_number: 1, day_number: 1)
+    when "intermediate"
+      update!(current_level: "advanced", week_number: 1, day_number: 1)
     end
   end
 
@@ -124,7 +124,7 @@ class UserProfile < ApplicationRecord
   private
 
   def set_defaults
-    self.current_level ||= 'beginner'
+    self.current_level ||= "beginner"
     self.numeric_level ||= 1
     self.week_number ||= 1
     self.day_number ||= 1

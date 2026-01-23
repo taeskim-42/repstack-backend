@@ -4,7 +4,7 @@ module Queries
   class MyRoutines < BaseQuery
     description "Get current user's workout routines"
 
-    type [Types::WorkoutRoutineType], null: false
+    type [ Types::WorkoutRoutineType ], null: false
 
     argument :limit, Integer, required: false, default_value: 10
     argument :completed_only, Boolean, required: false, default_value: false
@@ -17,7 +17,7 @@ module Queries
       scope = current_user.workout_routines.includes(:routine_exercises)
       scope = scope.completed if completed_only
       scope.order(created_at: :desc)
-           .limit([limit, MAX_LIMIT].min)
+           .limit([ limit, MAX_LIMIT ].min)
     end
   end
 end

@@ -14,7 +14,7 @@ module Types
       description: "Rating 1-5 scale"
     argument :feedback, String, required: true,
       description: "Feedback text"
-    argument :suggestions, [String], required: false,
+    argument :suggestions, [ String ], required: false,
       description: "Suggestions for improvement"
     argument :would_recommend, Boolean, required: true,
       description: "Would recommend this workout"

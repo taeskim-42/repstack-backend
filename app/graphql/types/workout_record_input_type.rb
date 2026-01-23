@@ -8,7 +8,7 @@ module Types
       description: "ID of the routine that was performed"
     argument :date, String, required: false,
       description: "ISO 8601 date string"
-    argument :exercises, [Types::ExerciseRecordInputType], required: true,
+    argument :exercises, [ Types::ExerciseRecordInputType ], required: true,
       description: "Array of exercise records"
     argument :total_duration, Integer, required: true,
       description: "Total workout duration in seconds"

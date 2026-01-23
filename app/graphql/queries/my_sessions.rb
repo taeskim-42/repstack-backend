@@ -4,7 +4,7 @@ module Queries
   class MySessions < BaseQuery
     description "Get current user's workout sessions"
 
-    type [Types::WorkoutSessionType], null: false
+    type [ Types::WorkoutSessionType ], null: false
 
     argument :limit, Integer, required: false, default_value: 10
     argument :include_sets, Boolean, required: false, default_value: true
@@ -17,7 +17,7 @@ module Queries
       scope = current_user.workout_sessions
       scope = scope.includes(:workout_sets) if include_sets
       scope.order(created_at: :desc)
-           .limit([limit, MAX_LIMIT].min)
+           .limit([ limit, MAX_LIMIT ].min)
     end
   end
 end

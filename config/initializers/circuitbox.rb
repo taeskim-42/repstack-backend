@@ -10,9 +10,9 @@
 # Memory store is faster but doesn't share state across processes
 Circuitbox.default_circuit_store = if Rails.env.production?
                                      Rails.cache
-                                   else
+else
                                      Circuitbox::MemoryStore.new
-                                   end
+end
 
 # Optional: Set a custom notifier for circuit events
 # Circuitbox.default_notifier = MyCustomNotifier.new

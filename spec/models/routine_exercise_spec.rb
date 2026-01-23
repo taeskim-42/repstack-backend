@@ -54,7 +54,7 @@ RSpec.describe RoutineExercise, type: :model do
 
     describe ".ordered" do
       it "orders by order_index" do
-        expect(workout_routine.routine_exercises.ordered.map(&:order_index)).to eq([1, 2, 3])
+        expect(workout_routine.routine_exercises.ordered.map(&:order_index)).to eq([ 1, 2, 3 ])
       end
     end
 

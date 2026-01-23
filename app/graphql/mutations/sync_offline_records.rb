@@ -4,11 +4,11 @@ module Mutations
   class SyncOfflineRecords < BaseMutation
     description "Sync offline workout records to the server"
 
-    argument :records, [Types::OfflineRecordInputType], required: true, description: "List of offline records to sync"
+    argument :records, [ Types::OfflineRecordInputType ], required: true, description: "List of offline records to sync"
 
     field :success, Boolean, null: false
     field :synced_count, Integer, null: false
-    field :failed_records, [Types::FailedSyncRecordType], null: true
+    field :failed_records, [ Types::FailedSyncRecordType ], null: true
     field :error, String, null: true
 
     def resolve(records:)

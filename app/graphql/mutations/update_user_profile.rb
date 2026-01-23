@@ -13,7 +13,7 @@ module Mutations
     argument :day_number, Integer, required: false
 
     field :user_profile, Types::UserProfileType, null: true
-    field :errors, [String], null: false
+    field :errors, [ String ], null: false
 
     VALID_LEVELS = %w[beginner intermediate advanced].freeze
     DAY_RANGE = (1..7).freeze

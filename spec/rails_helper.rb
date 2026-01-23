@@ -26,7 +26,7 @@ end
 
 RSpec.configure do |config|
   # Remove this line if you're not using ActiveRecord
-  config.fixture_paths = [Rails.root.join("spec/fixtures")]
+  config.fixture_paths = [ Rails.root.join("spec/fixtures") ]
 
   # Use transactional fixtures
   config.use_transactional_fixtures = true
@@ -80,7 +80,7 @@ VCR.configure do |config|
   # Record mode - :new_episodes records new requests, uses cached for existing
   config.default_cassette_options = {
     record: :new_episodes,
-    match_requests_on: [:method, :uri, :body]
+    match_requests_on: [ :method, :uri, :body ]
   }
 end
 

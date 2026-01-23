@@ -4,7 +4,7 @@ module Types
     field :week, Integer, null: false
     field :day, Integer, null: false
     field :exercises, Integer, null: false
-    field :muscle_groups, [String], null: false
+    field :muscle_groups, [ String ], null: false
     field :estimated_duration, String, null: true
   end
 end

@@ -37,6 +37,12 @@ end
 group :development do
   # Performance & Debugging
   gem "bullet" # N+1 query detection
+
+  # Linting
+  gem "rubocop", require: false
+  gem "rubocop-rails", require: false
+  gem "rubocop-rspec", require: false
+  gem "rubocop-rails-omakase", require: false
 end
 
 # Circuit Breaker for external API resilience

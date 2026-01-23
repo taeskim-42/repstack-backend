@@ -3,7 +3,7 @@
 FactoryBot.define do
   factory :workout_set do
     association :workout_session
-    sequence(:exercise_name) { |n| ["Push-up", "Squat", "Deadlift", "Bench Press", "Pull-up"][n % 5] }
+    sequence(:exercise_name) { |n| [ "Push-up", "Squat", "Deadlift", "Bench Press", "Pull-up" ][n % 5] }
     weight { 50.0 }
     weight_unit { "kg" }
     reps { 10 }

@@ -92,7 +92,7 @@ class Rack::Attack
       retry_after: retry_after
     }.to_json
 
-    [429, headers, [body]]
+    [ 429, headers, [ body ] ]
   end
 
   # Customize blocked response
@@ -103,7 +103,7 @@ class Rack::Attack
       message: "접근이 차단되었습니다."
     }.to_json
 
-    [403, headers, [body]]
+    [ 403, headers, [ body ] ]
   end
 
   ### Helper methods ###
