@@ -6,16 +6,6 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
   let(:user) { create(:user) }
   let!(:profile) { create(:user_profile, :needs_assessment, user: user) }
 
-  describe "constants" do
-    it "uses Haiku model for cost efficiency" do
-      expect(described_class::MODEL).to eq("claude-3-5-haiku-20241022")
-    end
-
-    it "uses correct API URL" do
-      expect(described_class::API_URL).to eq("https://api.anthropic.com/v1/messages")
-    end
-  end
-
   describe ".needs_assessment?" do
     context "when user has no profile" do
       let(:user_without_profile) { create(:user) }
@@ -43,10 +33,12 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
   end
 
   describe ".assess" do
-    context "in development mode without API key" do
+    context "when LlmGateway returns failure (falls back to mock)" do
       before do
-        allow(Rails.env).to receive(:development?).and_return(true)
-        allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return(nil)
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API not configured'
+        })
       end
 
       it "returns mock response for initial state" do
@@ -56,17 +48,63 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
         expect(result[:message]).to be_present
         expect(result[:is_complete]).to be false
       end
+    end
 
-      it "progresses through assessment states" do
-        # First call - initial
+    context "with LlmGateway configured" do
+      let(:initial_response) do
+        {
+          "message" => "좋아요! 운동 경험이 어느 정도 되시나요?",
+          "next_state" => "asking_experience",
+          "collected_data" => {},
+          "is_complete" => false,
+          "assessment" => nil
+        }
+      end
+
+      let(:complete_response) do
+        {
+          "message" => "수준 파악 완료!",
+          "next_state" => "completed",
+          "collected_data" => {},
+          "is_complete" => true,
+          "assessment" => {
+            "experience_level" => "intermediate",
+            "numeric_level" => 3,
+            "fitness_goal" => "근비대",
+            "summary" => "중급자"
+          }
+        }
+      end
+
+      it "progresses through assessment states with mocked responses" do
+        # Mock first 3 calls returning incomplete
+        call_count = 0
+        allow(AiTrainer::LlmGateway).to receive(:chat) do
+          call_count += 1
+          if call_count < 4
+            {
+              success: true,
+              content: initial_response.merge("next_state" => "asking_#{call_count}").to_json,
+              model: 'claude-3-5-haiku-20241022'
+            }
+          else
+            {
+              success: true,
+              content: complete_response.to_json,
+              model: 'claude-3-5-haiku-20241022'
+            }
+          end
+        end
+
+        # First call
         result1 = described_class.assess(user: user, message: "안녕")
         expect(result1[:is_complete]).to be false
 
-        # Second call - asking experience
+        # Second call
         result2 = described_class.assess(user: user, message: "1년 정도 했어요")
         expect(result2[:is_complete]).to be false
 
-        # Third call - asking frequency
+        # Third call
         result3 = described_class.assess(user: user, message: "주 3회")
         expect(result3[:is_complete]).to be false
 
@@ -78,11 +116,13 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
       end
 
       it "updates profile when assessment is complete" do
-        # Progress to completion
-        described_class.assess(user: user, message: "안녕")
-        described_class.assess(user: user, message: "1년")
-        described_class.assess(user: user, message: "주 3회")
-        described_class.assess(user: user, message: "근비대")
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: true,
+          content: complete_response.to_json,
+          model: 'claude-3-5-haiku-20241022'
+        })
+
+        described_class.assess(user: user, message: "완료")
 
         profile.reload
         expect(profile.level_assessed_at).to be_present
@@ -90,65 +130,41 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
         expect(profile.current_level).to eq "intermediate"
         expect(profile.fitness_goal).to eq "근비대"
       end
-    end
-
-    context "with API key configured" do
-      let(:api_response) do
-        {
-          "content" => [
-            {
-              "text" => {
-                "message" => "좋아요! 운동 경험이 어느 정도 되시나요?",
-                "next_state" => "asking_experience",
-                "collected_data" => {},
-                "is_complete" => false,
-                "assessment" => nil
-              }.to_json
-            }
-          ]
-        }
-      end
 
       before do
-        allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return("test-key")
-        allow_any_instance_of(Net::HTTP).to receive(:request).and_return(
-          double(code: "200", body: api_response.to_json)
-        )
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: true,
+          content: initial_response.to_json,
+          model: 'claude-3-5-haiku-20241022'
+        })
       end
 
-      it "calls Claude API and returns response" do
+      it "calls LlmGateway and returns response" do
         result = described_class.assess(user: user, message: "안녕하세요")
 
         expect(result[:success]).to be true
         expect(result[:message]).to be_present
       end
 
-      it "sends valid API request body with non-empty messages" do
-        request_body = nil
-
-        allow_any_instance_of(Net::HTTP).to receive(:request) do |_, req|
-          request_body = JSON.parse(req.body)
-          double(code: "200", body: api_response.to_json)
-        end
-
-        described_class.assess(user: user, message: "테스트 메시지")
-
-        expect(request_body).to be_present
-        expect(request_body["model"]).to eq("claude-3-5-haiku-20241022")
-        expect(request_body["messages"]).to be_an(Array)
-
-        # Verify all messages have non-empty content
-        request_body["messages"].each do |msg|
-          expect(msg["content"]).to be_present
-          expect(msg["content"].strip).not_to be_empty
-        end
-      end
     end
 
     context "edge cases" do
+      let(:mock_response) do
+        {
+          "message" => "응답 메시지",
+          "next_state" => "asking_experience",
+          "collected_data" => {},
+          "is_complete" => false,
+          "assessment" => nil
+        }
+      end
+
       before do
-        allow(Rails.env).to receive(:development?).and_return(true)
-        allow(ENV).to receive(:[]).with("ANTHROPIC_API_KEY").and_return(nil)
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: true,
+          content: mock_response.to_json,
+          model: 'claude-3-5-haiku-20241022'
+        })
       end
 
       it "handles empty user message gracefully" do

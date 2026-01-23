@@ -7,18 +7,20 @@ RSpec.describe AiTrainer::ConditionService do
   let(:service) { described_class.new(user: user) }
 
   describe '.analyze_from_text' do
-    context 'without API key (mock mode)' do
+    context 'without API key (mock mode via LlmGateway)' do
       before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API not configured'
+        })
       end
 
-      it 'returns success' do
+      it 'returns success (falls back to mock)' do
         result = described_class.analyze_from_text(user: user, text: '오늘 컨디션 좋아요')
         expect(result[:success]).to be true
       end
 
-      it 'returns default score' do
+      it 'returns default score from mock' do
         result = described_class.analyze_from_text(user: user, text: '오늘 컨디션 좋아요')
         expect(result[:score]).to eq(70)
       end
@@ -44,11 +46,9 @@ RSpec.describe AiTrainer::ConditionService do
       end
     end
 
-    context 'when error occurs' do
+    context 'when exception is raised' do
       before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-        allow_any_instance_of(Net::HTTP).to receive(:request).and_raise(StandardError, 'Network error')
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_raise(StandardError, 'Network error')
       end
 
       it 'returns error response' do
@@ -131,57 +131,6 @@ RSpec.describe AiTrainer::ConditionService do
     end
   end
 
-  describe '#api_configured?' do
-    context 'when API key is set' do
-      before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-      end
-
-      it 'returns true' do
-        expect(service.send(:api_configured?)).to be true
-      end
-    end
-
-    context 'when API key is not set' do
-      before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
-      end
-
-      it 'returns false' do
-        expect(service.send(:api_configured?)).to be false
-      end
-    end
-  end
-
-  describe '#call_claude_api' do
-    before do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-    end
-
-    it 'returns text content on success' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(
-          status: 200,
-          body: { content: [ { text: '{"score": 80}' } ] }.to_json,
-          headers: { 'Content-Type' => 'application/json' }
-        )
-
-      result = service.send(:call_claude_api, 'test prompt')
-      expect(result).to eq('{"score": 80}')
-    end
-
-    it 'raises error on non-200 response' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(status: 500, body: 'Internal Server Error')
-
-      expect { service.send(:call_claude_api, 'test prompt') }
-        .to raise_error(RuntimeError, /Claude API returned 500/)
-    end
-  end
-
   describe '#parse_response' do
     let(:valid_response) do
       <<~JSON
@@ -256,36 +205,43 @@ RSpec.describe AiTrainer::ConditionService do
     end
   end
 
-  describe 'with API configured' do
-    before do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
+  describe 'with LlmGateway' do
+    let(:mock_response_content) do
+      {
+        "parsed_condition" => {"energy_level" => 4, "stress_level" => 2, "sleep_quality" => 4, "motivation" => 4, "soreness" => 1},
+        "overall_score" => 80,
+        "status" => "good",
+        "message" => "좋아요!",
+        "adaptations" => [],
+        "recommendations" => []
+      }
     end
 
-    it 'calls Claude API when configured' do
-      mock_response = <<~JSON
-        ```json
-        {
-          "parsed_condition": {"energy_level": 4, "stress_level": 2, "sleep_quality": 4, "motivation": 4, "soreness": 1},
-          "overall_score": 80,
-          "status": "good",
-          "message": "좋아요!",
-          "adaptations": [],
-          "recommendations": []
-        }
-        ```
-      JSON
-
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(
-          status: 200,
-          body: { content: [ { text: mock_response } ] }.to_json,
-          headers: { 'Content-Type' => 'application/json' }
-        )
+    it 'uses LlmGateway for API calls' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+        success: true,
+        content: mock_response_content.to_json,
+        model: 'claude-3-5-haiku-20241022'
+      })
 
       result = service.analyze_from_text('오늘 좋아요')
       expect(result[:success]).to be true
       expect(result[:score]).to eq(80)
+
+      expect(AiTrainer::LlmGateway).to have_received(:chat).with(
+        hash_including(task: :condition_check)
+      )
+    end
+
+    it 'falls back to mock on LlmGateway failure' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+        success: false,
+        error: 'API error'
+      })
+
+      result = service.analyze_from_text('오늘 좋아요')
+      expect(result[:success]).to be true  # Falls back to mock
+      expect(result[:score]).to eq(70)     # Default mock score
     end
   end
 end

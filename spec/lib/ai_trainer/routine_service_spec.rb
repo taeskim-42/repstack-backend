@@ -7,15 +7,32 @@ RSpec.describe AiTrainer::RoutineService do
   let!(:user_profile) { create(:user_profile, user: user, numeric_level: 3, height: 175, weight: 70) }
 
   describe '.generate' do
-    context 'without API key' do
+    context 'without API key (mock mode)' do
       before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
+        # LlmGateway returns mock data when API key is not configured
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: true,
+          content: '{"exercises": [{"order": 1, "exercise_name": "벤치프레스"}], "estimated_duration_minutes": 45, "notes": [], "variation_seed": "test"}',
+          model: 'mock'
+        })
+      end
+
+      it 'returns routine from mock response' do
+        result = described_class.generate(user: user)
+        expect(result[:routine_id]).to start_with('RT-')
+      end
+    end
+
+    context 'when generator returns error' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API error'
+        })
       end
 
       it 'returns nil when generator returns error' do
         result = described_class.generate(user: user)
-        # Without API key, RoutineGenerator returns error hash without routine_id
         expect(result).to be_nil
       end
     end

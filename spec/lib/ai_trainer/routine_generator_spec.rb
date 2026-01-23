@@ -73,16 +73,34 @@ RSpec.describe AiTrainer::RoutineGenerator do
   end
 
   describe '#generate' do
-    context 'without API key' do
+    context 'without API key (mock mode)' do
       before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: true,
+          content: '{"exercises": [{"order": 1, "exercise_name": "벤치프레스"}], "estimated_duration_minutes": 45, "notes": [], "variation_seed": "test"}',
+          model: 'mock'
+        })
       end
 
-      it 'returns error when API key not configured' do
+      it 'returns routine from mock response' do
+        result = generator.generate
+        expect(result[:routine_id]).to start_with('RT-')
+        expect(result[:exercises]).to be_an(Array)
+      end
+    end
+
+    context 'when LlmGateway returns error' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API error'
+        })
+      end
+
+      it 'returns error response' do
         result = generator.generate
         expect(result[:success]).to be false
-        expect(result[:error]).to include('ANTHROPIC_API_KEY')
+        expect(result[:error]).to include('루틴 생성 실패')
       end
     end
   end
@@ -288,44 +306,40 @@ RSpec.describe AiTrainer::RoutineGenerator do
     end
   end
 
-  describe '#generate_with_claude' do
-    let(:mock_response) do
-      <<~JSON
-        ```json
-        {
-          "exercises": [
-            {
-              "order": 1,
-              "exercise_id": "EX_CH01",
-              "exercise_name": "벤치프레스",
-              "target_muscle": "chest",
-              "sets": 3,
-              "reps": 10
-            }
-          ],
-          "estimated_duration_minutes": 45,
-          "notes": ["오늘의 포인트"],
-          "variation_seed": "테스트 루틴"
-        }
-        ```
-      JSON
+  describe 'generate with LlmGateway' do
+    let(:mock_json_response) do
+      {
+        "exercises" => [
+          {
+            "order" => 1,
+            "exercise_id" => "EX_CH01",
+            "exercise_name" => "벤치프레스",
+            "target_muscle" => "chest",
+            "sets" => 3,
+            "reps" => 10
+          }
+        ],
+        "estimated_duration_minutes" => 45,
+        "notes" => ["오늘의 포인트"],
+        "variation_seed" => "테스트 루틴"
+      }
     end
 
-    before do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-    end
-
-    it 'generates routine when API is configured' do
-      allow(generator).to receive(:call_claude_api).and_return(mock_response)
+    it 'generates routine when LlmGateway returns success' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+        success: true,
+        content: mock_json_response.to_json,
+        model: 'claude-sonnet-4-20250514'
+      })
 
       result = generator.generate
       expect(result[:routine_id]).to start_with('RT-')
       expect(result[:exercises]).to be_an(Array)
+      expect(result[:exercises].first["exercise_name"]).to eq("벤치프레스")
     end
 
-    it 'handles API errors gracefully' do
-      allow(generator).to receive(:call_claude_api).and_raise(StandardError, 'Network error')
+    it 'handles LlmGateway errors gracefully' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_raise(StandardError, 'Network error')
 
       result = generator.generate
       expect(result[:success]).to be false
@@ -404,7 +418,7 @@ RSpec.describe AiTrainer::RoutineGenerator do
     end
   end
 
-  describe '#parse_claude_response' do
+  describe '#parse_response' do
     let(:valid_response) do
       <<~JSON
         ```json
@@ -437,14 +451,14 @@ RSpec.describe AiTrainer::RoutineGenerator do
     end
 
     it 'parses valid response' do
-      result = generator.send(:parse_claude_response, valid_response)
+      result = generator.send(:parse_response, valid_response)
       expect(result[:routine_id]).to start_with('RT-')
       expect(result[:exercises].length).to eq(1)
       expect(result[:exercises].first['exercise_name']).to eq('벤치프레스')
     end
 
     it 'includes metadata' do
-      result = generator.send(:parse_claude_response, valid_response)
+      result = generator.send(:parse_response, valid_response)
       expect(result[:user_level]).to eq(3)
       expect(result[:tier]).to be_present
       expect(result[:condition]).to be_a(Hash)
@@ -452,60 +466,9 @@ RSpec.describe AiTrainer::RoutineGenerator do
 
     it 'sets defaults for missing fields' do
       minimal_response = '{"exercises": []}'
-      result = generator.send(:parse_claude_response, minimal_response)
+      result = generator.send(:parse_response, minimal_response)
       expect(result[:estimated_duration_minutes]).to eq(45)
       expect(result[:notes]).to eq([])
-    end
-  end
-
-  describe '#call_claude_api' do
-    before do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-    end
-
-    it 'raises error on non-200 response' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(status: 500, body: 'Internal Server Error')
-
-      expect { generator.send(:call_claude_api, 'test prompt') }
-        .to raise_error(RuntimeError, /Claude API returned 500/)
-    end
-
-    it 'returns text content on success' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(
-          status: 200,
-          body: { content: [ { text: '{"exercises": []}' } ] }.to_json,
-          headers: { 'Content-Type' => 'application/json' }
-        )
-
-      result = generator.send(:call_claude_api, 'test prompt')
-      expect(result).to eq('{"exercises": []}')
-    end
-  end
-
-  describe '#api_configured?' do
-    context 'with API key' do
-      before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-      end
-
-      it 'returns true' do
-        expect(generator.send(:api_configured?)).to be true
-      end
-    end
-
-    context 'without API key' do
-      before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
-      end
-
-      it 'returns false' do
-        expect(generator.send(:api_configured?)).to be false
-      end
     end
   end
 

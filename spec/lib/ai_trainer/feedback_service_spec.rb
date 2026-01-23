@@ -7,18 +7,20 @@ RSpec.describe AiTrainer::FeedbackService do
   let(:service) { described_class.new(user: user) }
 
   describe '.analyze_from_text' do
-    context 'without API key (mock mode)' do
+    context 'without API key (mock mode via LlmGateway)' do
       before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API not configured'
+        })
       end
 
-      it 'returns success' do
+      it 'returns success (falls back to mock)' do
         result = described_class.analyze_from_text(user: user, text: '오늘 운동 좋았어요')
         expect(result[:success]).to be true
       end
 
-      it 'returns message' do
+      it 'returns message from mock' do
         result = described_class.analyze_from_text(user: user, text: '오늘 운동 좋았어요')
         expect(result[:message]).to be_present
       end
@@ -41,8 +43,10 @@ RSpec.describe AiTrainer::FeedbackService do
 
     context 'with routine_id' do
       before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API not configured'
+        })
       end
 
       it 'accepts routine_id parameter' do
@@ -51,11 +55,9 @@ RSpec.describe AiTrainer::FeedbackService do
       end
     end
 
-    context 'when error occurs' do
+    context 'when exception is raised' do
       before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-        allow_any_instance_of(Net::HTTP).to receive(:request).and_raise(StandardError, 'Network error')
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_raise(StandardError, 'Network error')
       end
 
       it 'returns error response' do
@@ -149,30 +151,6 @@ RSpec.describe AiTrainer::FeedbackService do
     end
   end
 
-  describe '#api_configured?' do
-    context 'when API key is set' do
-      before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-      end
-
-      it 'returns true' do
-        expect(service.send(:api_configured?)).to be true
-      end
-    end
-
-    context 'when API key is not set' do
-      before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
-      end
-
-      it 'returns false' do
-        expect(service.send(:api_configured?)).to be false
-      end
-    end
-  end
-
   describe '#mock_response' do
     it 'returns success' do
       result = service.send(:mock_response)
@@ -193,33 +171,6 @@ RSpec.describe AiTrainer::FeedbackService do
       result = service.send(:mock_response)
       expect(result[:insights]).to be_an(Array)
       expect(result[:adaptations]).to be_an(Array)
-    end
-  end
-
-  describe '#call_claude_api' do
-    before do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-    end
-
-    it 'returns text content on success' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(
-          status: 200,
-          body: { content: [ { text: '{"rating": 4}' } ] }.to_json,
-          headers: { 'Content-Type' => 'application/json' }
-        )
-
-      result = service.send(:call_claude_api, 'test prompt')
-      expect(result).to eq('{"rating": 4}')
-    end
-
-    it 'raises error on non-200 response' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(status: 500, body: 'Internal Server Error')
-
-      expect { service.send(:call_claude_api, 'test prompt') }
-        .to raise_error(RuntimeError, /Claude API returned 500/)
     end
   end
 
@@ -270,38 +221,45 @@ RSpec.describe AiTrainer::FeedbackService do
     end
   end
 
-  describe 'with API configured' do
-    before do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
+  describe 'with LlmGateway' do
+    let(:mock_response_content) do
+      {
+        "feedback_type" => "DIFFICULTY",
+        "rating" => 4,
+        "insights" => ["좋았어요"],
+        "adaptations" => ["무게 증가"],
+        "next_workout_recommendations" => [],
+        "affected_exercises" => [],
+        "affected_muscles" => [],
+        "message" => "감사합니다!"
+      }
     end
 
-    it 'calls Claude API when configured' do
-      mock_response = <<~JSON
-        ```json
-        {
-          "feedback_type": "DIFFICULTY",
-          "rating": 4,
-          "insights": ["좋았어요"],
-          "adaptations": ["무게 증가"],
-          "next_workout_recommendations": [],
-          "affected_exercises": [],
-          "affected_muscles": [],
-          "message": "감사합니다!"
-        }
-        ```
-      JSON
-
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(
-          status: 200,
-          body: { content: [ { text: mock_response } ] }.to_json,
-          headers: { 'Content-Type' => 'application/json' }
-        )
+    it 'uses LlmGateway for API calls' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+        success: true,
+        content: mock_response_content.to_json,
+        model: 'claude-3-5-haiku-20241022'
+      })
 
       result = service.analyze_from_text('오늘 좋았어요')
       expect(result[:success]).to be true
       expect(result[:message]).to eq('감사합니다!')
+
+      expect(AiTrainer::LlmGateway).to have_received(:chat).with(
+        hash_including(task: :feedback_analysis)
+      )
+    end
+
+    it 'falls back to mock on LlmGateway failure' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+        success: false,
+        error: 'API error'
+      })
+
+      result = service.analyze_from_text('오늘 좋았어요')
+      expect(result[:success]).to be true  # Falls back to mock
+      expect(result[:message]).to be_present
     end
   end
 end

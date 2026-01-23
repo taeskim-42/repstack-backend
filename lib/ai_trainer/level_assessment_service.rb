@@ -1,18 +1,14 @@
 # frozen_string_literal: true
 
 require_relative "constants"
+require_relative "llm_gateway"
 
 module AiTrainer
   # Handles initial user level assessment through conversational AI
+  # Routes to cost-efficient models via LLM Gateway
   # Automatically triggered for new users without level_assessed_at
   class LevelAssessmentService
     include Constants
-
-    API_URL = "https://api.anthropic.com/v1/messages"
-    # Use Haiku for cost efficiency (~$0.002 per request vs ~$0.015 for Sonnet)
-    # Level assessment is conversational, doesn't require advanced reasoning
-    MODEL = "claude-3-5-haiku-20241022"
-    MAX_TOKENS = 1024
 
     # Assessment conversation states
     STATES = {
@@ -44,17 +40,25 @@ module AiTrainer
     end
 
     def assess(message)
-      return mock_response if !api_configured? && Rails.env.development?
-
       # Get current assessment state from profile
       current_state = get_assessment_state
 
       # Build conversation history
       conversation = build_conversation(message, current_state)
 
-      # Call Claude API
-      response = call_claude_api(conversation)
-      result = parse_response(response, message)
+      # Call LLM Gateway
+      response = LlmGateway.chat(
+        prompt: message,
+        task: :level_assessment,
+        messages: conversation[:messages],
+        system: conversation[:system]
+      )
+
+      if response[:success]
+        result = parse_response(response, message)
+      else
+        return mock_response
+      end
 
       # Update profile if assessment is complete
       if result[:is_complete]
@@ -78,10 +82,6 @@ module AiTrainer
     private
 
     attr_reader :user, :profile
-
-    def api_configured?
-      ENV["ANTHROPIC_API_KEY"].present?
-    end
 
     def get_assessment_state
       profile.fitness_factors["assessment_state"] || STATES[:initial]
@@ -187,36 +187,8 @@ module AiTrainer
       { system: system_prompt, messages: messages }
     end
 
-    def call_claude_api(conversation)
-      uri = URI(API_URL)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
-      http.read_timeout = 30
-
-      request = Net::HTTP::Post.new(uri.path)
-      request["Content-Type"] = "application/json"
-      request["x-api-key"] = ENV["ANTHROPIC_API_KEY"]
-      request["anthropic-version"] = "2023-06-01"
-
-      request.body = {
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system: conversation[:system],
-        messages: conversation[:messages]
-      }.to_json
-
-      response = http.request(request)
-
-      if response.code.to_i == 200
-        JSON.parse(response.body)
-      else
-        Rails.logger.error("Claude API error: #{response.code} - #{response.body}")
-        raise "Claude API returned #{response.code}"
-      end
-    end
-
-    def parse_response(api_response, user_message)
-      content = api_response.dig("content", 0, "text")
+    def parse_response(llm_response, user_message)
+      content = llm_response[:content]
 
       # Try to parse as JSON
       begin

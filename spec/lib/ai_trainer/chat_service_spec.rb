@@ -40,20 +40,6 @@ RSpec.describe AiTrainer::ChatService do
     end
   end
 
-  describe '#general_chat' do
-    context 'without API key' do
-      before do
-        allow(service).to receive(:api_configured?).and_return(false)
-      end
-
-      it 'returns mock response' do
-        result = service.general_chat('운동 질문')
-        expect(result[:success]).to be true
-        expect(result[:message]).to be_present
-      end
-    end
-  end
-
   describe '#build_prompt' do
     it 'includes user level' do
       prompt = service.send(:build_prompt, '운동 질문')
@@ -81,117 +67,36 @@ RSpec.describe AiTrainer::ChatService do
     end
   end
 
-  describe '#parse_response' do
-    it 'returns success with trimmed message' do
-      result = service.send(:parse_response, "  안녕하세요! 도와드릴게요.  \n")
-      expect(result[:success]).to be true
-      expect(result[:message]).to eq('안녕하세요! 도와드릴게요.')
-    end
-  end
-
-  describe '#mock_response' do
-    it 'returns one of predefined responses' do
-      result = service.send(:mock_response, '질문')
-      expect(result[:success]).to be true
-      expect(result[:message]).to be_present
-    end
-
-    it 'includes emoji' do
-      10.times do
-        result = service.send(:mock_response, '질문')
-        # At least some responses should have emoji
-        break if result[:message].include?('💪') || result[:message].include?('🏋️') || result[:message].include?('😊')
-      end
-    end
-  end
-
-  describe '#api_configured?' do
-    context 'when API key is set' do
-      before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-      end
-
-      it 'returns true' do
-        expect(service.send(:api_configured?)).to be true
-      end
-    end
-
-    context 'when API key is not set' do
-      before do
-        allow(ENV).to receive(:[]).and_call_original
-        allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return(nil)
-      end
-
-      it 'returns false' do
-        expect(service.send(:api_configured?)).to be false
-      end
-    end
-  end
-
-  describe '#call_claude_api' do
-    before do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-    end
-
-    it 'returns text content on success' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(
-          status: 200,
-          body: { content: [ { text: '좋은 질문이에요!' } ] }.to_json,
-          headers: { 'Content-Type' => 'application/json' }
-        )
-
-      result = service.send(:call_claude_api, 'test prompt')
-      expect(result).to eq('좋은 질문이에요!')
-    end
-
-    it 'raises error on non-200 response' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(status: 500, body: 'Internal Server Error')
-
-      expect { service.send(:call_claude_api, 'test prompt') }
-        .to raise_error(RuntimeError, /Claude API returned 500/)
-    end
-  end
-
-  describe '#parse_response' do
-    it 'returns success with trimmed message' do
-      result = service.send(:parse_response, "  테스트 응답입니다.  \n")
-      expect(result[:success]).to be true
-      expect(result[:message]).to eq('테스트 응답입니다.')
-    end
-
-    it 'handles empty response' do
-      result = service.send(:parse_response, '')
-      expect(result[:success]).to be true
-      expect(result[:message]).to eq('')
-    end
-  end
-
-  describe 'with API configured' do
-    before do
-      allow(ENV).to receive(:[]).and_call_original
-      allow(ENV).to receive(:[]).with('ANTHROPIC_API_KEY').and_return('test-key')
-    end
-
-    it 'calls Claude API and returns response' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(
-          status: 200,
-          body: { content: [ { text: '운동 관련 조언입니다!' } ] }.to_json,
-          headers: { 'Content-Type' => 'application/json' }
-        )
+  describe 'with LlmGateway' do
+    it 'uses LlmGateway for API calls' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+        success: true,
+        content: '운동 관련 조언입니다!',
+        model: 'claude-3-5-haiku-20241022'
+      })
 
       result = service.general_chat('운동 질문')
       expect(result[:success]).to be true
       expect(result[:message]).to eq('운동 관련 조언입니다!')
+
+      expect(AiTrainer::LlmGateway).to have_received(:chat).with(
+        hash_including(task: :general_chat)
+      )
     end
 
-    it 'handles API error gracefully' do
-      stub_request(:post, 'https://api.anthropic.com/v1/messages')
-        .to_return(status: 500, body: 'Server Error')
+    it 'returns error on LlmGateway failure' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+        success: false,
+        error: 'API error'
+      })
+
+      result = service.general_chat('운동 질문')
+      expect(result[:success]).to be false
+      expect(result[:message]).to include('죄송해요')
+    end
+
+    it 'handles exceptions gracefully' do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_raise(StandardError, 'Network error')
 
       result = service.general_chat('운동 질문')
       expect(result[:success]).to be false

@@ -1,16 +1,14 @@
 # frozen_string_literal: true
 
 require_relative "constants"
+require_relative "llm_gateway"
 
 module AiTrainer
   # Analyzes workout feedback from natural language text
+  # Routes to cost-efficient models via LLM Gateway
   # Stores feedback for future routine personalization
   class FeedbackService
     include Constants
-
-    API_URL = "https://api.anthropic.com/v1/messages"
-    MODEL = "claude-sonnet-4-20250514"
-    MAX_TOKENS = 1024
 
     class << self
       # For ChatService - returns chat-friendly response
@@ -34,11 +32,14 @@ module AiTrainer
     end
 
     def analyze_from_text(text, routine_id: nil)
-      return mock_response unless api_configured?
-
       prompt = build_prompt(text)
-      response = call_claude_api(prompt)
-      parse_and_save_response(response, text, routine_id)
+      response = LlmGateway.chat(prompt: prompt, task: :feedback_analysis)
+
+      if response[:success]
+        parse_and_save_response(response[:content], text, routine_id)
+      else
+        mock_response
+      end
     rescue StandardError => e
       Rails.logger.error("FeedbackService error: #{e.message}")
       { success: false, error: "피드백 분석 실패: #{e.message}" }
@@ -46,11 +47,14 @@ module AiTrainer
 
     # For SubmitFeedback mutation - structured input returns analysis
     def analyze_from_input(input)
-      return mock_input_response(input) unless api_configured?
-
       prompt = build_input_prompt(input)
-      response = call_claude_api(prompt)
-      parse_input_response(response)
+      response = LlmGateway.chat(prompt: prompt, task: :feedback_analysis)
+
+      if response[:success]
+        parse_input_response(response[:content])
+      else
+        mock_input_response(input)
+      end
     rescue StandardError => e
       Rails.logger.error("FeedbackService.analyze_from_input error: #{e.message}")
       { success: false, error: "피드백 분석 실패: #{e.message}" }
@@ -58,11 +62,14 @@ module AiTrainer
 
     # For SubmitFeedbackFromVoice mutation - voice input returns feedback + analysis
     def analyze_from_voice(text, routine_id: nil)
-      return mock_voice_response(text) unless api_configured?
-
       prompt = build_voice_prompt(text, routine_id)
-      response = call_claude_api(prompt)
-      parse_voice_response(response)
+      response = LlmGateway.chat(prompt: prompt, task: :feedback_analysis)
+
+      if response[:success]
+        parse_voice_response(response[:content])
+      else
+        mock_voice_response(text)
+      end
     rescue StandardError => e
       Rails.logger.error("FeedbackService.analyze_from_voice error: #{e.message}")
       { success: false, error: "음성 피드백 분석 실패: #{e.message}" }
@@ -71,10 +78,6 @@ module AiTrainer
     private
 
     attr_reader :user
-
-    def api_configured?
-      ENV["ANTHROPIC_API_KEY"].present?
-    end
 
     def build_prompt(text)
       <<~PROMPT
@@ -110,34 +113,6 @@ module AiTrainer
 
         rating: 1-5 (1=매우 부정적, 5=매우 긍정적)
       PROMPT
-    end
-
-    def call_claude_api(prompt)
-      uri = URI(API_URL)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
-      http.read_timeout = 30
-
-      request = Net::HTTP::Post.new(uri.path)
-      request["Content-Type"] = "application/json"
-      request["x-api-key"] = ENV["ANTHROPIC_API_KEY"]
-      request["anthropic-version"] = "2023-06-01"
-
-      request.body = {
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [ { role: "user", content: prompt } ]
-      }.to_json
-
-      response = http.request(request)
-
-      if response.code.to_i == 200
-        data = JSON.parse(response.body)
-        data.dig("content", 0, "text")
-      else
-        Rails.logger.error("Claude API error: #{response.code} - #{response.body}")
-        raise "Claude API returned #{response.code}"
-      end
     end
 
     def parse_and_save_response(response_text, original_text, routine_id)

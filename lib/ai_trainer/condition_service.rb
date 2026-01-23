@@ -1,16 +1,13 @@
 # frozen_string_literal: true
 
 require_relative "constants"
+require_relative "llm_gateway"
 
 module AiTrainer
   # Analyzes user condition from natural language text
-  # Uses Claude API for intelligent interpretation
+  # Routes to cost-efficient models via LLM Gateway
   class ConditionService
     include Constants
-
-    API_URL = "https://api.anthropic.com/v1/messages"
-    MODEL = "claude-sonnet-4-20250514"
-    MAX_TOKENS = 1024
 
     class << self
       # For ChatService - returns chat-friendly response
@@ -34,11 +31,14 @@ module AiTrainer
     end
 
     def analyze_from_text(text)
-      return mock_response unless api_configured?
-
       prompt = build_prompt(text)
-      response = call_claude_api(prompt)
-      parse_response(response, text)
+      response = LlmGateway.chat(prompt: prompt, task: :condition_check)
+
+      if response[:success]
+        parse_response(response[:content], text)
+      else
+        mock_response
+      end
     rescue StandardError => e
       Rails.logger.error("ConditionService error: #{e.message}")
       { success: false, error: "컨디션 분석 실패: #{e.message}" }
@@ -46,11 +46,14 @@ module AiTrainer
 
     # For CheckCondition mutation - structured input returns adaptations
     def analyze_from_input(input)
-      return mock_input_response(input) unless api_configured?
-
       prompt = build_input_prompt(input)
-      response = call_claude_api(prompt)
-      parse_input_response(response)
+      response = LlmGateway.chat(prompt: prompt, task: :condition_check)
+
+      if response[:success]
+        parse_input_response(response[:content])
+      else
+        mock_input_response(input)
+      end
     rescue StandardError => e
       Rails.logger.error("ConditionService.analyze_from_input error: #{e.message}")
       { success: false, error: "컨디션 분석 실패: #{e.message}" }
@@ -58,11 +61,14 @@ module AiTrainer
 
     # For CheckConditionFromVoice mutation - voice input returns condition + adaptations
     def analyze_from_voice(text)
-      return mock_voice_response(text) unless api_configured?
-
       prompt = build_voice_prompt(text)
-      response = call_claude_api(prompt)
-      parse_voice_response(response)
+      response = LlmGateway.chat(prompt: prompt, task: :condition_check)
+
+      if response[:success]
+        parse_voice_response(response[:content])
+      else
+        mock_voice_response(text)
+      end
     rescue StandardError => e
       Rails.logger.error("ConditionService.analyze_from_voice error: #{e.message}")
       { success: false, error: "음성 컨디션 분석 실패: #{e.message}" }
@@ -71,10 +77,6 @@ module AiTrainer
     private
 
     attr_reader :user
-
-    def api_configured?
-      ENV["ANTHROPIC_API_KEY"].present?
-    end
 
     def build_prompt(text)
       <<~PROMPT
@@ -109,34 +111,6 @@ module AiTrainer
 
         status 값: "excellent" (90+), "good" (70-89), "fair" (50-69), "poor" (49 이하)
       PROMPT
-    end
-
-    def call_claude_api(prompt)
-      uri = URI(API_URL)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
-      http.read_timeout = 30
-
-      request = Net::HTTP::Post.new(uri.path)
-      request["Content-Type"] = "application/json"
-      request["x-api-key"] = ENV["ANTHROPIC_API_KEY"]
-      request["anthropic-version"] = "2023-06-01"
-
-      request.body = {
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [ { role: "user", content: prompt } ]
-      }.to_json
-
-      response = http.request(request)
-
-      if response.code.to_i == 200
-        data = JSON.parse(response.body)
-        data.dig("content", 0, "text")
-      else
-        Rails.logger.error("Claude API error: #{response.code} - #{response.body}")
-        raise "Claude API returned #{response.code}"
-      end
     end
 
     def parse_response(response_text, original_text)

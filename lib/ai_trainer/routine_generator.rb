@@ -1,16 +1,14 @@
 # frozen_string_literal: true
 
 require_relative "constants"
+require_relative "llm_gateway"
 
 module AiTrainer
-  # Generates workout routines using Claude API with variable catalog
+  # Generates workout routines using LLM Gateway with variable catalog
+  # Routes to smart models (Sonnet) for complex generation tasks
   # Creates infinite variations based on fitness factors, level, and condition
   class RoutineGenerator
     include Constants
-
-    API_URL = "https://api.anthropic.com/v1/messages"
-    MODEL = "claude-sonnet-4-20250514"
-    MAX_TOKENS = 4096
 
     attr_reader :user, :level, :day_of_week, :condition_score, :adjustment, :condition_inputs, :recent_feedbacks
 
@@ -40,30 +38,23 @@ module AiTrainer
       self
     end
 
-    # Generate a complete routine using Claude API
+    # Generate a complete routine using LLM Gateway
     def generate
-      if api_configured?
-        generate_with_claude
+      prompt = build_prompt
+      response = LlmGateway.chat(prompt: prompt, task: :routine_generation)
+
+      if response[:success]
+        parse_response(response[:content])
       else
-        Rails.logger.warn("RoutineGenerator: API key not configured, returning error")
-        { success: false, error: "ANTHROPIC_API_KEY가 설정되지 않았습니다." }
+        Rails.logger.error("RoutineGenerator error: #{response[:error]}")
+        { success: false, error: "루틴 생성 실패: #{response[:error]}" }
       end
+    rescue StandardError => e
+      Rails.logger.error("RoutineGenerator error: #{e.message}")
+      { success: false, error: "루틴 생성 실패: #{e.message}" }
     end
 
     private
-
-    def api_configured?
-      ENV["ANTHROPIC_API_KEY"].present?
-    end
-
-    def generate_with_claude
-      prompt = build_prompt
-      response = call_claude_api(prompt)
-      parse_claude_response(response)
-    rescue StandardError => e
-      Rails.logger.error("RoutineGenerator Claude API error: #{e.message}")
-      { success: false, error: "루틴 생성 실패: #{e.message}" }
-    end
 
     def build_prompt
       fitness_factor = Constants.fitness_factor_for_day(@day_of_week)
@@ -155,35 +146,7 @@ module AiTrainer
       PROMPT
     end
 
-    def call_claude_api(prompt)
-      uri = URI(API_URL)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
-      http.read_timeout = 60
-
-      request = Net::HTTP::Post.new(uri.path)
-      request["Content-Type"] = "application/json"
-      request["x-api-key"] = ENV["ANTHROPIC_API_KEY"]
-      request["anthropic-version"] = "2023-06-01"
-
-      request.body = {
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [ { role: "user", content: prompt } ]
-      }.to_json
-
-      response = http.request(request)
-
-      if response.code.to_i == 200
-        data = JSON.parse(response.body)
-        data.dig("content", 0, "text")
-      else
-        Rails.logger.error("Claude API error: #{response.code} - #{response.body}")
-        raise "Claude API returned #{response.code}"
-      end
-    end
-
-    def parse_claude_response(response_text)
+    def parse_response(response_text)
       json_str = extract_json(response_text)
       data = JSON.parse(json_str)
 
