@@ -178,6 +178,130 @@ RSpec.describe Mutations::AddExerciseToRoutine, type: :graphql do
         expect(data['error']).to include('exercise_id 또는 exercise_name')
       end
     end
+
+    context 'with different muscle groups' do
+      it 'infers chest for 푸시업' do
+        result = execute_mutation({ routineId: routine.id.to_s, exerciseName: '푸시업' })
+        expect(result['data']['addExerciseToRoutine']['addedExercise']['targetMuscle']).to eq('chest')
+      end
+
+      it 'infers shoulders for 숄더프레스' do
+        result = execute_mutation({ routineId: routine.id.to_s, exerciseName: '숄더프레스' })
+        expect(result['data']['addExerciseToRoutine']['addedExercise']['targetMuscle']).to eq('shoulders')
+      end
+
+      it 'infers legs for 스쿼트' do
+        result = execute_mutation({ routineId: routine.id.to_s, exerciseName: '스쿼트' })
+        expect(result['data']['addExerciseToRoutine']['addedExercise']['targetMuscle']).to eq('legs')
+      end
+
+      it 'infers arms for 이두운동' do
+        result = execute_mutation({ routineId: routine.id.to_s, exerciseName: '이두운동' })
+        expect(result['data']['addExerciseToRoutine']['addedExercise']['targetMuscle']).to eq('arms')
+      end
+
+      it 'infers core for 플랭크' do
+        result = execute_mutation({ routineId: routine.id.to_s, exerciseName: '플랭크' })
+        expect(result['data']['addExerciseToRoutine']['addedExercise']['targetMuscle']).to eq('core')
+      end
+
+      it 'returns other for unknown exercise' do
+        result = execute_mutation({ routineId: routine.id.to_s, exerciseName: '알수없는운동' })
+        expect(result['data']['addExerciseToRoutine']['addedExercise']['targetMuscle']).to eq('other')
+      end
+    end
+
+    context 'with target_muscle override' do
+      it 'uses provided target_muscle instead of inferring' do
+        result = execute_mutation({
+                                    routineId: routine.id.to_s,
+                                    exerciseName: '벤치프레스',
+                                    targetMuscle: 'custom_muscle'
+                                  })
+
+        data = result['data']['addExerciseToRoutine']
+        expect(data['addedExercise']['targetMuscle']).to eq('custom_muscle')
+      end
+    end
+
+    context 'with exercise_id' do
+      let(:mutation_with_id) do
+        <<~GQL
+          mutation AddExerciseToRoutine(
+            $routineId: ID!
+            $exerciseId: String
+            $exerciseName: String
+          ) {
+            addExerciseToRoutine(input: {
+              routineId: $routineId
+              exerciseId: $exerciseId
+              exerciseName: $exerciseName
+            }) {
+              success
+              addedExercise {
+                exerciseName
+              }
+              error
+            }
+          }
+        GQL
+      end
+
+      it 'looks up exercise by id from catalog' do
+        # Mock the EXERCISES constant to include a test exercise
+        stub_const('AiTrainer::Constants::EXERCISES', {
+                     chest: {
+                       exercises: [
+                         { id: 'EX_TEST01', name: '테스트 운동' }
+                       ]
+                     }
+                   })
+
+        result = RepstackBackendSchema.execute(
+          mutation_with_id,
+          variables: { routineId: routine.id.to_s, exerciseId: 'EX_TEST01' },
+          context: { current_user: user }
+        )
+
+        data = result['data']['addExerciseToRoutine']
+        expect(data['success']).to be true
+        expect(data['addedExercise']['exerciseName']).to eq('테스트 운동')
+      end
+
+      it 'returns error when exercise_id not found in catalog' do
+        stub_const('AiTrainer::Constants::EXERCISES', {
+                     chest: { exercises: [] }
+                   })
+
+        result = RepstackBackendSchema.execute(
+          mutation_with_id,
+          variables: { routineId: routine.id.to_s, exerciseId: 'NONEXISTENT' },
+          context: { current_user: user }
+        )
+
+        data = result['data']['addExerciseToRoutine']
+        expect(data['success']).to be false
+        expect(data['error']).to include('운동')
+      end
+    end
+
+    context 'when record is invalid' do
+      it 'returns error for invalid exercise data' do
+        # Create a scenario where the exercise cannot be saved
+        allow_any_instance_of(RoutineExercise).to receive(:save!).and_raise(
+          ActiveRecord::RecordInvalid.new(RoutineExercise.new)
+        )
+
+        result = execute_mutation({
+                                    routineId: routine.id.to_s,
+                                    exerciseName: '벤치프레스'
+                                  })
+
+        data = result['data']['addExerciseToRoutine']
+        expect(data['success']).to be false
+        expect(data['error']).to include('운동 추가 실패')
+      end
+    end
   end
 
   describe 'when not authenticated' do

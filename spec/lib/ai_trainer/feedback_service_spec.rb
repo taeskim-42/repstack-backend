@@ -221,6 +221,239 @@ RSpec.describe AiTrainer::FeedbackService do
     end
   end
 
+  describe '.analyze_from_input' do
+    let(:input) do
+      {
+        feedback_type: 'DIFFICULTY',
+        rating: 4,
+        feedback: '오늘 운동 좋았어요',
+        would_recommend: true,
+        suggestions: ['다음에 무게 올리기']
+      }
+    end
+
+    context 'when LlmGateway succeeds' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: true,
+          content: '{"insights": ["좋았어요"], "adaptations": ["무게 증가"], "nextWorkoutRecommendations": ["스쿼트 추가"]}',
+          model: 'mock'
+        })
+      end
+
+      it 'returns success with parsed response' do
+        result = described_class.analyze_from_input(user: user, input: input)
+        expect(result[:success]).to be true
+        expect(result[:insights]).to eq(['좋았어요'])
+        expect(result[:adaptations]).to eq(['무게 증가'])
+        expect(result[:next_workout_recommendations]).to eq(['스쿼트 추가'])
+      end
+    end
+
+    context 'when LlmGateway fails' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API error'
+        })
+      end
+
+      it 'falls back to mock_input_response' do
+        result = described_class.analyze_from_input(user: user, input: input)
+        expect(result[:success]).to be true
+        expect(result[:insights]).to be_an(Array)
+      end
+
+      context 'with high rating' do
+        it 'returns positive feedback' do
+          input[:rating] = 5
+          result = described_class.analyze_from_input(user: user, input: input)
+          expect(result[:insights]).to include('운동이 효과적이었습니다')
+        end
+      end
+
+      context 'with low rating' do
+        it 'returns suggestions to reduce intensity' do
+          input[:rating] = 1
+          result = described_class.analyze_from_input(user: user, input: input)
+          expect(result[:adaptations]).to include('강도를 낮추는 것을 고려하세요')
+        end
+      end
+
+      context 'with TIME feedback type' do
+        it 'includes time-related recommendations' do
+          input[:feedback_type] = 'TIME'
+          result = described_class.analyze_from_input(user: user, input: input)
+          expect(result[:next_workout_recommendations].any? { |r| r.include?('시간') }).to be true
+        end
+      end
+    end
+
+    context 'when exception is raised' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_raise(StandardError, 'Network error')
+      end
+
+      it 'returns error response' do
+        result = described_class.analyze_from_input(user: user, input: input)
+        expect(result[:success]).to be false
+        expect(result[:error]).to include('피드백 분석 실패')
+      end
+    end
+  end
+
+  describe '.analyze_from_voice' do
+    context 'when LlmGateway succeeds' do
+      let(:voice_response) do
+        {
+          'feedback' => {
+            'rating' => 4,
+            'feedbackType' => 'SATISFACTION',
+            'summary' => '만족스러운 운동',
+            'wouldRecommend' => true
+          },
+          'insights' => ['좋은 운동이었습니다'],
+          'adaptations' => ['강도 유지'],
+          'nextWorkoutRecommendations' => ['같은 루틴 유지'],
+          'interpretation' => '긍정적인 피드백'
+        }
+      end
+
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: true,
+          content: voice_response.to_json,
+          model: 'mock'
+        })
+      end
+
+      it 'returns success with parsed response' do
+        result = described_class.analyze_from_voice(user: user, text: '오늘 운동 좋았어요')
+        expect(result[:success]).to be true
+        expect(result[:feedback][:rating]).to eq(4)
+        expect(result[:insights]).to eq(['좋은 운동이었습니다'])
+      end
+    end
+
+    context 'when LlmGateway fails (mock mode)' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API error'
+        })
+      end
+
+      it 'returns mock response based on keywords' do
+        result = described_class.analyze_from_voice(user: user, text: '오늘 운동 좋았어요')
+        expect(result[:success]).to be true
+        expect(result[:feedback]).to be_present
+      end
+
+      context 'with difficult workout feedback (Korean)' do
+        it 'returns difficulty feedback' do
+          result = described_class.analyze_from_voice(user: user, text: '오늘 운동 너무 힘들었어요')
+          expect(result[:feedback][:rating]).to be <= 3
+          expect(result[:feedback][:feedback_type]).to eq('DIFFICULTY')
+          expect(result[:insights]).to include('운동이 힘들었다고 느꼈습니다')
+        end
+      end
+
+      context 'with easy workout feedback (Korean)' do
+        it 'returns easy feedback' do
+          result = described_class.analyze_from_voice(user: user, text: '오늘 운동 쉬웠어요')
+          expect(result[:feedback][:rating]).to be >= 3
+          expect(result[:insights]).to include('운동이 쉬웠다고 느꼈습니다')
+        end
+      end
+
+      context 'with satisfaction feedback (Korean)' do
+        it 'returns satisfaction feedback' do
+          result = described_class.analyze_from_voice(user: user, text: '오늘 운동 만족스러웠어요')
+          expect(result[:feedback][:feedback_type]).to eq('SATISFACTION')
+          expect(result[:insights]).to include('전반적으로 만족스러웠습니다')
+        end
+      end
+
+      context 'with pain feedback (Korean)' do
+        it 'returns pain related adaptations' do
+          result = described_class.analyze_from_voice(user: user, text: '운동하다가 어깨 통증이 있어요')
+          expect(result[:insights]).to include('통증이 있었습니다')
+          expect(result[:adaptations]).to include('해당 부위 운동을 줄이세요')
+        end
+      end
+
+      context 'with difficult workout feedback (English)' do
+        it 'returns difficulty feedback' do
+          result = described_class.analyze_from_voice(user: user, text: 'Workout was too hard today')
+          expect(result[:feedback][:rating]).to be <= 3
+          expect(result[:insights]).to include('Workout felt challenging')
+        end
+      end
+
+      context 'with easy workout feedback (English)' do
+        it 'returns easy feedback' do
+          result = described_class.analyze_from_voice(user: user, text: 'Workout was easy')
+          expect(result[:feedback][:rating]).to be >= 3
+          expect(result[:insights]).to include('Workout felt easy')
+        end
+      end
+
+      context 'with positive feedback (English)' do
+        it 'returns positive feedback' do
+          result = described_class.analyze_from_voice(user: user, text: 'Great workout today!')
+          expect(result[:insights]).to include('Positive experience overall')
+        end
+      end
+
+      context 'with generic text' do
+        it 'returns default feedback' do
+          result = described_class.analyze_from_voice(user: user, text: '그냥 보통이었어요')
+          expect(result[:insights]).to include('피드백을 분석했습니다')
+        end
+      end
+    end
+
+    context 'when exception is raised' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_raise(StandardError, 'Network error')
+      end
+
+      it 'returns error response' do
+        result = described_class.analyze_from_voice(user: user, text: '테스트')
+        expect(result[:success]).to be false
+        expect(result[:error]).to include('음성 피드백 분석 실패')
+      end
+    end
+  end
+
+  describe '#parse_input_response' do
+    it 'parses valid response' do
+      response = '{"insights": ["a"], "adaptations": ["b"], "nextWorkoutRecommendations": ["c"]}'
+      result = service.send(:parse_input_response, response)
+      expect(result[:success]).to be true
+      expect(result[:insights]).to eq(['a'])
+    end
+
+    it 'handles invalid JSON' do
+      result = service.send(:parse_input_response, 'invalid json')
+      expect(result[:success]).to be false
+    end
+  end
+
+  describe '#parse_voice_response' do
+    it 'parses valid response' do
+      response = '{"feedback": {"rating": 4, "feedbackType": "GENERAL", "summary": "OK", "wouldRecommend": true}, "insights": [], "adaptations": [], "nextWorkoutRecommendations": [], "interpretation": "test"}'
+      result = service.send(:parse_voice_response, response)
+      expect(result[:success]).to be true
+      expect(result[:feedback][:rating]).to eq(4)
+    end
+
+    it 'handles invalid JSON' do
+      result = service.send(:parse_voice_response, 'invalid json')
+      expect(result[:success]).to be false
+    end
+  end
+
   describe 'with LlmGateway' do
     let(:mock_response_content) do
       {

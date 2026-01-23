@@ -139,4 +139,162 @@ RSpec.describe UserProfile, type: :model do
       expect(profile.days_since_start).to eq(0)
     end
   end
+
+  describe "#level and #level=" do
+    let(:profile) { create(:user_profile, numeric_level: 3) }
+
+    it "returns numeric_level" do
+      expect(profile.level).to eq(3)
+    end
+
+    it "returns 1 when numeric_level is nil" do
+      profile.numeric_level = nil
+      expect(profile.level).to eq(1)
+    end
+
+    it "sets numeric_level" do
+      profile.level = 5
+      expect(profile.numeric_level).to eq(5)
+    end
+  end
+
+  describe "#tier" do
+    it "returns beginner for levels 1-2" do
+      profile = build(:user_profile, numeric_level: 1)
+      expect(profile.tier).to eq("beginner")
+
+      profile.numeric_level = 2
+      expect(profile.tier).to eq("beginner")
+    end
+
+    it "returns intermediate for levels 3-5" do
+      profile = build(:user_profile, numeric_level: 3)
+      expect(profile.tier).to eq("intermediate")
+
+      profile.numeric_level = 5
+      expect(profile.tier).to eq("intermediate")
+    end
+
+    it "returns advanced for levels 6-8" do
+      profile = build(:user_profile, numeric_level: 6)
+      expect(profile.tier).to eq("advanced")
+
+      profile.numeric_level = 8
+      expect(profile.tier).to eq("advanced")
+    end
+
+    it "returns beginner for unknown level" do
+      profile = build(:user_profile)
+      profile.numeric_level = 99
+      expect(profile.tier).to eq("beginner")
+    end
+  end
+
+  describe "#tier_korean" do
+    let(:profile) { build(:user_profile) }
+
+    it "returns 초급 for beginner" do
+      profile.numeric_level = 1
+      expect(profile.tier_korean).to eq("초급")
+    end
+
+    it "returns 중급 for intermediate" do
+      profile.numeric_level = 4
+      expect(profile.tier_korean).to eq("중급")
+    end
+
+    it "returns 고급 for advanced" do
+      profile.numeric_level = 7
+      expect(profile.tier_korean).to eq("고급")
+    end
+  end
+
+  describe "#grade" do
+    let(:profile) { build(:user_profile) }
+
+    it "returns 정상인 for levels 1-3" do
+      profile.numeric_level = 2
+      expect(profile.grade).to eq("정상인")
+    end
+
+    it "returns 건강인 for levels 4-5" do
+      profile.numeric_level = 4
+      expect(profile.grade).to eq("건강인")
+    end
+
+    it "returns 운동인 for levels 6-8" do
+      profile.numeric_level = 7
+      expect(profile.grade).to eq("운동인")
+    end
+
+    it "returns 정상인 for unknown level" do
+      profile.numeric_level = 99
+      expect(profile.grade).to eq("정상인")
+    end
+  end
+
+  describe "#can_take_level_test?" do
+    let(:profile) { create(:user_profile, numeric_level: 3) }
+
+    it "returns false if level is max (8)" do
+      profile.numeric_level = 8
+      expect(profile.can_take_level_test?).to be false
+    end
+
+    it "returns true if never tested" do
+      profile.last_level_test_at = nil
+      expect(profile.can_take_level_test?).to be true
+    end
+
+    it "returns true if last test was over 7 days ago" do
+      profile.last_level_test_at = 8.days.ago
+      expect(profile.can_take_level_test?).to be true
+    end
+
+    it "returns false if last test was within 7 days" do
+      profile.last_level_test_at = 3.days.ago
+      expect(profile.can_take_level_test?).to be false
+    end
+  end
+
+  describe "#days_until_next_test" do
+    let(:profile) { create(:user_profile, numeric_level: 3) }
+
+    it "returns 0 if can take test" do
+      profile.last_level_test_at = nil
+      expect(profile.days_until_next_test).to eq(0)
+    end
+
+    it "returns remaining days until test available" do
+      profile.last_level_test_at = 3.days.ago
+      expect(profile.days_until_next_test).to eq(4)
+    end
+  end
+
+  describe "#increment_workout_count!" do
+    let(:profile) { create(:user_profile, total_workouts_completed: 5) }
+
+    it "increments total_workouts_completed" do
+      profile.increment_workout_count!
+      expect(profile.reload.total_workouts_completed).to eq(6)
+    end
+  end
+
+  describe "#bmi_category with nil" do
+    let(:profile) { build(:user_profile, height: nil, weight: nil) }
+
+    it "returns Unknown when BMI cannot be calculated" do
+      expect(profile.bmi_category).to eq("Unknown")
+    end
+  end
+
+  describe "sync_level_tier callback" do
+    let(:profile) { create(:user_profile, numeric_level: 2) }
+
+    it "syncs current_level when numeric_level changes" do
+      profile.numeric_level = 6
+      profile.save!
+      expect(profile.current_level).to eq("advanced")
+    end
+  end
 end

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require 'ostruct'
+
 module Types
   class LevelTestVerificationType < Types::BaseObject
     description "Level test verification result"
@@ -21,7 +23,7 @@ module Types
 
     def exercises
       object.exercises.map do |ex|
-        OpenStruct.new(ex.transform_keys(&:to_sym))
+        ::OpenStruct.new(ex.transform_keys(&:to_sym))
       end
     end
   end

@@ -10,6 +10,9 @@ gem "bootsnap", require: false
 # CORS
 gem "rack-cors"
 
+# Ruby 3.5+ default gem compatibility
+gem "ostruct"
+
 # GraphQL
 gem "graphql"
 

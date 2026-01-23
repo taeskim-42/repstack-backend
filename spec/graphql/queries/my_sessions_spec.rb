@@ -16,6 +16,48 @@ RSpec.describe Queries::MySessions, type: :graphql do
     GRAPHQL
   end
 
+  let(:detailed_query) do
+    <<~GRAPHQL
+      query MySessions {
+        mySessions(limit: 10, includeSets: true) {
+          id
+          name
+          status
+          startTime
+          endTime
+          totalVolume
+          totalSets
+          exercisesPerformed
+          durationInSeconds
+          durationFormatted
+          active
+          completed
+          createdAt
+          updatedAt
+          workoutSets {
+            id
+            exerciseName
+            setNumber
+            weight
+            weightUnit
+            reps
+            durationSeconds
+            rpe
+            notes
+            volume
+            isTimedExercise
+            isWeightedExercise
+            durationFormatted
+            weightInKg
+            weightInLbs
+            createdAt
+            updatedAt
+          }
+        }
+      }
+    GRAPHQL
+  end
+
   describe "when authenticated" do
     # Create completed sessions so we can have multiple
     let!(:session1) { create(:workout_session, :completed, user: user) }
@@ -59,6 +101,38 @@ RSpec.describe Queries::MySessions, type: :graphql do
       )
 
       expect(result["data"]["mySessions"]).to be_an(Array)
+    end
+
+    context 'with workout sets' do
+      let!(:workout_set) do
+        create(:workout_set, workout_session: session1,
+               exercise_name: '벤치프레스', weight: 60, reps: 10, set_number: 1)
+      end
+
+      it 'returns workout sets with all fields' do
+        result = execute_graphql(query: detailed_query, context: { current_user: user })
+
+        sessions = result['data']['mySessions']
+        session_with_sets = sessions.find { |s| s['workoutSets'].any? }
+        expect(session_with_sets).to be_present
+
+        set = session_with_sets['workoutSets'].first
+        expect(set['exerciseName']).to eq('벤치프레스')
+        expect(set['weight']).to eq(60.0)
+        expect(set['reps']).to eq(10)
+        expect(set['volume']).to be_present
+        expect(set['createdAt']).to match(/^\d{4}-\d{2}-\d{2}/)
+        expect(set['updatedAt']).to match(/^\d{4}-\d{2}-\d{2}/)
+      end
+
+      it 'returns session computed fields' do
+        result = execute_graphql(query: detailed_query, context: { current_user: user })
+
+        session = result['data']['mySessions'].find { |s| s['id'] == session1.id.to_s }
+        expect(session['totalVolume']).to be >= 0
+        expect(session['totalSets']).to be >= 1
+        expect(session['createdAt']).to match(/^\d{4}-\d{2}-\d{2}/)
+      end
     end
   end
 
