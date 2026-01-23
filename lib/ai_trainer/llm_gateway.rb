@@ -14,7 +14,7 @@ module AiTrainer
       # Expensive model - for complex generation tasks
       routine_generation: {
         provider: :anthropic,
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 4096,
         temperature: 0.7
       },
@@ -22,25 +22,25 @@ module AiTrainer
       # Cost-efficient - for simple conversational tasks
       general_chat: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-haiku-4-20250514",
         max_tokens: 512,
         temperature: 0.7
       },
       condition_check: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-haiku-4-20250514",
         max_tokens: 1024,
         temperature: 0.3
       },
       feedback_analysis: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-haiku-4-20250514",
         max_tokens: 1024,
         temperature: 0.3
       },
       level_assessment: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-20241022",
+        model: "claude-haiku-4-20250514",
         max_tokens: 1024,
         temperature: 0.5
       }

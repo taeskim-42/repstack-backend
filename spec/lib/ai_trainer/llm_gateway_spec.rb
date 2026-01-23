@@ -81,7 +81,7 @@ RSpec.describe AiTrainer::LlmGateway do
 
         described_class.chat(prompt: "루틴", task: :routine_generation)
 
-        expect(request_body["model"]).to eq("claude-3-5-sonnet-20241022")
+        expect(request_body["model"]).to eq("claude-sonnet-4-20250514")
       end
 
       it "uses correct model for general_chat" do
@@ -93,7 +93,7 @@ RSpec.describe AiTrainer::LlmGateway do
 
         described_class.chat(prompt: "안녕", task: :general_chat)
 
-        expect(request_body["model"]).to eq("claude-3-5-haiku-20241022")
+        expect(request_body["model"]).to eq("claude-haiku-4-20250514")
       end
     end
 
@@ -117,12 +117,12 @@ RSpec.describe AiTrainer::LlmGateway do
   describe ".model_for" do
     it "returns routine_generation config" do
       config = described_class.model_for(:routine_generation)
-      expect(config[:model]).to eq("claude-3-5-sonnet-20241022")
+      expect(config[:model]).to eq("claude-sonnet-4-20250514")
     end
 
     it "returns general_chat config for unknown task" do
       config = described_class.model_for(:unknown_task)
-      expect(config[:model]).to eq("claude-3-5-haiku-20241022")
+      expect(config[:model]).to eq("claude-haiku-4-20250514")
     end
   end
 
