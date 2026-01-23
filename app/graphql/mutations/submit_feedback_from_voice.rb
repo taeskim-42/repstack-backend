@@ -19,7 +19,7 @@ module Mutations
       authenticate_user!
 
       # AI analyzes voice feedback and returns insights + recommendations
-      result = AiTrainerService.analyze_feedback_from_voice(voice_text, routine_id: routine_id)
+      result = AiTrainer::FeedbackService.analyze_from_voice(user: current_user, text: voice_text, routine_id: routine_id)
 
       unless result[:success]
         return {

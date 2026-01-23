@@ -21,7 +21,7 @@ module Mutations
                                      .order(created_at: :desc)
                                      .limit(5)
 
-      routine = AiTrainerService.generate_routine(
+      routine = AiTrainer.generate_routine(
         user: current_user,
         day_of_week: day_of_week,
         condition_inputs: condition_inputs,

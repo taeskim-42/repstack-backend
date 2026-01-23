@@ -8,18 +8,18 @@ module Mutations
       description: "Condition check input data"
 
     field :success, Boolean, null: false
-    field :adaptations, [String], null: true
+    field :adaptations, [ String ], null: true
     field :intensity_modifier, Float, null: true
     field :duration_modifier, Float, null: true
-    field :exercise_modifications, [String], null: true
-    field :rest_recommendations, [String], null: true
+    field :exercise_modifications, [ String ], null: true
+    field :rest_recommendations, [ String ], null: true
     field :error, String, null: true
 
     def resolve(input:)
       authenticate_user!
 
       input_hash = input.to_h.deep_transform_keys { |k| k.to_s.underscore.to_sym }
-      result = AiTrainerService.check_condition(input_hash)
+      result = AiTrainer::ConditionService.analyze_from_input(user: current_user, input: input_hash)
 
       if result[:success]
         # Save condition log

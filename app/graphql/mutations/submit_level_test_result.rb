@@ -5,15 +5,15 @@ module Mutations
     description "Submit results for a level-up test (승급 시험)"
 
     argument :test_id, String, required: true, description: "The test ID from start_level_test"
-    argument :exercises, [Types::LevelTestExerciseResultInputType], required: true,
+    argument :exercises, [ Types::LevelTestExerciseResultInputType ], required: true,
       description: "Results for each exercise in the test"
 
     field :success, Boolean, null: false
     field :passed, Boolean, null: true
     field :new_level, Integer, null: true
     field :results, Types::LevelTestResultsType, null: true
-    field :feedback, [String], null: true
-    field :next_steps, [String], null: true
+    field :feedback, [ String ], null: true
+    field :next_steps, [ String ], null: true
     field :error, String, null: true
 
     def resolve(test_id:, exercises:)
@@ -26,10 +26,18 @@ module Mutations
         exercises: exercises_array
       }
 
-      result = AiTrainerService.evaluate_level_test(
+      result = AiTrainer.evaluate_level_test(
         user: current_user,
         test_results: test_results
       )
+
+      # Update user profile if passed
+      if result[:passed] && current_user.user_profile
+        current_user.user_profile.update!(
+          numeric_level: result[:new_level],
+          last_level_test_at: Time.current
+        )
+      end
 
       if result[:success] == false
         {

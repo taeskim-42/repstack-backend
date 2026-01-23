@@ -12,7 +12,7 @@ module Mutations
       authenticate_user!
 
       # Check eligibility
-      eligibility = AiTrainerService.check_test_eligibility(user: current_user)
+      eligibility = AiTrainer.check_test_eligibility(user: current_user)
 
       unless eligibility[:eligible]
         return {
@@ -23,7 +23,7 @@ module Mutations
       end
 
       # Generate the test
-      test = AiTrainerService.generate_level_test(user: current_user)
+      test = AiTrainer.generate_level_test(user: current_user)
 
       if test[:success] == false
         {

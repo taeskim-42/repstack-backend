@@ -11,5 +11,6 @@ module Types
     value "SUBMIT_FEEDBACK", "Submitting feedback (e.g., '런지가 힘들었어')"
     value "GENERAL_CHAT", "General fitness-related conversation"
     value "OFF_TOPIC", "Non-fitness related message"
+    value "LEVEL_ASSESSMENT", "New user level assessment (onboarding)"
   end
 end

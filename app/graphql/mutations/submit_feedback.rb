@@ -30,7 +30,7 @@ module Mutations
       )
 
       # Get AI analysis
-      analysis_result = AiTrainerService.analyze_feedback(input_hash)
+      analysis_result = AiTrainer::FeedbackService.analyze_from_input(user: current_user, input: input_hash)
 
       if analysis_result[:success]
         {

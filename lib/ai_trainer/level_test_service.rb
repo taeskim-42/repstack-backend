@@ -17,7 +17,7 @@ module AiTrainer
 
     # Generate a level test based on current level
     def generate_test
-      next_level = [@current_level + 1, 8].min
+      next_level = [ @current_level + 1, 8 ].min
       criteria = Constants::LEVEL_TEST_CRITERIA[next_level]
       height = @user.user_profile&.height || 170
 
@@ -36,7 +36,7 @@ module AiTrainer
 
     # Evaluate test results
     def evaluate_results(test_results)
-      next_level = [@current_level + 1, 8].min
+      next_level = [ @current_level + 1, 8 ].min
       criteria = Constants::LEVEL_TEST_CRITERIA[next_level]
       height = @user.user_profile&.height || 170
 
@@ -109,7 +109,7 @@ module AiTrainer
             current_workouts: completed_workouts,
             required_workouts: min_workouts,
             current_level: @current_level,
-            target_level: [@current_level + 1, 8].min
+            target_level: [ @current_level + 1, 8 ].min
           }
         end
       end
@@ -170,11 +170,11 @@ module AiTrainer
       ratio_key = "#{exercise_type}_ratio".to_sym
       ratio = criteria[ratio_key] || 1.0
       base_weight = case exercise_type
-                    when :bench then height - 100
-                    when :squat then height - 100 + 20
-                    when :deadlift then height - 100 + 40
-                    else height - 100
-                    end
+      when :bench then height - 100
+      when :squat then height - 100 + 20
+      when :deadlift then height - 100 + 40
+      else height - 100
+      end
 
       (base_weight * ratio).round(1)
     end
@@ -267,7 +267,7 @@ module AiTrainer
           "다음 목표를 향해 계속 도전하세요!"
         ]
       else
-        feedback = ["아쉽게도 이번 시험은 통과하지 못했습니다."]
+        feedback = [ "아쉽게도 이번 시험은 통과하지 못했습니다." ]
 
         failed_exercises.each do |failed|
           feedback << "- #{failed[:exercise]}: #{failed[:gap].round(1)}kg 부족"
@@ -287,7 +287,7 @@ module AiTrainer
           "7일 후 다시 승급 시험에 도전할 수 있습니다"
         ]
       else
-        steps = ["약점 부위 강화 훈련을 추천합니다"]
+        steps = [ "약점 부위 강화 훈련을 추천합니다" ]
 
         failed_exercises.each do |failed|
           case failed[:exercise]

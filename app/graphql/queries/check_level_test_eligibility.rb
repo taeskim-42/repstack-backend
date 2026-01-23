@@ -9,7 +9,7 @@ module Queries
     def resolve
       authenticate_user!
 
-      AiTrainerService.check_test_eligibility(user: current_user)
+      AiTrainer.check_test_eligibility(user: current_user)
     end
   end
 end

@@ -120,13 +120,12 @@ class HealthController < ActionController::API
   end
 
   def check_claude_api
-    circuit_stats = ClaudeApiService.circuit_stats
+    api_configured = ENV["ANTHROPIC_API_KEY"].present?
 
     {
-      healthy: !circuit_stats[:open],
-      circuit_open: circuit_stats[:open],
-      error_rate: circuit_stats[:error_rate],
-      api_configured: ENV["ANTHROPIC_API_KEY"].present?
+      healthy: api_configured,
+      api_configured: api_configured,
+      message: api_configured ? "API key configured" : "API key not configured"
     }
   rescue StandardError => e
     {
@@ -176,7 +175,7 @@ class HealthController < ActionController::API
   end
 
   def overall_status(checks)
-    critical_checks = [:database, :cache]
+    critical_checks = [ :database, :cache ]
     critical_healthy = critical_checks.all? { |check| checks[check][:healthy] }
 
     if critical_healthy

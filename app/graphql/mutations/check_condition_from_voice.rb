@@ -9,11 +9,11 @@ module Mutations
 
     field :success, Boolean, null: false
     field :condition, Types::ParsedConditionType, null: true
-    field :adaptations, [String], null: true
+    field :adaptations, [ String ], null: true
     field :intensity_modifier, Float, null: true
     field :duration_modifier, Float, null: true
-    field :exercise_modifications, [String], null: true
-    field :rest_recommendations, [String], null: true
+    field :exercise_modifications, [ String ], null: true
+    field :rest_recommendations, [ String ], null: true
     field :interpretation, String, null: true
     field :error, String, null: true
 
@@ -21,7 +21,7 @@ module Mutations
       authenticate_user!
 
       # AI directly analyzes voice input and returns condition + adaptations
-      result = AiTrainerService.check_condition_from_voice(voice_text)
+      result = AiTrainer::ConditionService.analyze_from_voice(user: current_user, text: voice_text)
 
       unless result[:success]
         return {

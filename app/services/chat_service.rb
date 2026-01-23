@@ -82,6 +82,11 @@ class ChatService
   end
 
   def process
+    # Check if user needs level assessment first (new user onboarding)
+    if needs_level_assessment?
+      return handle_level_assessment
+    end
+
     intent = classify_intent
     handle_intent(intent)
   rescue StandardError => e
@@ -93,6 +98,31 @@ class ChatService
   private
 
   attr_reader :user, :message, :routine_id, :session_id
+
+  # ============================================
+  # Level Assessment (New User Onboarding)
+  # ============================================
+
+  def needs_level_assessment?
+    AiTrainer::LevelAssessmentService.needs_assessment?(user)
+  end
+
+  def handle_level_assessment
+    result = AiTrainer::LevelAssessmentService.assess(user: user, message: message)
+
+    if result[:success]
+      success_response(
+        message: result[:message],
+        intent: "LEVEL_ASSESSMENT",
+        data: {
+          is_complete: result[:is_complete],
+          assessment: result[:assessment]
+        }
+      )
+    else
+      error_response(result[:error] || "수준 파악에 실패했어요.")
+    end
+  end
 
   # ============================================
   # Intent Classification
@@ -203,7 +233,7 @@ class ChatService
       success_response(
         message: format_record_message(parsed),
         intent: "RECORD_EXERCISE",
-        data: { records: [record_item] }
+        data: { records: [ record_item ] }
       )
     else
       error_response(result[:error] || "기록 저장에 실패했어요.")
@@ -259,7 +289,7 @@ class ChatService
   def handle_generate_routine
     # Get today's day of week
     day_of_week = Date.current.cwday # 1=Monday, 7=Sunday
-    day_of_week = [day_of_week, 5].min # Cap at 5 (Friday)
+    day_of_week = [ day_of_week, 5 ].min # Cap at 5 (Friday)
 
     routine = AiTrainer::RoutineService.generate(
       user: user,
@@ -379,7 +409,7 @@ class ChatService
   end
 
   def format_record_message(parsed)
-    parts = ["기록했어요! #{parsed[:exercise]}"]
+    parts = [ "기록했어요! #{parsed[:exercise]}" ]
     parts << "#{parsed[:weight]}kg" if parsed[:weight]
     parts << "#{parsed[:reps]}회"
     parts << "#{parsed[:sets]}세트" if parsed[:sets] && parsed[:sets] > 1

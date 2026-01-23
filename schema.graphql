@@ -194,6 +194,11 @@ Data returned by chat API based on intent
 """
 type ChatData {
   """
+  Level assessment result (LEVEL_ASSESSMENT)
+  """
+  assessment: LevelAssessment
+
+  """
   Condition analysis (CHECK_CONDITION)
   """
   condition: ConditionAnalysis
@@ -202,6 +207,11 @@ type ChatData {
   Feedback analysis (SUBMIT_FEEDBACK)
   """
   feedback: FeedbackAnalysis
+
+  """
+  Assessment completion status (LEVEL_ASSESSMENT)
+  """
+  isComplete: Boolean
 
   """
   Workout records (QUERY_RECORDS, RECORD_EXERCISE)
@@ -262,6 +272,11 @@ enum ChatIntentEnum {
   Generating routine (e.g., '오늘 루틴 만들어줘')
   """
   GENERATE_ROUTINE
+
+  """
+  New user level assessment (onboarding)
+  """
+  LEVEL_ASSESSMENT
 
   """
   Non-fitness related message
@@ -914,6 +929,31 @@ scalar ISO8601DateTime @specifiedBy(url: "https://tools.ietf.org/html/rfc3339")
 Represents untyped JSON
 """
 scalar JSON
+
+"""
+User level assessment result from onboarding conversation
+"""
+type LevelAssessment {
+  """
+  Experience level (beginner, intermediate, advanced)
+  """
+  experienceLevel: String!
+
+  """
+  Primary fitness goal
+  """
+  fitnessGoal: String
+
+  """
+  Numeric level (1-8)
+  """
+  numericLevel: Int!
+
+  """
+  Assessment summary
+  """
+  summary: String
+}
 
 """
 Criteria for passing the level test

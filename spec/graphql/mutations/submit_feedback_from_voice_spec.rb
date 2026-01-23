@@ -6,7 +6,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
   let(:user) { create(:user) }
   let!(:user_profile) { create(:user_profile, user: user) }
 
-  # Mock AiTrainerService responses
+  # Mock AiTrainer::FeedbackService responses
   let(:positive_feedback_response) do
     {
       success: true,
@@ -16,9 +16,9 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
         summary: "운동이 좋았습니다",
         would_recommend: true
       },
-      insights: ["좋은 운동이었습니다", "꾸준히 유지하세요"],
+      insights: [ "좋은 운동이었습니다", "꾸준히 유지하세요" ],
       adaptations: [],
-      next_workout_recommendations: ["같은 강도 유지", "다음 운동도 화이팅"],
+      next_workout_recommendations: [ "같은 강도 유지", "다음 운동도 화이팅" ],
       interpretation: "긍정적인 피드백입니다."
     }
   end
@@ -32,9 +32,9 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
         summary: "운동이 힘들었습니다",
         would_recommend: true
       },
-      insights: ["난이도가 높았습니다"],
-      adaptations: ["무게를 줄이세요", "세트 수를 줄이세요"],
-      next_workout_recommendations: ["가벼운 무게로 시작", "휴식 시간 늘리기"],
+      insights: [ "난이도가 높았습니다" ],
+      adaptations: [ "무게를 줄이세요", "세트 수를 줄이세요" ],
+      next_workout_recommendations: [ "가벼운 무게로 시작", "휴식 시간 늘리기" ],
       interpretation: "운동이 힘들었다는 피드백입니다."
     }
   end
@@ -48,9 +48,9 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
         summary: "운동이 쉬웠습니다",
         would_recommend: true
       },
-      insights: ["난이도가 낮았습니다"],
-      adaptations: ["무게를 늘리세요", "세트 수를 늘리세요"],
-      next_workout_recommendations: ["강도 높이기", "새로운 운동 추가"],
+      insights: [ "난이도가 낮았습니다" ],
+      adaptations: [ "무게를 늘리세요", "세트 수를 늘리세요" ],
+      next_workout_recommendations: [ "강도 높이기", "새로운 운동 추가" ],
       interpretation: "운동이 쉬웠다는 피드백입니다."
     }
   end
@@ -82,7 +82,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
   describe "when authenticated" do
     context "with positive feedback" do
       it "analyzes satisfaction" do
-        allow(AiTrainerService).to receive(:analyze_feedback_from_voice).and_return(positive_feedback_response)
+        allow(AiTrainer::FeedbackService).to receive(:analyze_from_voice).and_return(positive_feedback_response)
 
         result = execute_graphql(
           query: mutation,
@@ -100,7 +100,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
 
     context "with difficulty feedback" do
       it "analyzes when too hard" do
-        allow(AiTrainerService).to receive(:analyze_feedback_from_voice).and_return(difficulty_hard_response)
+        allow(AiTrainer::FeedbackService).to receive(:analyze_from_voice).and_return(difficulty_hard_response)
 
         result = execute_graphql(
           query: mutation,
@@ -115,7 +115,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
       end
 
       it "analyzes when too easy" do
-        allow(AiTrainerService).to receive(:analyze_feedback_from_voice).and_return(difficulty_easy_response)
+        allow(AiTrainer::FeedbackService).to receive(:analyze_from_voice).and_return(difficulty_easy_response)
 
         result = execute_graphql(
           query: mutation,
@@ -132,7 +132,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
 
     context "with English feedback" do
       it "analyzes positive feedback" do
-        allow(AiTrainerService).to receive(:analyze_feedback_from_voice).and_return(positive_feedback_response)
+        allow(AiTrainer::FeedbackService).to receive(:analyze_from_voice).and_return(positive_feedback_response)
 
         result = execute_graphql(
           query: mutation,
@@ -146,7 +146,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
       end
 
       it "analyzes difficulty feedback" do
-        allow(AiTrainerService).to receive(:analyze_feedback_from_voice).and_return(difficulty_hard_response)
+        allow(AiTrainer::FeedbackService).to receive(:analyze_from_voice).and_return(difficulty_hard_response)
 
         result = execute_graphql(
           query: mutation,
@@ -161,7 +161,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
     end
 
     it "returns next workout recommendations" do
-      allow(AiTrainerService).to receive(:analyze_feedback_from_voice).and_return(positive_feedback_response)
+      allow(AiTrainer::FeedbackService).to receive(:analyze_from_voice).and_return(positive_feedback_response)
 
       result = execute_graphql(
         query: mutation,
@@ -175,7 +175,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
     end
 
     it "attempts to save feedback record" do
-      allow(AiTrainerService).to receive(:analyze_feedback_from_voice).and_return(positive_feedback_response)
+      allow(AiTrainer::FeedbackService).to receive(:analyze_from_voice).and_return(positive_feedback_response)
 
       result = execute_graphql(
         query: mutation,
@@ -190,7 +190,7 @@ RSpec.describe Mutations::SubmitFeedbackFromVoice, type: :graphql do
     end
 
     it "returns interpretation" do
-      allow(AiTrainerService).to receive(:analyze_feedback_from_voice).and_return(difficulty_hard_response)
+      allow(AiTrainer::FeedbackService).to receive(:analyze_from_voice).and_return(difficulty_hard_response)
 
       result = execute_graphql(
         query: mutation,

@@ -11,6 +11,7 @@ FactoryBot.define do
     day_number { 1 }
     fitness_goal { "Build muscle" }
     program_start_date { Date.current }
+    level_assessed_at { Time.current }
 
     trait :beginner do
       current_level { "beginner" }
@@ -38,6 +39,10 @@ FactoryBot.define do
       height { nil }
       weight { nil }
       body_fat_percentage { nil }
+    end
+
+    trait :needs_assessment do
+      level_assessed_at { nil }
     end
   end
 end

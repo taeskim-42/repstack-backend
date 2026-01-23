@@ -3,7 +3,7 @@
 require 'rails_helper'
 
 RSpec.describe Mutations::Chat, type: :graphql do
-  let(:user) { create(:user) }
+  let(:user) { create(:user, :with_profile) }
 
   let(:mutation) do
     <<~GQL
@@ -121,7 +121,7 @@ RSpec.describe Mutations::Chat, type: :graphql do
 
     context 'with generate routine intent' do
       before do
-        create(:user_profile, user: user, current_level: 'intermediate')
+        user.user_profile.update!(current_level: 'intermediate')
 
         # Mock the AI service to avoid actual API calls
         allow(AiTrainer::RoutineService).to receive(:generate).and_return({
