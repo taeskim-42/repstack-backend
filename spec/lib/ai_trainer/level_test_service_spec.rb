@@ -367,4 +367,265 @@ RSpec.describe AiTrainer::LevelTestService do
       expect(result.join).to include('등')
     end
   end
+
+  # ============================================================
+  # AI-BASED PROMOTION EVALUATION TESTS
+  # ============================================================
+
+  describe '.evaluate_promotion' do
+    it 'delegates to instance method' do
+      allow_any_instance_of(described_class).to receive(:evaluate_promotion_readiness)
+        .and_return({ eligible: true })
+
+      result = described_class.evaluate_promotion(user: user)
+      expect(result[:eligible]).to be true
+    end
+  end
+
+  describe '#evaluate_promotion_readiness' do
+    before do
+      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+        success: true,
+        content: '축하합니다! 열심히 하셨네요.',
+        model: 'mock'
+      })
+    end
+
+    context 'without workout data' do
+      it 'returns no_data status for all exercises' do
+        result = service.evaluate_promotion_readiness
+
+        expect(result[:exercise_results][:bench][:status]).to eq(:no_data)
+        expect(result[:exercise_results][:squat][:status]).to eq(:no_data)
+        expect(result[:exercise_results][:deadlift][:status]).to eq(:no_data)
+      end
+
+      it 'returns not eligible' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:eligible]).to be false
+      end
+    end
+
+    context 'with sufficient workout data' do
+      let!(:workout_session) do
+        create(:workout_session, user: user, start_time: 1.day.ago, end_time: 1.day.ago + 1.hour)
+      end
+
+      before do
+        # Create workout sets that should pass level 4 criteria
+        # Level 4 requires: bench 0.8, squat 0.9, deadlift 1.0 ratios
+        # For height 175: bench=60, squat=85.5, deadlift=115
+
+        # Bench: 70kg x 5 reps = estimated 1RM ~82kg (passes 60kg requirement)
+        create(:workout_set, workout_session: workout_session,
+               exercise_name: '벤치프레스', weight: 70, reps: 5, weight_unit: 'kg')
+
+        # Squat: 90kg x 5 reps = estimated 1RM ~105kg (passes 85.5kg requirement)
+        create(:workout_set, workout_session: workout_session,
+               exercise_name: '스쿼트', weight: 90, reps: 5, weight_unit: 'kg')
+
+        # Deadlift: 120kg x 3 reps = estimated 1RM ~132kg (passes 115kg requirement)
+        create(:workout_set, workout_session: workout_session,
+               exercise_name: '데드리프트', weight: 120, reps: 3, weight_unit: 'kg')
+      end
+
+      it 'returns eligible when all exercises pass' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:eligible]).to be true
+      end
+
+      it 'returns passed status for passing exercises' do
+        result = service.evaluate_promotion_readiness
+
+        expect(result[:exercise_results][:bench][:status]).to eq(:passed)
+        expect(result[:exercise_results][:squat][:status]).to eq(:passed)
+        expect(result[:exercise_results][:deadlift][:status]).to eq(:passed)
+      end
+
+      it 'includes estimated 1RM values' do
+        result = service.evaluate_promotion_readiness
+
+        expect(result[:estimated_1rms][:bench]).to be > 0
+        expect(result[:estimated_1rms][:squat]).to be > 0
+        expect(result[:estimated_1rms][:deadlift]).to be > 0
+      end
+
+      it 'includes AI feedback' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:ai_feedback]).to be_present
+      end
+
+      it 'returns ready_for_promotion recommendation' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:recommendation]).to eq(:ready_for_promotion)
+      end
+    end
+
+    context 'with insufficient strength' do
+      let!(:workout_session) do
+        create(:workout_session, user: user, start_time: 1.day.ago, end_time: 1.day.ago + 1.hour)
+      end
+
+      before do
+        # Create workout sets that fail level 4 criteria
+        # Bench: 40kg x 5 = ~47kg estimated 1RM (fails 60kg requirement)
+        create(:workout_set, workout_session: workout_session,
+               exercise_name: '벤치프레스', weight: 40, reps: 5, weight_unit: 'kg')
+      end
+
+      it 'returns not eligible' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:eligible]).to be false
+      end
+
+      it 'returns failed status for failing exercise' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:exercise_results][:bench][:status]).to eq(:failed)
+      end
+
+      it 'includes gap information' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:exercise_results][:bench][:gap]).to be > 0
+      end
+
+      it 'returns continue_training recommendation' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:recommendation]).to eq(:continue_training)
+      end
+    end
+  end
+
+  describe '#calculate_estimated_1rms' do
+    let!(:workout_session) do
+      create(:workout_session, user: user, start_time: 1.week.ago, end_time: 1.week.ago + 1.hour)
+    end
+
+    it 'calculates estimated 1RM using Epley formula' do
+      # Epley: 1RM = weight * (1 + reps/30)
+      # 60kg x 10 reps = 60 * (1 + 10/30) = 60 * 1.333 = 80kg
+      create(:workout_set, workout_session: workout_session,
+             exercise_name: '벤치프레스', weight: 60, reps: 10, weight_unit: 'kg')
+
+      result = service.calculate_estimated_1rms
+      expect(result[:bench]).to be_within(1).of(80)
+    end
+
+    it 'uses actual weight for 1 rep' do
+      create(:workout_set, workout_session: workout_session,
+             exercise_name: '스쿼트', weight: 100, reps: 1, weight_unit: 'kg')
+
+      result = service.calculate_estimated_1rms
+      expect(result[:squat]).to eq(100)
+    end
+
+    it 'returns best estimated 1RM across multiple sets' do
+      # Set 1: 60kg x 8 = 76kg estimated
+      create(:workout_set, workout_session: workout_session,
+             exercise_name: '벤치프레스', weight: 60, reps: 8, weight_unit: 'kg')
+
+      # Set 2: 70kg x 5 = 81.7kg estimated (best)
+      create(:workout_set, workout_session: workout_session,
+             exercise_name: '벤치프레스', weight: 70, reps: 5, weight_unit: 'kg')
+
+      result = service.calculate_estimated_1rms
+      expect(result[:bench]).to be > 80
+    end
+
+    it 'recognizes exercise name variations' do
+      create(:workout_set, workout_session: workout_session,
+             exercise_name: 'Bench Press', weight: 60, reps: 5, weight_unit: 'kg')
+
+      result = service.calculate_estimated_1rms
+      expect(result[:bench]).to be_present
+    end
+
+    it 'converts lbs to kg' do
+      # 132 lbs x 5 reps = ~60kg x 5 = 70kg estimated
+      create(:workout_set, workout_session: workout_session,
+             exercise_name: '벤치프레스', weight: 132, reps: 5, weight_unit: 'lbs')
+
+      result = service.calculate_estimated_1rms
+      expect(result[:bench]).to be_within(5).of(70)
+    end
+
+    it 'only considers workouts within 8 weeks' do
+      # Create a user without recent workouts
+      user_old = create(:user)
+      create(:user_profile, user: user_old, numeric_level: 3, height: 175)
+
+      # Explicitly set created_at to 10 weeks ago (not just start_time)
+      old_session = create(:workout_session, user: user_old,
+                           start_time: 10.weeks.ago, end_time: 10.weeks.ago + 1.hour)
+      old_session.update_column(:created_at, 10.weeks.ago)
+
+      create(:workout_set, workout_session: old_session,
+             exercise_name: '벤치프레스', weight: 100, reps: 1, weight_unit: 'kg')
+
+      svc = described_class.new(user: user_old)
+      result = svc.calculate_estimated_1rms
+      expect(result[:bench]).to be_nil
+    end
+
+    it 'returns nil for exercises without data' do
+      result = service.calculate_estimated_1rms
+
+      expect(result[:bench]).to be_nil
+      expect(result[:squat]).to be_nil
+      expect(result[:deadlift]).to be_nil
+    end
+  end
+
+  describe '#exercise_korean' do
+    it 'returns Korean name for bench' do
+      expect(service.send(:exercise_korean, :bench)).to eq('벤치프레스')
+    end
+
+    it 'returns Korean name for squat' do
+      expect(service.send(:exercise_korean, :squat)).to eq('스쿼트')
+    end
+
+    it 'returns Korean name for deadlift' do
+      expect(service.send(:exercise_korean, :deadlift)).to eq('데드리프트')
+    end
+  end
+
+  describe 'AI feedback' do
+    let!(:workout_session) do
+      create(:workout_session, user: user, start_time: 1.day.ago, end_time: 1.day.ago + 1.hour)
+    end
+
+    before do
+      create(:workout_set, workout_session: workout_session,
+             exercise_name: '벤치프레스', weight: 70, reps: 5, weight_unit: 'kg')
+    end
+
+    context 'when LlmGateway succeeds' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: true,
+          content: 'AI 피드백 메시지입니다.',
+          model: 'claude-3-5-haiku-20241022'
+        })
+      end
+
+      it 'returns AI-generated feedback' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:ai_feedback]).to eq('AI 피드백 메시지입니다.')
+      end
+    end
+
+    context 'when LlmGateway fails' do
+      before do
+        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
+          success: false,
+          error: 'API error'
+        })
+      end
+
+      it 'returns default feedback message' do
+        result = service.evaluate_promotion_readiness
+        expect(result[:ai_feedback]).to be_present
+      end
+    end
+  end
 end

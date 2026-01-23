@@ -1,14 +1,30 @@
 # frozen_string_literal: true
 
 require_relative "constants"
+require_relative "llm_gateway"
 
 module AiTrainer
   # Handles level testing and promotion (승급 시험)
   # Gamification element - users take tests to level up
+  # Supports both traditional 1RM testing and AI-based estimation
   class LevelTestService
     include Constants
 
+    # Exercise name mappings for 3 big lifts
+    EXERCISE_MAPPINGS = {
+      bench: %w[벤치프레스 벤치 프레스 bench\ press benchpress],
+      squat: %w[스쿼트 바벨\ 스쿼트 squat barbell\ squat],
+      deadlift: %w[데드리프트 데드 deadlift]
+    }.freeze
+
     attr_reader :user, :current_level
+
+    class << self
+      # Class method for AI-based promotion evaluation
+      def evaluate_promotion(user:)
+        new(user: user).evaluate_promotion_readiness
+      end
+    end
 
     def initialize(user:)
       @user = user
@@ -303,6 +319,191 @@ module AiTrainer
         steps << "7일 후 다시 도전할 수 있습니다"
         steps
       end
+    end
+
+    # ============================================================
+    # AI-BASED PROMOTION EVALUATION (추정 1RM 기반 승급 심사)
+    # ============================================================
+
+    public
+
+    # Evaluate promotion eligibility based on estimated 1RM from workout history
+    # @return [Hash] evaluation result with estimated 1RMs and AI feedback
+    def evaluate_promotion_readiness
+      height = @user.user_profile&.height || 170
+      next_level = [@current_level + 1, 8].min
+      criteria = Constants::LEVEL_TEST_CRITERIA[next_level]
+
+      # Calculate estimated 1RMs from workout history
+      estimated_1rms = calculate_estimated_1rms
+
+      # Check if meets criteria
+      required = {
+        bench: calculate_required_weight(criteria, :bench, height),
+        squat: calculate_required_weight(criteria, :squat, height),
+        deadlift: calculate_required_weight(criteria, :deadlift, height)
+      }
+
+      results = {}
+      all_passed = true
+
+      %i[bench squat deadlift].each do |exercise|
+        estimated = estimated_1rms[exercise]
+        req = required[exercise]
+
+        if estimated.nil?
+          results[exercise] = {
+            estimated_1rm: nil,
+            required: req,
+            status: :no_data,
+            message: "#{exercise_korean(exercise)} 기록이 부족합니다"
+          }
+          all_passed = false
+        elsif estimated >= req
+          results[exercise] = {
+            estimated_1rm: estimated.round(1),
+            required: req,
+            status: :passed,
+            surplus: (estimated - req).round(1)
+          }
+        else
+          results[exercise] = {
+            estimated_1rm: estimated.round(1),
+            required: req,
+            status: :failed,
+            gap: (req - estimated).round(1)
+          }
+          all_passed = false
+        end
+      end
+
+      # Get AI feedback
+      ai_feedback = get_ai_promotion_feedback(results, all_passed, next_level)
+
+      {
+        eligible: all_passed,
+        current_level: @current_level,
+        target_level: next_level,
+        estimated_1rms: estimated_1rms,
+        required_1rms: required,
+        exercise_results: results,
+        ai_feedback: ai_feedback,
+        recommendation: all_passed ? :ready_for_promotion : :continue_training
+      }
+    end
+
+    # Calculate estimated 1RM for each of the 3 big lifts
+    # Uses Epley formula: 1RM = weight × (1 + reps/30)
+    def calculate_estimated_1rms
+      sessions = @user.workout_sessions
+                      .where.not(end_time: nil)
+                      .where("created_at > ?", 8.weeks.ago)
+                      .includes(:workout_sets)
+
+      estimates = { bench: nil, squat: nil, deadlift: nil }
+
+      EXERCISE_MAPPINGS.each do |exercise_type, names|
+        best_estimate = find_best_estimated_1rm(sessions, names)
+        estimates[exercise_type] = best_estimate if best_estimate
+      end
+
+      estimates
+    end
+
+    private
+
+    def find_best_estimated_1rm(sessions, exercise_names)
+      best = nil
+
+      sessions.each do |session|
+        session.workout_sets.each do |set|
+          next unless exercise_names.any? { |name| set.exercise_name&.downcase&.include?(name.downcase) }
+          next unless set.weight.present? && set.reps.present? && set.reps > 0
+
+          weight_kg = set.weight_in_kg
+          next unless weight_kg && weight_kg > 0
+
+          # Epley formula: 1RM = weight × (1 + reps/30)
+          # More accurate for reps <= 10
+          estimated = if set.reps == 1
+                        weight_kg
+                      else
+                        weight_kg * (1 + set.reps / 30.0)
+                      end
+
+          best = estimated if best.nil? || estimated > best
+        end
+      end
+
+      best
+    end
+
+    def get_ai_promotion_feedback(results, all_passed, target_level)
+      prompt = build_promotion_prompt(results, all_passed, target_level)
+
+      response = LlmGateway.chat(
+        prompt: prompt,
+        task: :level_assessment
+      )
+
+      if response[:success]
+        response[:content]
+      else
+        all_passed ? default_pass_message(target_level) : default_fail_message(results)
+      end
+    end
+
+    def build_promotion_prompt(results, all_passed, target_level)
+      tier = Constants.tier_for_level(target_level)
+
+      <<~PROMPT
+        사용자의 승급 심사 결과를 분석하고 피드백을 제공해주세요.
+
+        현재 레벨: #{@current_level}
+        목표 레벨: #{target_level} (#{tier})
+
+        운동 기록 기반 추정 1RM 결과:
+        #{format_results_for_prompt(results)}
+
+        심사 결과: #{all_passed ? '통과' : '미달'}
+
+        #{all_passed ? '축하 메시지와 다음 목표에 대한 조언을 해주세요.' : '부족한 부분에 대한 구체적인 훈련 조언을 해주세요.'}
+
+        2-3문장으로 간결하게 작성해주세요. 이모지를 적절히 사용해주세요.
+      PROMPT
+    end
+
+    def format_results_for_prompt(results)
+      results.map do |exercise, data|
+        name = exercise_korean(exercise)
+        case data[:status]
+        when :passed
+          "- #{name}: #{data[:estimated_1rm]}kg (기준 #{data[:required]}kg) ✅ +#{data[:surplus]}kg"
+        when :failed
+          "- #{name}: #{data[:estimated_1rm]}kg (기준 #{data[:required]}kg) ❌ -#{data[:gap]}kg"
+        when :no_data
+          "- #{name}: 기록 없음 (기준 #{data[:required]}kg)"
+        end
+      end.join("\n")
+    end
+
+    def exercise_korean(exercise)
+      case exercise
+      when :bench then "벤치프레스"
+      when :squat then "스쿼트"
+      when :deadlift then "데드리프트"
+      else exercise.to_s
+      end
+    end
+
+    def default_pass_message(target_level)
+      "🎉 축하합니다! 레벨 #{target_level} 승급 조건을 충족했습니다. 꾸준한 노력의 결과입니다!"
+    end
+
+    def default_fail_message(results)
+      failed = results.select { |_, v| v[:status] != :passed }
+      exercises = failed.keys.map { |e| exercise_korean(e) }.join(", ")
+      "💪 #{exercises} 기록이 조금 더 필요해요. 포기하지 말고 계속 도전하세요!"
     end
   end
 end
