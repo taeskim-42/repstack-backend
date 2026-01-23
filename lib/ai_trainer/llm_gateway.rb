@@ -22,25 +22,25 @@ module AiTrainer
       # Cost-efficient - for simple conversational tasks
       general_chat: {
         provider: :anthropic,
-        model: "claude-haiku-4-20250514",
+        model: "claude-3-5-haiku-latest",
         max_tokens: 512,
         temperature: 0.7
       },
       condition_check: {
         provider: :anthropic,
-        model: "claude-haiku-4-20250514",
+        model: "claude-3-5-haiku-latest",
         max_tokens: 1024,
         temperature: 0.3
       },
       feedback_analysis: {
         provider: :anthropic,
-        model: "claude-haiku-4-20250514",
+        model: "claude-3-5-haiku-latest",
         max_tokens: 1024,
         temperature: 0.3
       },
       level_assessment: {
         provider: :anthropic,
-        model: "claude-haiku-4-20250514",
+        model: "claude-3-5-haiku-latest",
         max_tokens: 1024,
         temperature: 0.5
       }
