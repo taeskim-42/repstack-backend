@@ -11,18 +11,12 @@ module AiTrainer
   class LlmGateway
     # Model configurations by task type
     MODELS = {
-      # Expensive but smart - for complex generation tasks
+      # Expensive model - for complex generation tasks
       routine_generation: {
         provider: :anthropic,
         model: "claude-sonnet-4-20250514",
         max_tokens: 4096,
         temperature: 0.7
-      },
-      level_test: {
-        provider: :anthropic,
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
-        temperature: 0.5
       },
 
       # Cost-efficient - for simple conversational tasks
