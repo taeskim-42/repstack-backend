@@ -14,12 +14,12 @@ class YoutubeChannelScraper
       # Normalize channel URL to videos page
       videos_url = normalize_channel_url(channel_url)
 
-      # Build yt-dlp command
-      cmd = build_command(videos_url, limit)
+      # Build yt-dlp command as array to avoid shell escaping issues
+      cmd_args = build_command_args(videos_url, limit)
 
       Rails.logger.info("Extracting videos from: #{videos_url}")
 
-      output, status = Open3.capture2(cmd)
+      output, status = Open3.capture2(*cmd_args)
 
       unless status.success?
         raise ScrapeError, "yt-dlp failed for #{channel_url}"
@@ -38,16 +38,16 @@ class YoutubeChannelScraper
 
       videos_url = normalize_channel_url(channel_url)
 
-      # Get JSON metadata
-      cmd = [
+      # Build command as array to avoid shell escaping issues
+      cmd_args = [
         "yt-dlp",
         "--flat-playlist",
-        "--print", "%(url)s|||%(title)s|||%(upload_date)s",
-        limit ? "--playlist-end=#{limit}" : nil,
-        videos_url
-      ].compact.join(" ")
+        "--print", "%(url)s|||%(title)s|||%(upload_date)s"
+      ]
+      cmd_args += ["--playlist-end", limit.to_s] if limit
+      cmd_args << videos_url
 
-      output, status = Open3.capture2(cmd)
+      output, status = Open3.capture2(*cmd_args)
 
       unless status.success?
         raise ScrapeError, "yt-dlp failed for #{channel_url}"
@@ -88,7 +88,7 @@ class YoutubeChannelScraper
       temp_dir = Dir.mktmpdir("yt_subs")
 
       begin
-        cmd = [
+        cmd_args = [
           "yt-dlp",
           "--write-auto-sub",
           "--sub-lang", language,
@@ -96,9 +96,9 @@ class YoutubeChannelScraper
           "--skip-download",
           "-o", "#{temp_dir}/sub",
           video_url
-        ].join(" ")
+        ]
 
-        _output, status = Open3.capture2(cmd)
+        _output, status = Open3.capture2(*cmd_args)
 
         unless status.success?
           Rails.logger.warn("Failed to extract subtitles for #{video_url}")
@@ -151,18 +151,18 @@ class YoutubeChannelScraper
       end
     end
 
-    def build_command(url, limit)
-      parts = [
+    def build_command_args(url, limit)
+      args = [
         "yt-dlp",
         "--flat-playlist",
         "--print", "url"
       ]
 
-      parts += ["--playlist-end", limit.to_s] if limit
+      args += ["--playlist-end", limit.to_s] if limit
 
-      parts << url
+      args << url
 
-      parts.join(" ")
+      args
     end
 
     def extract_video_id(url)
