@@ -87,6 +87,12 @@ class ChatService
       return handle_level_assessment
     end
 
+    # Check if user is eligible for promotion (proactive notification)
+    # Only check periodically to avoid spamming
+    if should_check_promotion? && eligible_for_promotion?
+      return handle_promotion_eligible
+    end
+
     intent = classify_intent
     handle_intent(intent)
   rescue StandardError => e
@@ -121,6 +127,96 @@ class ChatService
       )
     else
       error_response(result[:error] || "수준 파악에 실패했어요.")
+    end
+  end
+
+  # ============================================
+  # Promotion Eligibility Check
+  # ============================================
+
+  def should_check_promotion?
+    # Only check promotion eligibility on certain triggers:
+    # 1. User asks about level/promotion
+    # 2. Random chance (10%) on general fitness messages to be proactive
+    # 3. User completed a workout recently
+    message_lower = message.downcase
+
+    # Check for explicit promotion-related keywords
+    promotion_keywords = %w[승급 레벨 레벨업 level 등급]
+    return true if promotion_keywords.any? { |kw| message_lower.include?(kw) }
+
+    # Random proactive check (10% chance on fitness-related messages)
+    return true if fitness_related? && rand < 0.1
+
+    false
+  end
+
+  def eligible_for_promotion?
+    service = AiTrainer::LevelTestService.new(user: user)
+    result = service.evaluate_promotion_readiness
+
+    # Store result for use in handler
+    @promotion_result = result
+    result[:eligible]
+  end
+
+  def handle_promotion_eligible
+    result = @promotion_result
+    current_level = result[:current_level]
+    target_level = result[:target_level]
+    target_tier = AiTrainer::Constants.tier_for_level(target_level)
+
+    # Build encouraging message
+    message = build_promotion_message(result)
+
+    success_response(
+      message: message,
+      intent: "PROMOTION_ELIGIBLE",
+      data: {
+        current_level: current_level,
+        target_level: target_level,
+        target_tier: target_tier,
+        estimated_1rms: result[:estimated_1rms],
+        required_1rms: result[:required_1rms],
+        exercise_results: format_exercise_results(result[:exercise_results])
+      }
+    )
+  end
+
+  def build_promotion_message(result)
+    target_level = result[:target_level]
+    target_tier = AiTrainer::Constants.tier_for_level(target_level)
+    tier_korean = tier_to_korean(target_tier)
+
+    <<~MESSAGE.strip
+      🎯 운동 기록을 분석해보니 실력이 많이 늘었네요!
+
+      레벨 #{target_level} (#{tier_korean}) 승급 조건을 충족했어요. 💪
+
+      승급 테스트에 도전하시겠어요?
+    MESSAGE
+  end
+
+  def tier_to_korean(tier)
+    case tier
+    when "beginner" then "초급"
+    when "intermediate" then "중급"
+    when "advanced" then "고급"
+    else tier
+    end
+  end
+
+  def format_exercise_results(results)
+    return nil unless results
+
+    results.transform_values do |data|
+      {
+        estimated_1rm: data[:estimated_1rm],
+        required: data[:required],
+        status: data[:status].to_s,
+        gap: data[:gap],
+        surplus: data[:surplus]
+      }
     end
   end
 

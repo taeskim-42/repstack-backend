@@ -12,5 +12,6 @@ module Types
     value "GENERAL_CHAT", "General fitness-related conversation"
     value "OFF_TOPIC", "Non-fitness related message"
     value "LEVEL_ASSESSMENT", "New user level assessment (onboarding)"
+    value "PROMOTION_ELIGIBLE", "User is eligible for level promotion test"
   end
 end

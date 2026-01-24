@@ -16,15 +16,15 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
       end
     end
 
-    context "when user has profile without level_assessed_at" do
+    context "when user has profile without onboarding_completed_at" do
       it "returns true" do
-        expect(profile.level_assessed_at).to be_nil
+        expect(profile.onboarding_completed_at).to be_nil
         expect(described_class.needs_assessment?(user)).to be true
       end
     end
 
-    context "when user has profile with level_assessed_at" do
-      before { profile.update!(level_assessed_at: Time.current) }
+    context "when user has profile with onboarding_completed_at" do
+      before { profile.update!(onboarding_completed_at: Time.current) }
 
       it "returns false" do
         expect(described_class.needs_assessment?(user)).to be false
@@ -125,10 +125,13 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
         described_class.assess(user: user, message: "완료")
 
         profile.reload
-        expect(profile.level_assessed_at).to be_present
-        expect(profile.numeric_level).to eq 3
-        expect(profile.current_level).to eq "intermediate"
+        # Onboarding only sets fitness_goal and onboarding_completed_at
+        # Level (numeric_level, current_level) is set after fitness test
+        expect(profile.onboarding_completed_at).to be_present
+        expect(profile.level_assessed_at).to be_nil
         expect(profile.fitness_goal).to eq "근비대"
+        # numeric_level and current_level should NOT be set by onboarding
+        expect(profile.fitness_factors["onboarding_assessment"]).to be_present
       end
 
       before do
@@ -208,8 +211,8 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
   end
 
   describe "integration with ChatService" do
-    it "ChatService routes to LevelAssessmentService when level_assessed_at is nil" do
-      expect(profile.level_assessed_at).to be_nil
+    it "ChatService routes to LevelAssessmentService when onboarding not completed" do
+      expect(profile.onboarding_completed_at).to be_nil
 
       allow(described_class).to receive(:assess).and_return({
         success: true,
@@ -224,8 +227,8 @@ RSpec.describe AiTrainer::LevelAssessmentService, type: :service do
       expect(result[:intent]).to eq("LEVEL_ASSESSMENT")
     end
 
-    it "ChatService skips LevelAssessmentService when level_assessed_at is present" do
-      profile.update!(level_assessed_at: Time.current)
+    it "ChatService skips LevelAssessmentService when onboarding completed" do
+      profile.update!(onboarding_completed_at: Time.current)
 
       allow(described_class).to receive(:assess)
 

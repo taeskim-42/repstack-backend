@@ -11,6 +11,8 @@ FactoryBot.define do
     day_number { 1 }
     fitness_goal { "Build muscle" }
     program_start_date { Date.current }
+    # Both set = fully onboarded user (completed onboarding + fitness test)
+    onboarding_completed_at { Time.current }
     level_assessed_at { Time.current }
 
     trait :beginner do
@@ -41,7 +43,15 @@ FactoryBot.define do
       body_fat_percentage { nil }
     end
 
+    # New user needing onboarding conversation
     trait :needs_assessment do
+      onboarding_completed_at { nil }
+      level_assessed_at { nil }
+    end
+
+    # Onboarding completed, waiting for fitness test
+    trait :needs_fitness_test do
+      onboarding_completed_at { Time.current }
       level_assessed_at { nil }
     end
   end

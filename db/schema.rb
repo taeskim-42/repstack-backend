@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_01_23_031506) do
+ActiveRecord::Schema[8.1].define(version: 2026_01_24_135938) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -28,6 +28,46 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_23_031506) do
     t.bigint "user_id", null: false
     t.index ["user_id", "date"], name: "index_condition_logs_on_user_id_and_date"
     t.index ["user_id"], name: "index_condition_logs_on_user_id"
+  end
+
+  create_table "fitness_knowledge_chunks", force: :cascade do |t|
+    t.text "content", null: false
+    t.datetime "created_at", null: false
+    t.string "difficulty_level"
+    t.string "exercise_name"
+    t.string "knowledge_type", null: false
+    t.jsonb "metadata", default: {}
+    t.string "muscle_group"
+    t.text "summary"
+    t.integer "timestamp_end"
+    t.integer "timestamp_start"
+    t.datetime "updated_at", null: false
+    t.bigint "youtube_video_id", null: false
+    t.index ["exercise_name"], name: "index_fitness_knowledge_chunks_on_exercise_name"
+    t.index ["knowledge_type"], name: "index_fitness_knowledge_chunks_on_knowledge_type"
+    t.index ["muscle_group"], name: "index_fitness_knowledge_chunks_on_muscle_group"
+    t.index ["youtube_video_id"], name: "index_fitness_knowledge_chunks_on_youtube_video_id"
+  end
+
+  create_table "fitness_test_submissions", force: :cascade do |t|
+    t.jsonb "analyses", default: {}, null: false
+    t.integer "assigned_level"
+    t.string "assigned_tier"
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.string "error_message"
+    t.jsonb "evaluation_result", default: {}
+    t.integer "fitness_score"
+    t.string "job_id", null: false
+    t.datetime "started_at"
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.jsonb "videos", default: [], null: false
+    t.index ["job_id"], name: "index_fitness_test_submissions_on_job_id", unique: true
+    t.index ["status"], name: "index_fitness_test_submissions_on_status"
+    t.index ["user_id", "created_at"], name: "index_fitness_test_submissions_on_user_id_and_created_at"
+    t.index ["user_id"], name: "index_fitness_test_submissions_on_user_id"
   end
 
   create_table "level_test_verifications", force: :cascade do |t|
@@ -48,6 +88,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_23_031506) do
     t.index ["test_id"], name: "index_level_test_verifications_on_test_id", unique: true
     t.index ["user_id", "status"], name: "index_level_test_verifications_on_user_id_and_status"
     t.index ["user_id"], name: "index_level_test_verifications_on_user_id"
+  end
+
+  create_table "onboarding_analytics", force: :cascade do |t|
+    t.jsonb "collected_info", default: {}
+    t.boolean "completed", default: false
+    t.string "completion_reason"
+    t.jsonb "conversation_log", default: []
+    t.datetime "created_at", null: false
+    t.string "prompt_version"
+    t.string "session_id", null: false
+    t.integer "time_to_complete_seconds"
+    t.integer "turn_count", default: 0
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["completed"], name: "index_onboarding_analytics_on_completed"
+    t.index ["created_at"], name: "index_onboarding_analytics_on_created_at"
+    t.index ["prompt_version"], name: "index_onboarding_analytics_on_prompt_version"
+    t.index ["session_id"], name: "index_onboarding_analytics_on_session_id", unique: true
+    t.index ["user_id"], name: "index_onboarding_analytics_on_user_id"
   end
 
   create_table "routine_exercises", force: :cascade do |t|
@@ -82,6 +141,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_23_031506) do
     t.datetime "level_assessed_at"
     t.jsonb "max_lifts", default: {}
     t.integer "numeric_level", default: 1
+    t.datetime "onboarding_completed_at"
     t.date "program_start_date"
     t.integer "total_workouts_completed", default: 0
     t.datetime "updated_at", null: false
@@ -190,8 +250,57 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_23_031506) do
     t.index ["workout_session_id", "exercise_name"], name: "index_workout_sets_on_workout_session_id_and_exercise_name"
   end
 
+  create_table "youtube_channels", force: :cascade do |t|
+    t.boolean "active", default: true
+    t.string "channel_id", null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "handle", null: false
+    t.datetime "last_analyzed_at"
+    t.datetime "last_synced_at"
+    t.string "name", null: false
+    t.integer "subscriber_count"
+    t.string "thumbnail_url"
+    t.datetime "updated_at", null: false
+    t.string "url", null: false
+    t.integer "video_count"
+    t.index ["active"], name: "index_youtube_channels_on_active"
+    t.index ["channel_id"], name: "index_youtube_channels_on_channel_id", unique: true
+    t.index ["handle"], name: "index_youtube_channels_on_handle", unique: true
+  end
+
+  create_table "youtube_videos", force: :cascade do |t|
+    t.text "analysis_error"
+    t.string "analysis_status", default: "pending"
+    t.datetime "analyzed_at"
+    t.string "category"
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "difficulty_level"
+    t.integer "duration_seconds"
+    t.string "language"
+    t.integer "like_count"
+    t.datetime "published_at"
+    t.jsonb "raw_analysis", default: {}
+    t.string "thumbnail_url"
+    t.string "title", null: false
+    t.text "transcript"
+    t.datetime "updated_at", null: false
+    t.string "video_id", null: false
+    t.integer "view_count"
+    t.bigint "youtube_channel_id", null: false
+    t.index ["analysis_status"], name: "index_youtube_videos_on_analysis_status"
+    t.index ["category"], name: "index_youtube_videos_on_category"
+    t.index ["published_at"], name: "index_youtube_videos_on_published_at"
+    t.index ["video_id"], name: "index_youtube_videos_on_video_id", unique: true
+    t.index ["youtube_channel_id"], name: "index_youtube_videos_on_youtube_channel_id"
+  end
+
   add_foreign_key "condition_logs", "users"
+  add_foreign_key "fitness_knowledge_chunks", "youtube_videos"
+  add_foreign_key "fitness_test_submissions", "users"
   add_foreign_key "level_test_verifications", "users"
+  add_foreign_key "onboarding_analytics", "users"
   add_foreign_key "routine_exercises", "workout_routines"
   add_foreign_key "user_profiles", "users"
   add_foreign_key "workout_feedbacks", "users"
@@ -200,4 +309,5 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_23_031506) do
   add_foreign_key "workout_routines", "users"
   add_foreign_key "workout_sessions", "users"
   add_foreign_key "workout_sets", "workout_sessions"
+  add_foreign_key "youtube_videos", "youtube_channels"
 end

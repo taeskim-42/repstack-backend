@@ -41,18 +41,20 @@ RSpec.describe AiTrainer::ChatService do
   end
 
   describe '#build_prompt' do
+    let(:empty_context) { { used: false, prompt: "", sources: [] } }
+
     it 'includes user level' do
-      prompt = service.send(:build_prompt, '운동 질문')
+      prompt = service.send(:build_prompt, '운동 질문', empty_context)
       expect(prompt).to include('레벨: 3')
     end
 
     it 'includes user name' do
-      prompt = service.send(:build_prompt, '운동 질문')
+      prompt = service.send(:build_prompt, '운동 질문', empty_context)
       expect(prompt).to include('Test User')
     end
 
     it 'includes user message' do
-      prompt = service.send(:build_prompt, '벤치프레스 자세가 궁금해요')
+      prompt = service.send(:build_prompt, '벤치프레스 자세가 궁금해요', empty_context)
       expect(prompt).to include('벤치프레스 자세가 궁금해요')
     end
 
@@ -61,8 +63,24 @@ RSpec.describe AiTrainer::ChatService do
       let(:service) { described_class.new(user: user_without_profile) }
 
       it 'defaults to level 1' do
-        prompt = service.send(:build_prompt, '질문')
+        prompt = service.send(:build_prompt, '질문', empty_context)
         expect(prompt).to include('레벨: 1')
+      end
+    end
+
+    context 'with RAG knowledge context' do
+      let(:knowledge_context) do
+        {
+          used: true,
+          prompt: "## 참고 지식\n벤치프레스는 가슴 운동의 핵심입니다.",
+          sources: []
+        }
+      end
+
+      it 'includes knowledge in prompt' do
+        prompt = service.send(:build_prompt, '벤치프레스 자세가 궁금해요', knowledge_context)
+        expect(prompt).to include('참고 지식')
+        expect(prompt).to include('벤치프레스는 가슴 운동의 핵심')
       end
     end
   end

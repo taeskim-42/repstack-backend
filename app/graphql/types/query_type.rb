@@ -45,5 +45,8 @@ module Types
     field :get_workout_analytics, resolver: Queries::GetWorkoutAnalytics
     field :check_level_test_eligibility, resolver: Queries::CheckLevelTestEligibility
     field :check_promotion_readiness, resolver: Queries::CheckPromotionReadiness
+
+    # Video-based Fitness Test
+    field :get_fitness_test_result, resolver: Queries::GetFitnessTestResult
   end
 end

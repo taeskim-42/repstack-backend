@@ -15,6 +15,7 @@ module Types
     field :fitness_factors, GraphQL::Types::JSON, null: true
     field :max_lifts, GraphQL::Types::JSON, null: true
     field :total_workouts_completed, Integer, null: true
+    field :onboarding_completed_at, String, null: true
     field :level_assessed_at, String, null: true
     field :last_level_test_at, String, null: true
     field :created_at, String, null: false
@@ -28,6 +29,10 @@ module Types
 
     def program_start_date
       object.program_start_date&.iso8601
+    end
+
+    def onboarding_completed_at
+      object.onboarding_completed_at&.iso8601
     end
 
     def level_assessed_at

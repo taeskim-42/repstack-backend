@@ -69,3 +69,16 @@ gem "yabeda-puma-plugin"         # Puma metrics
 gem "opentelemetry-sdk"
 gem "opentelemetry-exporter-otlp"
 gem "opentelemetry-instrumentation-all"
+
+# AWS S3 for video uploads
+gem "aws-sdk-s3", "~> 1.0"
+
+# Background Job Processing (optional, for async video analysis)
+# gem "sidekiq", "~> 7.0"
+# gem "redis", "~> 5.0"
+
+# Vector Database (pgvector)
+gem "neighbor", "~> 0.5"           # pgvector for Ruby/Rails
+
+# Note: YouTube videos are fetched using yt-dlp (system command)
+# No gem required - install yt-dlp with: brew install yt-dlp

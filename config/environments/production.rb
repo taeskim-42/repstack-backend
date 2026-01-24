@@ -32,8 +32,8 @@ Rails.application.configure do
   # Use memory cache store (no database required)
   config.cache_store = :memory_store
 
-  # Use inline adapter for Active Job (no database required)
-  config.active_job.queue_adapter = :inline
+  # Use Sidekiq for Active Job if Redis is configured, otherwise inline
+  config.active_job.queue_adapter = ENV["REDIS_URL"].present? ? :sidekiq : :inline
 
   # Enable locale fallbacks for I18n.
   config.i18n.fallbacks = true
