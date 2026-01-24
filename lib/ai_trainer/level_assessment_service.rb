@@ -178,6 +178,7 @@ module AiTrainer
           "is_complete": true,
           "assessment": {
             "experience_level": "beginner|intermediate|advanced",
+            "numeric_level": null,
             "fitness_goal": "주요 목표",
             "summary": "사용자 요약"
           }
@@ -236,12 +237,18 @@ module AiTrainer
           new_history << { "role" => "assistant", "content" => data["message"] } if data["message"].present?
           new_collected["conversation_history"] = new_history
 
+          # Ensure assessment always has numeric_level (nil until fitness test)
+          assessment = data["assessment"]
+          if assessment.is_a?(Hash)
+            assessment = assessment.merge("numeric_level" => nil) unless assessment.key?("numeric_level")
+          end
+
           {
             message: data["message"],
             next_state: data["next_state"] || STATES[:asking_experience],
             collected_data: new_collected,
             is_complete: data["is_complete"] || false,
-            assessment: data["assessment"]
+            assessment: assessment
           }
         else
           # Fallback: treat as plain text response
@@ -320,7 +327,9 @@ module AiTrainer
           is_complete: true,
           assessment: {
             "experience_level" => "intermediate",
-            "fitness_goal" => "근비대"
+            "numeric_level" => nil,
+            "fitness_goal" => "근비대",
+            "summary" => "중급자, 주 3회 운동 가능, 근비대 목표"
           }
         }
       end
