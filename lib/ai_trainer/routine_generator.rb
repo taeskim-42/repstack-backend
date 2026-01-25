@@ -63,6 +63,9 @@ module AiTrainer
       height = @user.user_profile&.height || 170
       weight = @user.user_profile&.weight
 
+      # RAG: 오늘 운동 부위에 맞는 전문가 지식 검색
+      expert_knowledge = retrieve_expert_knowledge(fitness_factor)
+
       <<~PROMPT
         당신은 전문 피트니스 트레이너입니다. 아래 정보를 바탕으로 오늘의 운동 루틴을 생성하세요.
         매번 다른 운동 조합과 변수를 사용하여 사용자가 지루함을 느끼지 않도록 하세요.
@@ -102,13 +105,16 @@ module AiTrainer
         - 휴식: #{factor_info[:typical_rest]}초 (시간 기반) 또는 심박수 회복 후
         #{format_training_method_details(training_method)}
 
+        #{expert_knowledge}
+
         ## 규칙
         1. 오늘의 체력요인(#{factor_info[:korean]})에 맞는 훈련방법을 적용하세요
         2. 사용자 레벨에 맞는 난이도의 운동을 선택하세요 (레벨 #{@level}이면 difficulty #{get_max_difficulty} 이하)
         3. 컨디션에 따라 볼륨과 강도를 조절하세요
         4. 매번 다른 조합으로 루틴을 생성하여 지루함을 방지하세요
         5. 가슴, 등, 하체, 코어를 균형있게 포함하세요 (4-5개 운동)
-        6. 랜덤 시드: #{SecureRandom.hex(8)} (이 값을 참고하여 다양한 변이를 만드세요)
+        6. 위 전문가 조언을 참고하여 instructions에 구체적인 팁을 포함하세요
+        7. 랜덤 시드: #{SecureRandom.hex(8)} (이 값을 참고하여 다양한 변이를 만드세요)
 
         ## 출력 형식
         반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트를 추가하지 마세요:
@@ -280,6 +286,43 @@ module AiTrainer
       else
         ""
       end
+    end
+
+    # RAG: 오늘 운동에 관련된 전문가 지식 검색
+    def retrieve_expert_knowledge(fitness_factor)
+      return "" unless defined?(FitnessKnowledgeChunk)
+
+      # 체력요인에 따른 관련 근육 그룹 매핑
+      muscle_groups = case fitness_factor
+      when :strength then %w[chest back legs]
+      when :muscular_endurance then %w[chest back shoulders]
+      when :sustainability then %w[legs core]
+      when :cardiovascular then %w[cardio core]
+      when :power then %w[legs chest]
+      else %w[chest back legs]
+      end
+
+      # 관련 지식 검색 (routine_design, exercise_technique)
+      chunks = FitnessKnowledgeChunk
+        .where(knowledge_type: %w[routine_design exercise_technique])
+        .where("muscle_group ILIKE ANY (ARRAY[?])", muscle_groups.map { |g| "%#{g}%" })
+        .order("RANDOM()")
+        .limit(5)
+
+      return "" if chunks.empty?
+
+      knowledge_text = chunks.map do |chunk|
+        source = chunk.youtube_video&.youtube_channel&.name || "전문가"
+        "- #{source}: #{chunk.summary || chunk.content.truncate(150)}"
+      end.join("\n")
+
+      <<~KNOWLEDGE
+        ## 전문가 조언 (유튜브 피트니스 채널)
+        #{knowledge_text}
+      KNOWLEDGE
+    rescue StandardError => e
+      Rails.logger.warn("RAG retrieval failed: #{e.message}")
+      ""
     end
   end
 end
