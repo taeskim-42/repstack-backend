@@ -17,8 +17,8 @@ module Mutations
     field :errors, [String], null: false
 
     def resolve(name: nil, level: nil, fitness_goal: nil)
-      # Only allow in development/test environments
-      unless Rails.env.development? || Rails.env.test?
+      # Only allow in development/test environments or when explicitly enabled
+      unless Rails.env.development? || Rails.env.test? || ENV["ALLOW_TEST_FEATURES"] == "true"
         return { user: nil, token: nil, errors: ["테스트 환경에서만 사용 가능합니다"] }
       end
 
