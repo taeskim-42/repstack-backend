@@ -248,17 +248,9 @@ module AiTrainer
 
     def build_voice_prompt(text)
       <<~PROMPT
-        You are an expert fitness coach. The user describes their current condition via voice.
-        Understand their condition and provide workout adaptations.
+        사용자의 오늘 컨디션: "#{text}"
 
-        User's voice input (Korean or English):
-        "#{text}"
-
-        Based on what the user said, determine:
-        1. Their overall condition (energy, stress, sleep, motivation, any soreness)
-        2. Appropriate workout adaptations
-
-        Respond ONLY with valid JSON in this exact format:
+        JSON으로 응답:
         ```json
         {
           "condition": {
@@ -266,16 +258,16 @@ module AiTrainer
             "stressLevel": 1-5,
             "sleepQuality": 1-5,
             "motivation": 1-5,
-            "soreness": {"bodyPart": level} or null,
-            "availableTime": minutes (default 60),
-            "notes": "any additional notes"
+            "soreness": null,
+            "availableTime": 60,
+            "notes": null
           },
-          "adaptations": ["adaptation1", "adaptation2"],
+          "adaptations": [],
           "intensityModifier": 0.5-1.5,
           "durationModifier": 0.7-1.3,
-          "exerciseModifications": ["modification1", "modification2"],
-          "restRecommendations": ["rest1", "rest2"],
-          "interpretation": "Brief explanation of how you interpreted the input"
+          "exerciseModifications": [],
+          "restRecommendations": [],
+          "interpretation": "해석"
         }
         ```
       PROMPT

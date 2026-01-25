@@ -30,7 +30,8 @@ module AiTrainer
         provider: :anthropic,
         model: "claude-3-5-haiku-latest",
         max_tokens: 1024,
-        temperature: 0.3
+        temperature: 0.3,
+        system: "당신은 피트니스 트레이너입니다. 사용자가 오늘 컨디션을 말하면 이해하고 운동 강도를 조절하세요. 한국어 슬랭도 자연스럽게 이해하세요."
       },
       feedback_analysis: {
         provider: :anthropic,
@@ -128,8 +129,9 @@ module AiTrainer
         # Add temperature if specified
         body[:temperature] = config[:temperature] if config[:temperature]
 
-        # Add system prompt if provided
-        body[:system] = system if system.present?
+        # Add system prompt (from param or config)
+        system_prompt = system.presence || config[:system]
+        body[:system] = system_prompt if system_prompt.present?
 
         # Build messages array
         if messages.present?
