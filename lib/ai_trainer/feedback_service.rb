@@ -303,86 +303,8 @@ module AiTrainer
       { success: false, error: "응답 파싱 실패" }
     end
 
-    def mock_voice_response(text)
-      text_lower = text.downcase
-
-      rating = 3
-      feedback_type = "GENERAL"
-      insights = []
-      adaptations = []
-      recommendations = []
-
-      # Korean keywords
-      if text_lower.include?("힘들") || text_lower.include?("어려") || text_lower.include?("무거")
-        rating = 2
-        feedback_type = "DIFFICULTY"
-        insights << "운동이 힘들었다고 느꼈습니다"
-        adaptations << "다음 운동 강도를 낮추세요"
-        recommendations << "무게를 5-10% 줄여보세요"
-      elsif text_lower.include?("쉬웠") || text_lower.include?("가벼")
-        rating = 4
-        feedback_type = "DIFFICULTY"
-        insights << "운동이 쉬웠다고 느꼈습니다"
-        adaptations << "다음 운동 강도를 높이세요"
-        recommendations << "무게를 5-10% 늘려보세요"
-      end
-
-      if text_lower.include?("좋았") || text_lower.include?("만족") || text_lower.include?("최고")
-        rating = [ rating, 4 ].max
-        feedback_type = "SATISFACTION"
-        insights << "전반적으로 만족스러웠습니다"
-        recommendations << "같은 패턴으로 계속 진행하세요"
-      elsif text_lower.include?("별로") || text_lower.include?("싫")
-        rating = [ rating, 2 ].min
-        feedback_type = "SATISFACTION"
-        insights << "만족스럽지 않았습니다"
-        adaptations << "루틴 변경을 고려하세요"
-      end
-
-      if text_lower.include?("아프") || text_lower.include?("통증")
-        insights << "통증이 있었습니다"
-        adaptations << "해당 부위 운동을 줄이세요"
-        recommendations << "충분한 휴식을 취하세요"
-      end
-
-      # English keywords
-      if text_lower.include?("hard") || text_lower.include?("difficult") || text_lower.include?("heavy")
-        rating = 2
-        feedback_type = "DIFFICULTY"
-        insights << "Workout felt challenging"
-        adaptations << "Reduce intensity next time"
-      elsif text_lower.include?("easy") || text_lower.include?("light")
-        rating = 4
-        feedback_type = "DIFFICULTY"
-        insights << "Workout felt easy"
-        adaptations << "Increase intensity next time"
-      end
-
-      if text_lower.include?("great") || text_lower.include?("loved") || text_lower.include?("good")
-        rating = [ rating, 4 ].max
-        feedback_type = "SATISFACTION" if feedback_type == "GENERAL"
-        insights << "Positive experience overall"
-      end
-
-      # Default if nothing detected
-      if insights.empty?
-        insights << "피드백을 분석했습니다"
-        recommendations << "현재 루틴을 유지하세요"
-      end
-
-      {
-        success: true,
-        feedback: {
-          rating: rating,
-          feedback_type: feedback_type,
-          summary: "음성 피드백 분석 결과",
-          would_recommend: rating >= 3
-        },
-        insights: insights,
-        adaptations: adaptations,
-        next_workout_recommendations: recommendations,
-        interpretation: "음성 입력에서 키워드 기반으로 분석했습니다"
-      }
+    def mock_voice_response(_text)
+      { success: false, error: "AI 서비스 일시적 오류" }
     end
   end
 end

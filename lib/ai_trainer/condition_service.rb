@@ -301,70 +301,8 @@ module AiTrainer
       { success: false, error: "응답 파싱 실패" }
     end
 
-    def mock_voice_response(text)
-      text_lower = text.downcase
-
-      energy = 3
-      stress = 3
-      sleep_quality = 3
-      motivation = 3
-      soreness = nil
-
-      # Korean keywords
-      energy = 2 if text_lower.include?("피곤") || text_lower.include?("힘들") || text_lower.include?("지쳤")
-      energy = 4 if text_lower.include?("좋아") || text_lower.include?("괜찮") || text_lower.include?("컨디션 좋")
-      energy = 5 if text_lower.include?("최고") || text_lower.include?("완벽")
-
-      stress = 4 if text_lower.include?("스트레스")
-      sleep_quality = 2 if text_lower.include?("잠") && (text_lower.include?("못") || text_lower.include?("안"))
-      motivation = 4 if text_lower.include?("운동하고 싶") || text_lower.include?("하고 싶")
-
-      # English keywords
-      energy = 2 if text_lower.include?("tired") || text_lower.include?("exhausted")
-      energy = 4 if text_lower.include?("good") || text_lower.include?("great")
-      motivation = 4 if text_lower.include?("excited") || text_lower.include?("ready")
-
-      # Soreness detection
-      soreness_map = {}
-      soreness_map["shoulder"] = 3 if text_lower.include?("어깨") || text_lower.include?("shoulder")
-      soreness_map["back"] = 3 if text_lower.include?("허리") || text_lower.include?("등") || text_lower.include?("back")
-      soreness_map["legs"] = 3 if text_lower.include?("다리") || text_lower.include?("leg")
-      soreness = soreness_map.presence
-
-      avg_condition = (energy + (6 - stress) + sleep_quality) / 3.0
-      intensity_modifier = (0.5 + (avg_condition / 5.0) * 0.5).round(2)
-      duration_modifier = (0.7 + (avg_condition / 5.0) * 0.3).round(2)
-
-      adaptations = []
-      adaptations << "운동 강도를 낮추세요" if energy < 3
-      adaptations << "스트레스 해소 운동을 포함하세요" if stress > 3
-      adaptations << "운동 시간을 줄이세요" if sleep_quality < 3
-      adaptations << "오늘 컨디션에 맞는 운동을 추천합니다" if adaptations.empty?
-
-      exercise_mods = []
-      if soreness&.key?("shoulder")
-        exercise_mods << "어깨 운동 제외"
-        adaptations << "어깨 부위 운동을 피하세요"
-      end
-
-      {
-        success: true,
-        condition: {
-          energy_level: energy,
-          stress_level: stress,
-          sleep_quality: sleep_quality,
-          motivation: motivation,
-          soreness: soreness,
-          available_time: 60,
-          notes: nil
-        },
-        adaptations: adaptations,
-        intensity_modifier: intensity_modifier,
-        duration_modifier: duration_modifier,
-        exercise_modifications: exercise_mods,
-        rest_recommendations: stress > 3 ? [ "세트 사이 휴식을 늘리세요" ] : [],
-        interpretation: "음성 입력에서 키워드 기반으로 분석했습니다"
-      }
+    def mock_voice_response(_text)
+      { success: false, error: "AI 서비스 일시적 오류" }
     end
   end
 end
