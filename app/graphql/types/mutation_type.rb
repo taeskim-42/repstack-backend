@@ -47,5 +47,8 @@ module Types
     # Routine management
     field :add_exercise_to_routine, mutation: Mutations::AddExerciseToRoutine
     field :save_routine_to_calendar, mutation: Mutations::SaveRoutineToCalendar
+
+    # Test utilities (development only)
+    field :create_test_user, mutation: Mutations::CreateTestUser
   end
 end
