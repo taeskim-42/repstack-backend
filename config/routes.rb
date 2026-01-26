@@ -14,6 +14,12 @@ Rails.application.routes.draw do
   # Legacy health check endpoint (Rails default)
   get "up" => "rails/health#show", as: :rails_health_check
 
+  # Admin endpoints (protected by token)
+  scope "/admin", controller: :admin do
+    post "/reanalyze_videos", action: :reanalyze_videos
+    get "/reanalyze_status", action: :reanalyze_status
+  end
+
   # Defines the root path route ("/")
   # root "posts#index"
 end
