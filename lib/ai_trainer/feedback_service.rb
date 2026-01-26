@@ -133,7 +133,18 @@ module AiTrainer
       }
     rescue JSON::ParserError => e
       Rails.logger.error("FeedbackService JSON parse error: #{e.message}")
-      { success: false, error: "응답 파싱 실패" }
+      retry_feedback_response
+    end
+
+    def retry_feedback_response
+      {
+        success: true,
+        message: "피드백을 잘 이해하지 못했어요. 다시 한번 말씀해 주시겠어요? 예: '오늘 운동 힘들었어요' 또는 '스쿼트가 좀 쉬웠어요'",
+        insights: [],
+        adaptations: [],
+        next_workout_recommendations: [],
+        needs_retry: true
+      }
     end
 
     def extract_json(text)
@@ -207,7 +218,13 @@ module AiTrainer
       }
     rescue JSON::ParserError => e
       Rails.logger.error("FeedbackService parse_input_response error: #{e.message}")
-      { success: false, error: "응답 파싱 실패" }
+      {
+        success: true,
+        insights: ["피드백을 다시 입력해주세요"],
+        adaptations: [],
+        next_workout_recommendations: [],
+        needs_retry: true
+      }
     end
 
     def mock_input_response(input)
@@ -300,11 +317,78 @@ module AiTrainer
       }
     rescue JSON::ParserError => e
       Rails.logger.error("FeedbackService parse_voice_response error: #{e.message}")
-      { success: false, error: "응답 파싱 실패" }
+      {
+        success: true,
+        feedback: {
+          rating: 3,
+          feedback_type: "GENERAL",
+          summary: nil,
+          would_recommend: true
+        },
+        insights: [],
+        adaptations: [],
+        next_workout_recommendations: [],
+        interpretation: "피드백을 잘 이해하지 못했어요. 다시 한번 말씀해 주시겠어요?",
+        needs_retry: true
+      }
     end
 
-    def mock_voice_response(_text)
-      { success: false, error: "AI 서비스 일시적 오류" }
+    def mock_voice_response(text)
+      # Simple rule-based fallback when LLM fails
+      text_lower = text.downcase
+
+      rating = 3
+      feedback_type = "GENERAL"
+      insights = []
+      adaptations = []
+
+      is_korean = text.match?(/[가-힣]/)
+
+      # Difficulty detection
+      if text_lower.match?(/힘들|어려|tough|hard/)
+        rating = 2
+        feedback_type = "DIFFICULTY"
+        insights << "Workout felt challenging"
+        adaptations << "다음 운동 강도를 낮추세요"
+      elsif text_lower.match?(/쉬웠|쉬워|easy/)
+        rating = 4
+        feedback_type = "DIFFICULTY"
+        insights << (is_korean ? "운동이 쉬웠다고 느꼈습니다" : "Workout felt easy")
+      end
+
+      # Satisfaction detection
+      if text_lower.match?(/만족|좋았|좋아|great|good|positive/)
+        rating = 4
+        feedback_type = "SATISFACTION"
+        insights << (is_korean ? "전반적으로 만족스러웠습니다" : "Overall satisfaction was positive")
+      elsif text_lower.match?(/별로|싫|bad|불만/)
+        rating = 2
+        feedback_type = "SATISFACTION"
+        insights << (is_korean ? "만족스럽지 않았습니다" : "Not satisfied")
+        adaptations << "다음 운동 강도를 조절합니다"
+      end
+
+      # Pain detection
+      if text_lower.match?(/통증|아파|아픔|pain|hurt/)
+        insights << (is_korean ? "통증이 있었습니다" : "Pain was reported")
+        adaptations << "해당 부위 운동을 줄이세요"
+      end
+
+      insights << "피드백을 확인했습니다" if insights.empty?
+
+      {
+        success: true,
+        feedback: {
+          rating: rating,
+          feedback_type: feedback_type,
+          summary: text,
+          would_recommend: rating >= 3
+        },
+        insights: insights,
+        adaptations: adaptations,
+        next_workout_recommendations: [],
+        interpretation: "피드백을 분석했습니다."
+      }
     end
   end
 end

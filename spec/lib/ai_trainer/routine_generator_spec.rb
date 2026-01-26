@@ -4,13 +4,16 @@ require 'rails_helper'
 
 RSpec.describe AiTrainer::RoutineGenerator do
   let(:user) { create(:user) }
-  let!(:user_profile) { create(:user_profile, user: user, numeric_level: 3, height: 175, weight: 70) }
-  let(:generator) { described_class.new(user: user) }
+  let!(:user_profile) do
+    create(:user_profile, user: user, numeric_level: 1, height: 175, weight: 70,
+           onboarding_completed_at: Time.current)
+  end
+  let(:generator) { described_class.new(user: user, day_of_week: 1, week: 1) }
 
   describe '#initialize' do
     it 'sets default values' do
       expect(generator.user).to eq(user)
-      expect(generator.level).to eq(3)
+      expect(generator.level).to eq(1)
       expect(generator.condition_score).to eq(3.0)
     end
 
@@ -29,6 +32,18 @@ RSpec.describe AiTrainer::RoutineGenerator do
     it 'accepts explicit day_of_week' do
       gen = described_class.new(user: user, day_of_week: 3)
       expect(gen.day_of_week).to eq(3)
+    end
+
+    it 'accepts explicit week' do
+      gen = described_class.new(user: user, week: 3)
+      expect(gen.week).to eq(3)
+    end
+
+    it 'calculates current week from onboarding date' do
+      # User onboarded 2 weeks ago
+      user_profile.update!(onboarding_completed_at: 2.weeks.ago)
+      gen = described_class.new(user: user.reload)
+      expect(gen.week).to eq(3) # 0 weeks = week 1, 2 weeks = week 3
     end
   end
 
@@ -54,7 +69,7 @@ RSpec.describe AiTrainer::RoutineGenerator do
   end
 
   describe '#with_feedbacks' do
-    let(:feedbacks) { [ double(created_at: 1.day.ago, feedback: 'test', suggestions: []) ] }
+    let(:feedbacks) { [double(created_at: 1.day.ago, feedback: 'test', suggestions: [])] }
 
     it 'sets recent feedbacks' do
       generator.with_feedbacks(feedbacks)
@@ -73,204 +88,117 @@ RSpec.describe AiTrainer::RoutineGenerator do
   end
 
   describe '#generate' do
-    context 'without API key (mock mode)' do
-      before do
-        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
-          success: true,
-          content: '{"exercises": [{"order": 1, "exercise_name": "벤치프레스"}], "estimated_duration_minutes": 45, "notes": [], "variation_seed": "test"}',
-          model: 'mock'
-        })
-      end
-
-      it 'returns routine from mock response' do
+    context 'with valid workout program' do
+      it 'returns routine from WorkoutPrograms' do
         result = generator.generate
         expect(result[:routine_id]).to start_with('RT-')
         expect(result[:exercises]).to be_an(Array)
-      end
-    end
-
-    context 'when LlmGateway returns error' do
-      before do
-        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
-          success: false,
-          error: 'API error'
-        })
+        expect(result[:exercises].length).to be > 0
       end
 
-      it 'returns error response' do
+      it 'includes correct training type for day 1' do
         result = generator.generate
-        expect(result[:success]).to be false
-        expect(result[:error]).to include('루틴 생성 실패')
+        expect(result[:training_type]).to eq('strength')
+        expect(result[:training_type_korean]).to eq('근력')
+      end
+
+      it 'includes week information' do
+        result = generator.generate
+        expect(result[:week]).to eq(1)
+      end
+
+      it 'includes exercises from beginner program' do
+        result = generator.generate
+        exercise_names = result[:exercises].map { |e| e[:exercise_name] }
+        expect(exercise_names).to include('BPM 푸시업')
+        expect(exercise_names).to include('BPM 9칸 턱걸이')
+        expect(exercise_names).to include('BPM 기둥 스쿼트')
+      end
+    end
+
+    context 'with intermediate level user' do
+      let!(:user_profile) do
+        create(:user_profile, user: user, numeric_level: 4, height: 175, weight: 70,
+               onboarding_completed_at: Time.current)
+      end
+      let(:generator) { described_class.new(user: user.reload, day_of_week: 1, week: 1) }
+
+      it 'returns intermediate program exercises' do
+        result = generator.generate
+        exercise_names = result[:exercises].map { |e| e[:exercise_name] }
+        expect(exercise_names).to include('벤치프레스')
+        expect(exercise_names).to include('렛풀다운')
+      end
+    end
+
+    context 'with different days' do
+      it 'returns muscular_endurance for day 2' do
+        gen = described_class.new(user: user, day_of_week: 2, week: 1)
+        result = gen.generate
+        expect(result[:training_type]).to eq('muscular_endurance')
+      end
+
+      it 'returns cardiovascular for day 5' do
+        gen = described_class.new(user: user, day_of_week: 5, week: 1)
+        result = gen.generate
+        expect(result[:training_type]).to eq('cardiovascular')
       end
     end
   end
 
-  describe '#get_grade_korean' do
-    # Level 3 user (default)
-    it 'returns 정상인 for levels 1-3' do
-      expect(generator.send(:get_grade_korean)).to eq('정상인')
-    end
+  describe 'condition-based adjustments' do
+    context 'with poor condition' do
+      before do
+        generator.with_condition(sleep: 1, fatigue: 5, stress: 5, soreness: 5, motivation: 1)
+      end
 
-    context 'with level 4 user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 4, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
+      it 'reduces volume modifier' do
+        result = generator.generate
+        expect(result[:condition][:volume_modifier]).to be < 1.0
+      end
 
-      it 'returns 건강인 for levels 4-5' do
-        expect(generator.send(:get_grade_korean)).to eq('건강인')
+      it 'adjusts sets and reps downward' do
+        result = generator.generate
+        # Original: 3 sets x 10 reps, with 70% volume should be ~2 sets x ~8 reps
+        first_exercise = result[:exercises].first
+        expect(first_exercise[:sets]).to be < 3
       end
     end
 
-    context 'with level 7 user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 7, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
-
-      it 'returns 운동인 for levels 6-8' do
-        expect(generator.send(:get_grade_korean)).to eq('운동인')
+    context 'with excellent condition' do
+      before do
+        generator.with_condition(sleep: 5, fatigue: 1, stress: 1, soreness: 1, motivation: 5)
       end
-    end
-  end
 
-  describe '#get_bpm_for_level' do
-    # Level 3 = intermediate tier, so returns 30-40
-    it 'returns range for intermediate (level 3)' do
-      result = generator.send(:get_bpm_for_level)
-      expect(result).to eq('30-40')
-    end
-
-    context 'with beginner level user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 1, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
-
-      it 'returns 30 for beginner' do
-        result = generator.send(:get_bpm_for_level)
-        expect(result).to eq('30')
+      it 'increases volume modifier' do
+        result = generator.generate
+        expect(result[:condition][:volume_modifier]).to be >= 1.0
       end
-    end
 
-    context 'with advanced level user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 7, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
-
-      it 'returns wide range for advanced' do
-        result = generator.send(:get_bpm_for_level)
-        expect(result).to include('자유 설정')
+      it 'adjusts target_total_reps upward for endurance exercises' do
+        gen = described_class.new(user: user, day_of_week: 2, week: 1) # Muscular endurance day
+          .with_condition(sleep: 5, fatigue: 1, stress: 1, soreness: 1, motivation: 5)
+        result = gen.generate
+        # Original target: 100 reps, with 110% should be 110 reps
+        endurance_exercise = result[:exercises].find { |e| e[:target_total_reps] }
+        expect(endurance_exercise[:target_total_reps]).to be >= 100
       end
     end
   end
 
-  describe '#get_max_difficulty' do
-    # Level 3 = intermediate tier, so returns 3
-    it 'returns 3 for intermediate (level 3)' do
-      result = generator.send(:get_max_difficulty)
-      expect(result).to eq(3)
-    end
+  describe 'week progression' do
+    it 'week 1 has lower volume than week 4' do
+      gen_week1 = described_class.new(user: user, day_of_week: 1, week: 1)
+      gen_week4 = described_class.new(user: user, day_of_week: 1, week: 4)
 
-    context 'with beginner level user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 1, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
+      result1 = gen_week1.generate
+      result4 = gen_week4.generate
 
-      it 'returns 2 for beginner' do
-        result = generator.send(:get_max_difficulty)
-        expect(result).to eq(2)
-      end
-    end
+      # Week 4 should have higher reps/sets
+      week1_total = result1[:exercises].sum { |e| (e[:sets] || 0) * (e[:reps] || 0) + (e[:target_total_reps] || 0) }
+      week4_total = result4[:exercises].sum { |e| (e[:sets] || 0) * (e[:reps] || 0) + (e[:target_total_reps] || 0) }
 
-    context 'with advanced level user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 7, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
-
-      it 'returns 4 for advanced' do
-        result = generator.send(:get_max_difficulty)
-        expect(result).to eq(4)
-      end
-    end
-  end
-
-  describe '#format_condition_details' do
-    it 'returns empty string when no condition inputs' do
-      result = generator.send(:format_condition_details)
-      expect(result).to eq('')
-    end
-
-    it 'formats condition inputs' do
-      generator.with_condition(sleep: 4, fatigue: 2)
-      result = generator.send(:format_condition_details)
-      expect(result).to include('수면: 4/5')
-      expect(result).to include('피로도: 2/5')
-    end
-  end
-
-  describe '#format_feedback_context' do
-    it 'returns empty string when no feedbacks' do
-      result = generator.send(:format_feedback_context)
-      expect(result).to eq('')
-    end
-
-    it 'formats feedback entries' do
-      feedback = double(
-        created_at: Time.current,
-        feedback: '오늘 운동 좋았어요',
-        suggestions: [ '무게 올리기' ]
-      )
-      generator.with_feedbacks([ feedback ])
-      result = generator.send(:format_feedback_context)
-      expect(result).to include('최근 사용자 피드백')
-      expect(result).to include('오늘 운동 좋았어요')
-    end
-  end
-
-  describe '#format_exercises_catalog' do
-    it 'includes exercises from constants' do
-      result = generator.send(:format_exercises_catalog)
-      # Should include some muscle group
-      expect(result).to be_a(String)
-      expect(result.length).to be > 0
-    end
-  end
-
-  describe '#format_training_method_details' do
-    it 'formats fixed_sets_reps' do
-      method = { id: 'TM01' }
-      result = generator.send(:format_training_method_details, method)
-      expect(result).to include('근력 훈련')
-    end
-
-    it 'formats total_reps_fill' do
-      method = { id: 'TM02' }
-      result = generator.send(:format_training_method_details, method)
-      expect(result).to include('근지구력 훈련')
-    end
-
-    it 'formats tabata' do
-      method = { id: 'TM04' }
-      result = generator.send(:format_training_method_details, method)
-      expect(result).to include('심폐지구력')
-    end
-
-    it 'formats explosive' do
-      method = { id: 'TM05' }
-      result = generator.send(:format_training_method_details, method)
-      expect(result).to include('순발력')
-    end
-
-    it 'returns empty for unknown method' do
-      method = { id: 'TM99' }
-      result = generator.send(:format_training_method_details, method)
-      expect(result).to eq('')
-    end
-  end
-
-  describe '#extract_json' do
-    it 'extracts JSON from markdown code blocks' do
-      text = "Result:\n```json\n{\"key\": \"value\"}\n```"
-      result = generator.send(:extract_json, text)
-      expect(JSON.parse(result)['key']).to eq('value')
-    end
-
-    it 'extracts JSON without markdown' do
-      text = 'Some text {\"key\": \"value\"} more text'
-      result = generator.send(:extract_json, text)
-      expect(result).to include('key')
+      expect(week4_total).to be > week1_total
     end
   end
 
@@ -281,313 +209,131 @@ RSpec.describe AiTrainer::RoutineGenerator do
       expect(id1).not_to eq(id2)
     end
 
-    it 'includes level and day info' do
+    it 'includes level, week, and day info' do
       id = generator.send(:generate_routine_id)
       expect(id).to start_with('RT-')
-      expect(id).to include(generator.level.to_s)
+      expect(id).to include('W1')
+      expect(id).to include('D1')
     end
   end
 
-  describe '#get_rom_for_factor' do
-    it 'returns ROM setting for strength' do
-      result = generator.send(:get_rom_for_factor, :strength)
-      expect(result).not_to be_nil
+  describe '#calculate_rest_seconds' do
+    it 'returns 90 seconds for strength training' do
+      result = generator.send(:calculate_rest_seconds, :strength)
+      expect(result).to eq(90)
     end
 
-    it 'returns a ROM setting for power' do
-      result = generator.send(:get_rom_for_factor, :power)
-      expect(result).to eq(:medium)
+    it 'returns 60 seconds for muscular endurance' do
+      result = generator.send(:calculate_rest_seconds, :muscular_endurance)
+      expect(result).to eq(60)
     end
 
-    it 'returns :full when factor not found in defaults' do
-      # Use a factor that doesn't exist in the default_by_factor hash
-      result = generator.send(:get_rom_for_factor, :nonexistent_factor)
-      expect(result).to eq(:full)
-    end
-  end
-
-  describe 'generate with LlmGateway' do
-    let(:mock_json_response) do
-      {
-        "exercises" => [
-          {
-            "order" => 1,
-            "exercise_id" => "EX_CH01",
-            "exercise_name" => "벤치프레스",
-            "target_muscle" => "chest",
-            "sets" => 3,
-            "reps" => 10
-          }
-        ],
-        "estimated_duration_minutes" => 45,
-        "notes" => ["오늘의 포인트"],
-        "variation_seed" => "테스트 루틴"
-      }
-    end
-
-    it 'generates routine when LlmGateway returns success' do
-      allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
-        success: true,
-        content: mock_json_response.to_json,
-        model: 'claude-sonnet-4-20250514'
-      })
-
-      result = generator.generate
-      expect(result[:routine_id]).to start_with('RT-')
-      expect(result[:exercises]).to be_an(Array)
-      expect(result[:exercises].first["exercise_name"]).to eq("벤치프레스")
-    end
-
-    it 'handles LlmGateway errors gracefully' do
-      allow(AiTrainer::LlmGateway).to receive(:chat).and_raise(StandardError, 'Network error')
-
-      result = generator.generate
-      expect(result[:success]).to be false
-      expect(result[:error]).to include('루틴 생성 실패')
+    it 'returns 10 seconds for cardiovascular (tabata)' do
+      result = generator.send(:calculate_rest_seconds, :cardiovascular)
+      expect(result).to eq(10)
     end
   end
 
-  describe '#build_prompt' do
-    it 'includes user information' do
-      prompt = generator.send(:build_prompt)
-      expect(prompt).to include('레벨: 3/8')
-      expect(prompt).to include('175')
+  describe '#format_rom' do
+    it 'formats :full correctly' do
+      expect(generator.send(:format_rom, :full)).to eq('full')
     end
 
-    it 'includes training method' do
-      prompt = generator.send(:build_prompt)
-      expect(prompt).to include('훈련방법')
+    it 'formats :medium correctly' do
+      expect(generator.send(:format_rom, :medium)).to eq('medium')
     end
 
-    it 'includes condition score' do
-      prompt = generator.send(:build_prompt)
-      expect(prompt).to include('컨디션 점수')
+    it 'formats :short correctly' do
+      expect(generator.send(:format_rom, :short)).to eq('short')
     end
 
-    it 'includes weight calculations' do
-      prompt = generator.send(:build_prompt)
-      expect(prompt).to include('벤치프레스')
-      expect(prompt).to include('스쿼트')
-      expect(prompt).to include('데드리프트')
-    end
-
-    it 'includes random seed for variation' do
-      prompt = generator.send(:build_prompt)
-      expect(prompt).to include('랜덤 시드')
-    end
-
-    context 'with condition inputs' do
-      before do
-        generator.with_condition(sleep: 4, fatigue: 2, stress: 3)
-      end
-
-      it 'includes condition details' do
-        prompt = generator.send(:build_prompt)
-        expect(prompt).to include('수면: 4/5')
-        expect(prompt).to include('피로도: 2/5')
-        expect(prompt).to include('스트레스: 3/5')
-      end
-    end
-
-    context 'with feedbacks' do
-      let(:feedback) do
-        double(
-          created_at: Time.current,
-          feedback: '운동이 좋았어요',
-          suggestions: [ '무게 올리기' ]
-        )
-      end
-
-      before do
-        generator.with_feedbacks([ feedback ])
-      end
-
-      it 'includes feedback context' do
-        prompt = generator.send(:build_prompt)
-        expect(prompt).to include('최근 사용자 피드백')
-      end
-    end
-
-    context 'without user weight' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 3, height: 175, weight: nil) }
-
-      it 'handles nil weight gracefully' do
-        prompt = generator.send(:build_prompt)
-        expect(prompt).to include('미입력')
-      end
+    it 'defaults to full for unknown ROM' do
+      expect(generator.send(:format_rom, :unknown)).to eq('full')
     end
   end
 
-  describe '#parse_response' do
-    let(:valid_response) do
-      <<~JSON
-        ```json
-        {
-          "exercises": [
-            {
-              "order": 1,
-              "exercise_id": "EX_CH01",
-              "exercise_name": "벤치프레스",
-              "exercise_name_english": "Bench Press",
-              "target_muscle": "chest",
-              "target_muscle_korean": "가슴",
-              "equipment": "barbell",
-              "sets": 3,
-              "reps": 10,
-              "bpm": 30,
-              "rest_seconds": 60,
-              "rest_type": "time_based",
-              "range_of_motion": "full",
-              "target_weight_kg": 60,
-              "instructions": "벤치에 누워서 수행"
-            }
-          ],
-          "estimated_duration_minutes": 45,
-          "notes": ["오늘의 포인트", "주의사항"],
-          "variation_seed": "상체 근력 중심 루틴"
-        }
-        ```
-      JSON
+  describe '#default_instruction' do
+    it 'returns strength instruction for strength training' do
+      result = generator.send(:default_instruction, :strength)
+      expect(result).to include('BPM')
     end
 
-    it 'parses valid response' do
-      result = generator.send(:parse_response, valid_response)
-      expect(result[:routine_id]).to start_with('RT-')
-      expect(result[:exercises].length).to eq(1)
-      expect(result[:exercises].first['exercise_name']).to eq('벤치프레스')
+    it 'returns endurance instruction for muscular_endurance' do
+      result = generator.send(:default_instruction, :muscular_endurance)
+      expect(result).to include('목표 횟수')
     end
 
-    it 'includes metadata' do
-      result = generator.send(:parse_response, valid_response)
-      expect(result[:user_level]).to eq(3)
-      expect(result[:tier]).to be_present
-      expect(result[:condition]).to be_a(Hash)
-    end
-
-    it 'sets defaults for missing fields' do
-      minimal_response = '{"exercises": []}'
-      result = generator.send(:parse_response, minimal_response)
-      expect(result[:estimated_duration_minutes]).to eq(45)
-      expect(result[:notes]).to eq([])
+    it 'returns tabata instruction for cardiovascular' do
+      result = generator.send(:default_instruction, :cardiovascular)
+      expect(result).to include('20초')
     end
   end
 
-  describe '#extract_json edge cases' do
-    it 'handles JSON without markdown' do
-      text = 'Here is the response: {"key": "value"} end'
-      result = generator.send(:extract_json, text)
-      expect(result).to eq('{"key": "value"}')
-    end
-
-    it 'returns text as-is when no JSON found' do
-      text = 'No JSON here'
-      result = generator.send(:extract_json, text)
-      expect(result).to eq('No JSON here')
-    end
-  end
-
-  describe 'condition score integration' do
-    it 'adjusts for poor condition' do
-      generator.with_condition(sleep: 1, fatigue: 5, stress: 5, soreness: 5, motivation: 1)
-      expect(generator.condition_score).to be < 2.5
-      expect(generator.adjustment[:volume_modifier]).to be < 1.0
-    end
-
-    it 'adjusts for excellent condition' do
-      generator.with_condition(sleep: 5, fatigue: 1, stress: 1, soreness: 1, motivation: 5)
-      expect(generator.condition_score).to be > 3.5
+  describe '#estimate_duration' do
+    it 'estimates shorter time for cardiovascular' do
+      exercises = [{ name: 'test' }] * 4
+      cardio_duration = generator.send(:estimate_duration, exercises, :cardiovascular)
+      strength_duration = generator.send(:estimate_duration, exercises, :strength)
+      expect(cardio_duration).to be < strength_duration
     end
   end
 
   describe 'level-based configurations' do
     context 'with level 8 user (max)' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 8, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
-
-      it 'returns correct grade' do
-        expect(generator.send(:get_grade_korean)).to eq('운동인')
+      let!(:user_profile) do
+        create(:user_profile, user: user, numeric_level: 8, height: 175, weight: 70,
+               onboarding_completed_at: Time.current)
       end
+      let(:generator) { described_class.new(user: user.reload, day_of_week: 1, week: 1) }
 
-      it 'allows max difficulty' do
-        expect(generator.send(:get_max_difficulty)).to eq(4)
-      end
-    end
-
-    context 'with level 2 user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 2, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
-
-      it 'returns correct grade' do
-        expect(generator.send(:get_grade_korean)).to eq('정상인')
-      end
-
-      it 'limits difficulty' do
-        expect(generator.send(:get_max_difficulty)).to eq(2)
+      it 'returns advanced tier' do
+        result = generator.generate
+        expect(result[:tier]).to eq('advanced')
+        expect(result[:tier_korean]).to eq('고급')
       end
     end
 
-    context 'with level 5 user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 5, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
-
-      it 'returns 건강인 grade' do
-        expect(generator.send(:get_grade_korean)).to eq('건강인')
-      end
-
-      it 'allows intermediate difficulty' do
-        expect(generator.send(:get_max_difficulty)).to eq(3)
-      end
-    end
-
-    context 'with level 6 user' do
-      let!(:user_profile) { create(:user_profile, user: user, numeric_level: 6, height: 175, weight: 70) }
-      let(:generator) { described_class.new(user: user.reload) }
-
-      it 'returns 운동인 grade' do
-        expect(generator.send(:get_grade_korean)).to eq('운동인')
-      end
-
-      it 'returns advanced BPM range' do
-        result = generator.send(:get_bpm_for_level)
-        expect(result).to include('자유 설정')
+    context 'with level 1 user' do
+      it 'returns beginner tier' do
+        result = generator.generate
+        expect(result[:tier]).to eq('beginner')
+        expect(result[:tier_korean]).to eq('초급')
       end
     end
   end
 
-  describe 'format_feedback_context with multiple feedbacks' do
-    it 'limits to first 5 feedbacks' do
-      feedbacks = 10.times.map do |i|
-        double(
-          created_at: i.days.ago,
-          feedback: "Feedback #{i}",
-          suggestions: [ "Suggestion #{i}" ]
-        )
-      end
-      generator.with_feedbacks(feedbacks)
-      result = generator.send(:format_feedback_context)
-      # Should only include first 5
-      expect(result).to include('Feedback 0')
-      expect(result).to include('Feedback 4')
-      expect(result).not_to include('Feedback 5')
+  describe 'notes generation' do
+    it 'includes week and training type info' do
+      result = generator.generate
+      notes = result[:notes]
+      expect(notes.any? { |n| n.include?('1주차') }).to be true
+      expect(notes.any? { |n| n.include?('근력') }).to be true
     end
 
-    it 'handles suggestions as string' do
-      feedback = double(
-        created_at: Time.current,
-        feedback: 'Test feedback',
-        suggestions: 'String suggestion'
-      )
-      generator.with_feedbacks([ feedback ])
-      result = generator.send(:format_feedback_context)
-      expect(result).to include('String suggestion')
+    context 'with poor condition' do
+      before do
+        generator.with_condition(sleep: 1, fatigue: 5, stress: 5)
+      end
+
+      it 'includes condition adjustment note' do
+        result = generator.generate
+        notes = result[:notes]
+        expect(notes.any? { |n| n.include?('컨디션') }).to be true
+      end
     end
   end
 
-  describe 'format_training_method_details' do
-    it 'formats TM03 max_sets_at_fixed_reps' do
-      method = { id: 'TM03' }
-      result = generator.send(:format_training_method_details, method)
-      expect(result).to include('지속력 훈련')
+  describe 'error handling' do
+    context 'when WorkoutPrograms returns nil' do
+      before do
+        allow(AiTrainer::WorkoutPrograms).to receive(:get_workout).and_return(nil)
+      end
+
+      it 'returns error response' do
+        result = generator.generate
+        expect(result[:success]).to be false
+        expect(result[:error]).to include('찾을 수 없습니다')
+      end
     end
   end
 end

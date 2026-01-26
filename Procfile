@@ -1,1 +1,1 @@
-web: bundle exec rails db:prepare && bundle exec puma -C config/puma.rb
+web: ./bin/start

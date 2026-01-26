@@ -448,9 +448,10 @@ RSpec.describe AiTrainer::FeedbackService do
       expect(result[:feedback][:rating]).to eq(4)
     end
 
-    it 'handles invalid JSON' do
+    it 'returns retry response on invalid JSON' do
       result = service.send(:parse_voice_response, 'invalid json')
-      expect(result[:success]).to be false
+      expect(result[:success]).to be true
+      expect(result[:needs_retry]).to be true
     end
   end
 

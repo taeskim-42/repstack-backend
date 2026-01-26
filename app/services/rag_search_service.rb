@@ -35,9 +35,8 @@ class RagSearchService
     end
 
     # Get knowledge for user's current context (workout, exercises, goals)
-    def contextual_search(exercises: [], muscle_groups: [], goals: [], difficulty_level: nil, limit: 10)
+    def contextual_search(exercises: [], muscle_groups: [], goals: [], knowledge_types: nil, difficulty_level: nil, limit: 10)
       exercise_names = exercises
-      muscle_groups = muscle_groups
       goals = goals
       difficulty = difficulty_level
 
@@ -46,18 +45,22 @@ class RagSearchService
 
       # 1. Direct exercise matches
       if exercise_names.present?
-        results += FitnessKnowledgeChunk.relevant_for_context(
+        scope = FitnessKnowledgeChunk.relevant_for_context(
           exercise_names: exercise_names,
           limit: limit / 2
-        ).to_a
+        )
+        scope = scope.where(knowledge_type: knowledge_types) if knowledge_types.present?
+        results += scope.to_a
       end
 
       # 2. Muscle group matches
       if muscle_groups.present?
-        results += FitnessKnowledgeChunk.relevant_for_context(
+        scope = FitnessKnowledgeChunk.relevant_for_context(
           muscle_groups: muscle_groups,
           limit: limit / 3
-        ).to_a
+        )
+        scope = scope.where(knowledge_type: knowledge_types) if knowledge_types.present?
+        results += scope.to_a
       end
 
       # 3. Goal-based search (nutrition for weight loss, etc.)

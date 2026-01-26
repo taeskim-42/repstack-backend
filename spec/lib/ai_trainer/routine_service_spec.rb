@@ -7,28 +7,18 @@ RSpec.describe AiTrainer::RoutineService do
   let!(:user_profile) { create(:user_profile, user: user, numeric_level: 3, height: 175, weight: 70) }
 
   describe '.generate' do
-    context 'without API key (mock mode)' do
-      before do
-        # LlmGateway returns mock data when API key is not configured
-        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
-          success: true,
-          content: '{"exercises": [{"order": 1, "exercise_name": "벤치프레스"}], "estimated_duration_minutes": 45, "notes": [], "variation_seed": "test"}',
-          model: 'mock'
-        })
-      end
-
-      it 'returns routine from mock response' do
+    context 'with valid WorkoutPrograms data' do
+      it 'returns routine from WorkoutPrograms' do
         result = described_class.generate(user: user)
         expect(result[:routine_id]).to start_with('RT-')
+        expect(result[:exercises]).to be_an(Array)
       end
     end
 
-    context 'when generator returns error' do
+    context 'when generator returns error response' do
       before do
-        allow(AiTrainer::LlmGateway).to receive(:chat).and_return({
-          success: false,
-          error: 'API error'
-        })
+        # Simulate WorkoutPrograms returning nil (no program found)
+        allow(AiTrainer::WorkoutPrograms).to receive(:get_workout).and_return(nil)
       end
 
       it 'returns nil when generator returns error' do

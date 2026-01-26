@@ -100,9 +100,12 @@ ENV PROMETHEUS_EXPORTER_PORT=9394 \
     BUNDLE_DEPLOYMENT="1"
 EXPOSE 3000 9394
 
-# Health check
+# Health check (only for web, worker doesn't need HTTP health check)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
-# Start server with database migration
-CMD ["sh", "-c", "bundle exec rails db:prepare && bundle exec puma -C config/puma.rb"]
+# Copy entrypoint script
+COPY docker-entrypoint.sh /rails/docker-entrypoint.sh
+
+# Start via entrypoint (checks WORKER_ONLY env var)
+CMD ["/rails/docker-entrypoint.sh"]

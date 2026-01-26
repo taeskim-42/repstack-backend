@@ -110,7 +110,7 @@ GEM
       uniform_notifier (~> 1.11)
     circuitbox (2.0.0)
     concurrent-ruby (1.3.6)
-    connection_pool (3.0.2)
+    connection_pool (2.5.5)
     crack (1.0.1)
       bigdecimal
       rexml
@@ -475,6 +475,10 @@ GEM
       erb
       psych (>= 4.0.0)
       tsort
+    redis (5.4.1)
+      redis-client (>= 0.22.0)
+    redis-client (0.26.3)
+      connection_pool
     regexp_parser (2.11.3)
     reline (0.6.3)
       io-console (~> 0.5)
@@ -536,6 +540,12 @@ GEM
     securerandom (0.4.1)
     shoulda-matchers (7.0.1)
       activesupport (>= 7.1)
+    sidekiq (7.3.9)
+      base64
+      connection_pool (>= 2.3.0)
+      logger
+      rack (>= 2.2.4)
+      redis-client (>= 0.22.2)
     simplecov (0.22.0)
       docile (~> 1.1)
       simplecov-html (~> 0.11)
@@ -604,6 +614,7 @@ DEPENDENCIES
   bootsnap
   bullet
   circuitbox
+  connection_pool (~> 2.5)
   debug
   factory_bot_rails
   faker
@@ -622,6 +633,7 @@ DEPENDENCIES
   rack-attack
   rack-cors
   rails (~> 8.1.2)
+  redis (~> 5.0)
   rspec-rails (~> 7.0)
   rspec_junit_formatter
   rubocop
@@ -629,11 +641,13 @@ DEPENDENCIES
   rubocop-rails-omakase
   rubocop-rspec
   shoulda-matchers
+  sidekiq (~> 7.0)
   simplecov
   thruster
   tzinfo-data
   vcr
   webmock
+  webrick
   yabeda
   yabeda-graphql
   yabeda-prometheus
@@ -670,7 +684,7 @@ CHECKSUMS
   bullet (8.1.0) sha256=604b7e2636ec2137dcab3ba61a56248c39a0004a0c9405d58bad0686d23b98ff
   circuitbox (2.0.0) sha256=496e9c1e76496e1e141490085f6cdcc4a8dedc72da8361bef69d8c5423b4da14
   concurrent-ruby (1.3.6) sha256=6b56837e1e7e5292f9864f34b69c5a2cbc75c0cf5338f1ce9903d10fa762d5ab
-  connection_pool (3.0.2) sha256=33fff5ba71a12d2aa26cb72b1db8bba2a1a01823559fb01d29eb74c286e62e0a
+  connection_pool (2.5.5) sha256=e54ff92855753df1fd7c59fa04a398833355f27dd14c074f8c83a05f72a716ad
   crack (1.0.1) sha256=ff4a10390cd31d66440b7524eb1841874db86201d5b70032028553130b6d4c7e
   crass (1.0.6) sha256=dc516022a56e7b3b156099abc81b6d2b08ea1ed12676ac7a5657617f012bd45d
   date (3.5.1) sha256=750d06384d7b9c15d562c76291407d89e368dda4d4fff957eb94962d325a0dc0
@@ -813,6 +827,8 @@ CHECKSUMS
   rainbow (3.1.1) sha256=039491aa3a89f42efa1d6dec2fc4e62ede96eb6acd95e52f1ad581182b79bc6a
   rake (13.3.1) sha256=8c9e89d09f66a26a01264e7e3480ec0607f0c497a861ef16063604b1b08eb19c
   rdoc (7.1.0) sha256=494899df0706c178596ca6e1d50f1b7eb285a9b2aae715be5abd742734f17363
+  redis (5.4.1) sha256=b5e675b57ad22b15c9bcc765d5ac26f60b675408af916d31527af9bd5a81faae
+  redis-client (0.26.3) sha256=37a95ca193b7a79f350c09fe5e696dc15d1701195d559d031a107ab725effc49
   regexp_parser (2.11.3) sha256=ca13f381a173b7a93450e53459075c9b76a10433caadcb2f1180f2c741fc55a4
   reline (0.6.3) sha256=1198b04973565b36ec0f11542ab3f5cfeeec34823f4e54cebde90968092b1835
   request_store (1.7.0) sha256=e1b75d5346a315f452242a68c937ef8e48b215b9453a77a6c0acdca2934c88cb
@@ -833,6 +849,7 @@ CHECKSUMS
   ruby-progressbar (1.13.0) sha256=80fc9c47a9b640d6834e0dc7b3c94c9df37f08cb072b7761e4a71e22cff29b33
   securerandom (0.4.1) sha256=cc5193d414a4341b6e225f0cb4446aceca8e50d5e1888743fac16987638ea0b1
   shoulda-matchers (7.0.1) sha256=b4bfd8744c10e0a36c8ac1a687f921ee7e25ed529e50488d61b79a8688749c77
+  sidekiq (7.3.9) sha256=1108712e1def89002b28e3545d5ae15d4a57ffd4d2c25d97bb1360988826b5a7
   simplecov (0.22.0) sha256=fe2622c7834ff23b98066bb0a854284b2729a569ac659f82621fc22ef36213a5
   simplecov-html (0.13.2) sha256=bd0b8e54e7c2d7685927e8d6286466359b6f16b18cb0df47b508e8d73c777246
   simplecov_json_formatter (0.1.4) sha256=529418fbe8de1713ac2b2d612aa3daa56d316975d307244399fa4838c601b428

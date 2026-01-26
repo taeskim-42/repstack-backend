@@ -44,6 +44,14 @@ module AiTrainer
         model: "claude-3-5-haiku-latest",
         max_tokens: 1024,
         temperature: 0.5
+      },
+
+      # Intent classification - fast, low cost
+      intent_classification: {
+        provider: :anthropic,
+        model: "claude-3-5-haiku-latest",
+        max_tokens: 100,
+        temperature: 0.0
       }
     }.freeze
 
@@ -186,6 +194,8 @@ module AiTrainer
           mock_feedback_json
         when :level_assessment
           mock_assessment_response
+        when :intent_classification
+          "general_chat"
         else
           "이것은 테스트 응답입니다. API 키가 설정되면 실제 AI 응답을 받을 수 있어요! 💪"
         end

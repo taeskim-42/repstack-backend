@@ -1,0 +1,6 @@
+---
+:concurrency: 5
+:queues:
+  - [video_analysis, 3]
+  - [default, 2]
+  - [low, 1]

@@ -73,9 +73,11 @@ gem "opentelemetry-instrumentation-all"
 # AWS S3 for video uploads
 gem "aws-sdk-s3", "~> 1.0"
 
-# Background Job Processing (optional, for async video analysis)
-# gem "sidekiq", "~> 7.0"
-# gem "redis", "~> 5.0"
+# Background Job Processing
+gem "sidekiq", "~> 7.0"
+gem "redis", "~> 5.0"
+gem "connection_pool", "~> 2.5"  # Pin to 2.x for Ruby 3.4 compatibility
+gem "webrick"  # For worker health check endpoint
 
 # Vector Database (pgvector)
 gem "neighbor", "~> 0.5"           # pgvector for Ruby/Rails

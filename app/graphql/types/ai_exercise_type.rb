@@ -32,5 +32,10 @@ module Types
 
     # Instructions
     field :instructions, String, null: true
+
+    # Knowledge enrichment (from YouTube RAG)
+    field :expert_tips, [String], null: true, description: "Expert tips from fitness knowledge base"
+    field :form_cues, [String], null: true, description: "Form/posture cues for proper execution"
+    field :video_references, [Types::VideoReferenceType], null: true, description: "Related YouTube video references"
   end
 end

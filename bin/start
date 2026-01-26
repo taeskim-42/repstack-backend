@@ -1,0 +1,10 @@
+#!/bin/bash
+
+if [ "$WORKER_ONLY" = "true" ]; then
+  echo "Starting Sidekiq worker..."
+  exec bundle exec sidekiq -C config/sidekiq.yml
+else
+  echo "Starting web server..."
+  bundle exec rails db:prepare
+  exec bundle exec puma -C config/puma.rb
+fi

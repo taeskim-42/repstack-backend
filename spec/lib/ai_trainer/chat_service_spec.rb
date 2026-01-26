@@ -85,6 +85,94 @@ RSpec.describe AiTrainer::ChatService do
     end
   end
 
+  describe '#extract_keywords' do
+    it 'extracts meaningful words from message' do
+      keywords = service.send(:extract_keywords, '마선호는 뭐라고 하나?')
+      expect(keywords).to include('마선호는')
+      expect(keywords).to include('마선호')
+    end
+
+    it 'removes Korean particles' do
+      keywords = service.send(:extract_keywords, '벤치프레스를 어떻게 해야 하나요?')
+      expect(keywords).to include('벤치프레스')
+    end
+
+    it 'filters out short words' do
+      keywords = service.send(:extract_keywords, '나 운동 좀')
+      expect(keywords).not_to include('나')
+    end
+
+    it 'handles punctuation' do
+      keywords = service.send(:extract_keywords, '스쿼트 자세가 궁금해요!')
+      expect(keywords).to include('스쿼트')
+      expect(keywords).to include('자세가')
+    end
+  end
+
+  describe '#search_with_keywords' do
+    before do
+      allow(RagSearchService).to receive(:search).and_return([])
+    end
+
+    it 'searches with extracted keywords' do
+      service.send(:search_with_keywords, ['벤치프레스', '자세'])
+
+      expect(RagSearchService).to have_received(:search).with('벤치프레스', limit: 2)
+      expect(RagSearchService).to have_received(:search).with('자세', limit: 2)
+    end
+
+    it 'limits to first 5 keywords' do
+      many_keywords = %w[a b c d e f g h]
+      service.send(:search_with_keywords, many_keywords)
+
+      expect(RagSearchService).to have_received(:search).exactly(5).times
+    end
+
+    it 'returns empty array for empty keywords' do
+      result = service.send(:search_with_keywords, [])
+      expect(result).to eq([])
+    end
+
+    it 'deduplicates results by id' do
+      chunk1 = { id: 1, content: 'test1' }
+      chunk2 = { id: 2, content: 'test2' }
+      allow(RagSearchService).to receive(:search).and_return([chunk1, chunk2], [chunk1])
+
+      result = service.send(:search_with_keywords, ['keyword1', 'keyword2'])
+      expect(result.map { |r| r[:id] }).to eq([1, 2])
+    end
+  end
+
+  describe '#retrieve_knowledge' do
+    it 'returns knowledge context when chunks found' do
+      chunks = [{ id: 1, content: 'test', source: { video_url: 'url' } }]
+      allow(RagSearchService).to receive(:search).and_return(chunks)
+      allow(RagSearchService).to receive(:build_context_prompt).and_return('context prompt')
+
+      result = service.send(:retrieve_knowledge, '마선호 운동법')
+
+      expect(result[:used]).to be true
+      expect(result[:prompt]).to eq('context prompt')
+    end
+
+    it 'returns empty context when no chunks found' do
+      allow(RagSearchService).to receive(:search).and_return([])
+
+      result = service.send(:retrieve_knowledge, '없는 키워드')
+
+      expect(result[:used]).to be false
+      expect(result[:prompt]).to eq('')
+    end
+
+    it 'handles errors gracefully' do
+      allow(RagSearchService).to receive(:search).and_raise(StandardError, 'DB error')
+
+      result = service.send(:retrieve_knowledge, '테스트')
+
+      expect(result[:used]).to be false
+    end
+  end
+
   describe 'with LlmGateway' do
     it 'uses LlmGateway for API calls' do
       allow(AiTrainer::LlmGateway).to receive(:chat).and_return({

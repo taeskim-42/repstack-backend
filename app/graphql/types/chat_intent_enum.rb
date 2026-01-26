@@ -9,8 +9,7 @@ module Types
     value "CHECK_CONDITION", "Checking condition (e.g., '오늘 피곤해')"
     value "GENERATE_ROUTINE", "Generating routine (e.g., '오늘 루틴 만들어줘')"
     value "SUBMIT_FEEDBACK", "Submitting feedback (e.g., '런지가 힘들었어')"
-    value "GENERAL_CHAT", "General fitness-related conversation"
-    value "OFF_TOPIC", "Non-fitness related message"
+    value "GENERAL_CHAT", "General conversation handled by AI"
     value "LEVEL_ASSESSMENT", "New user level assessment (onboarding)"
     value "PROMOTION_ELIGIBLE", "User is eligible for level promotion test"
   end

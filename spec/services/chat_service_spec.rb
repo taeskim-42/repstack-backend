@@ -5,19 +5,30 @@ require 'rails_helper'
 RSpec.describe ChatService do
   let(:user) { create(:user, :with_profile) }
 
+  # Helper to mock Claude intent classification
+  def mock_intent_classification(intent)
+    allow(AiTrainer::LlmGateway).to receive(:chat)
+      .with(hash_including(task: :intent_classification))
+      .and_return({ success: true, content: intent.to_s })
+  end
+
   describe '.process' do
     subject { described_class.process(user: user, message: message) }
 
-    context 'intent classification' do
-      context 'when message is record pattern' do
+    context 'intent classification with Claude' do
+      context 'when message is record pattern (regex-based)' do
         let(:message) { '벤치프레스 60kg 8회' }
 
-        it 'classifies as record_exercise' do
+        it 'classifies as record_exercise without calling Claude' do
+          # Record patterns are still regex-based for accuracy
           allow(ChatRecordService).to receive(:record_exercise).and_return({
                                                                              success: true,
                                                                              session: double,
                                                                              sets: []
                                                                            })
+
+          expect(AiTrainer::LlmGateway).not_to receive(:chat)
+            .with(hash_including(task: :intent_classification))
 
           result = subject
           expect(result[:intent]).to eq('RECORD_EXERCISE')
@@ -27,7 +38,8 @@ RSpec.describe ChatService do
       context 'when message is query pattern' do
         let(:message) { '벤치프레스 기록 조회해줘' }
 
-        it 'classifies as query_records' do
+        it 'classifies as query_records via Claude' do
+          mock_intent_classification(:query_records)
           allow(ChatQueryService).to receive(:query_records).and_return({
                                                                           success: true,
                                                                           records: [],
@@ -43,7 +55,8 @@ RSpec.describe ChatService do
       context 'when message is condition check' do
         let(:message) { '오늘 컨디션 좋아요' }
 
-        it 'classifies as check_condition' do
+        it 'classifies as check_condition via Claude' do
+          mock_intent_classification(:check_condition)
           allow(AiTrainer::ConditionService).to receive(:analyze_from_text).and_return({
                                                                                          success: true,
                                                                                          message: '확인했어요',
@@ -55,10 +68,27 @@ RSpec.describe ChatService do
         end
       end
 
+      context 'when message is Korean slang for good condition' do
+        let(:message) { '구우웃' }
+
+        it 'classifies as check_condition via Claude' do
+          mock_intent_classification(:check_condition)
+          allow(AiTrainer::ConditionService).to receive(:analyze_from_text).and_return({
+                                                                                         success: true,
+                                                                                         message: '컨디션 좋으시네요!',
+                                                                                         score: 90
+                                                                                       })
+
+          result = subject
+          expect(result[:intent]).to eq('CHECK_CONDITION')
+        end
+      end
+
       context 'when message is routine generation' do
         let(:message) { '오늘의 루틴 만들어줘' }
 
-        it 'classifies as generate_routine' do
+        it 'classifies as generate_routine via Claude' do
+          mock_intent_classification(:generate_routine)
           allow(AiTrainer::RoutineService).to receive(:generate).and_return({ routine_id: '123' })
 
           result = subject
@@ -67,11 +97,10 @@ RSpec.describe ChatService do
       end
 
       context 'when message is feedback' do
-        # Note: "힘들" in check_condition matches before "힘들었" in submit_feedback
-        # Use a message that only matches submit_feedback keywords
         let(:message) { '오늘 운동 별로였어요' }
 
-        it 'classifies as submit_feedback' do
+        it 'classifies as submit_feedback via Claude' do
+          mock_intent_classification(:submit_feedback)
           allow(AiTrainer::FeedbackService).to receive(:analyze_from_text).and_return({
                                                                                         success: true,
                                                                                         message: '피드백 감사해요'
@@ -82,13 +111,52 @@ RSpec.describe ChatService do
         end
       end
 
-      context 'when message is off-topic' do
+      context 'when message is general chat' do
         let(:message) { '오늘 날씨 어때?' }
 
-        it 'classifies as off_topic' do
+        it 'classifies as general_chat via Claude' do
+          mock_intent_classification(:general_chat)
+          allow(AiTrainer::ChatService).to receive(:general_chat).and_return({
+                                                                               success: true,
+                                                                               message: '운동 전문 트레이너입니다!'
+                                                                             })
+
           result = subject
-          expect(result[:intent]).to eq('OFF_TOPIC')
-          expect(result[:message]).to include('운동')
+          expect(result[:intent]).to eq('GENERAL_CHAT')
+        end
+      end
+
+      context 'when Claude returns unknown intent' do
+        let(:message) { '뭔가 이상한 메시지' }
+
+        it 'defaults to general_chat' do
+          allow(AiTrainer::LlmGateway).to receive(:chat)
+            .with(hash_including(task: :intent_classification))
+            .and_return({ success: true, content: 'unknown_intent_xyz' })
+          allow(AiTrainer::ChatService).to receive(:general_chat).and_return({
+                                                                               success: true,
+                                                                               message: '무엇을 도와드릴까요?'
+                                                                             })
+
+          result = subject
+          expect(result[:intent]).to eq('GENERAL_CHAT')
+        end
+      end
+
+      context 'when Claude API fails' do
+        let(:message) { '테스트 메시지' }
+
+        it 'defaults to general_chat' do
+          allow(AiTrainer::LlmGateway).to receive(:chat)
+            .with(hash_including(task: :intent_classification))
+            .and_return({ success: false, error: 'API error' })
+          allow(AiTrainer::ChatService).to receive(:general_chat).and_return({
+                                                                               success: true,
+                                                                               message: '무엇을 도와드릴까요?'
+                                                                             })
+
+          result = subject
+          expect(result[:intent]).to eq('GENERAL_CHAT')
         end
       end
     end
@@ -134,23 +202,6 @@ RSpec.describe ChatService do
         expect(result[:success]).to be false
         expect(result[:error]).to include('오류')
       end
-    end
-  end
-
-  describe 'fitness_related?' do
-    it 'returns true for fitness keywords' do
-      service = described_class.new(user: user, message: '벤치프레스 운동')
-      expect(service.send(:fitness_related?)).to be true
-    end
-
-    it 'returns true for record patterns' do
-      service = described_class.new(user: user, message: '60kg 8회')
-      expect(service.send(:fitness_related?)).to be true
-    end
-
-    it 'returns false for non-fitness messages' do
-      service = described_class.new(user: user, message: '오늘 날씨 어때?')
-      expect(service.send(:fitness_related?)).to be false
     end
   end
 

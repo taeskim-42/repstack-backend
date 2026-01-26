@@ -47,6 +47,13 @@ RSpec.describe AiTrainer::LlmGateway do
         expect(result[:success]).to be true
         expect(result[:content]).to be_present
       end
+
+      it "returns mock response for intent_classification" do
+        result = described_class.chat(prompt: "구우웃", task: :intent_classification)
+
+        expect(result[:success]).to be true
+        expect(result[:content]).to be_present
+      end
     end
 
     context "with API key configured" do

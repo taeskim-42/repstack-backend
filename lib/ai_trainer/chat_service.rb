@@ -47,22 +47,9 @@ module AiTrainer
     attr_reader :user
 
     def retrieve_knowledge(message)
-      # Extract potential exercise names and muscle groups from the message
-      exercises = extract_exercises(message)
-      muscle_groups = extract_muscle_groups(message)
-
-      # Search for relevant knowledge
-      knowledge_chunks = if exercises.any? || muscle_groups.any?
-        RagSearchService.contextual_search(
-          exercises: exercises,
-          muscle_groups: muscle_groups,
-          difficulty_level: user_difficulty_level,
-          limit: 3
-        )
-      else
-        # General keyword search
-        RagSearchService.search(message, limit: 3)
-      end
+      # Extract keywords from message and search RAG
+      keywords = extract_keywords(message)
+      knowledge_chunks = search_with_keywords(keywords)
 
       if knowledge_chunks.any?
         {
@@ -78,56 +65,43 @@ module AiTrainer
       { used: false, prompt: "", sources: [] }
     end
 
-    def extract_exercises(message)
-      # Common exercise names to detect
-      exercise_patterns = {
-        "벤치프레스" => "bench_press",
-        "벤치" => "bench_press",
-        "스쿼트" => "squat",
-        "데드리프트" => "deadlift",
-        "데드" => "deadlift",
-        "풀업" => "pullup",
-        "푸시업" => "pushup",
-        "팔굽혀펴기" => "pushup",
-        "런지" => "lunge",
-        "숄더프레스" => "shoulder_press",
-        "오버헤드프레스" => "overhead_press",
-        "로우" => "row",
-        "바벨로우" => "barbell_row",
-        "렛풀다운" => "lat_pulldown",
-        "레그프레스" => "leg_press",
-        "레그컬" => "leg_curl"
-      }
+    def extract_keywords(message)
+      # Remove common Korean particles and extract meaningful words
+      stopwords = %w[은 는 이 가 을 를 의 에 에서 으로 로 와 과 하고 이고 라고 뭐라고 뭐 무엇 어떻게 어떤 왜 언제 좀 잘 더]
+      words = message.gsub(/[?!.,]/, "").split(/\s+/)
 
-      message_lower = message.downcase
-      exercise_patterns.select { |korean, _| message_lower.include?(korean) }.values.uniq
-    end
+      keywords = []
 
-    def extract_muscle_groups(message)
-      muscle_patterns = {
-        "가슴" => "chest",
-        "어깨" => "shoulder",
-        "등" => "back",
-        "하체" => "legs",
-        "다리" => "legs",
-        "허벅지" => "legs",
-        "이두" => "biceps",
-        "삼두" => "triceps",
-        "복근" => "abs",
-        "코어" => "core"
-      }
+      words.each do |word|
+        next if word.length < 2
 
-      message_lower = message.downcase
-      muscle_patterns.select { |korean, _| message_lower.include?(korean) }.values.uniq
-    end
+        # Add original word
+        keywords << word
 
-    def user_difficulty_level
-      level = user.user_profile&.numeric_level || 1
-      case level
-      when 1..2 then "beginner"
-      when 3..5 then "intermediate"
-      else "advanced"
+        # Try removing common suffixes
+        stopwords.each do |sw|
+          if word.end_with?(sw) && word.length > sw.length + 1
+            keywords << word.chomp(sw)
+          end
+        end
       end
+
+      keywords.uniq.reject { |w| w.length < 2 }
+    end
+
+    def search_with_keywords(keywords)
+      return [] if keywords.empty?
+
+      all_results = []
+
+      # Search each keyword
+      keywords.first(5).each do |keyword|
+        results = RagSearchService.search(keyword, limit: 2)
+        all_results.concat(results)
+      end
+
+      # Deduplicate and limit
+      all_results.uniq { |r| r[:id] }.first(5)
     end
 
     def build_prompt(message, knowledge_context)
@@ -151,11 +125,15 @@ module AiTrainer
 
       prompt_parts << <<~RULES
         ## 규칙
-        1. 운동/피트니스 관련 질문에만 답변하세요
-        2. 친근하고 격려하는 톤을 유지하세요
-        3. 답변은 2-3문장으로 간결하게
-        4. 이모지를 적절히 사용하세요
-        5. 사용자 레벨에 맞는 조언을 제공하세요
+        1. 당신은 운동 전문 AI 트레이너입니다
+        2. 운동 관련 질문에는 전문적으로 답변하세요
+        3. 운동 외 질문에는 짧게 답하고, 자연스럽게 운동/건강 주제로 대화를 유도하세요
+           예시: "피자 먹고 싶어" → "피자 맛있죠! 🍕 운동 후에 드시면 죄책감 없이 즐길 수 있어요. 오늘 루틴은 확인하셨나요?"
+           예시: "주식 추천해줘" → "저는 운동 전문이라 주식은 잘 모르겠어요 😅 대신 오늘 운동 계획 세워드릴까요?"
+        4. 친근하고 격려하는 톤을 유지하세요
+        5. 답변은 2-3문장으로 간결하게
+        6. 이모지를 적절히 사용하세요
+        7. 사용자 레벨에 맞는 조언을 제공하세요
 
         ## 사용자 질문
         "#{message}"

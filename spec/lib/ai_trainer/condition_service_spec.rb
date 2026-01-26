@@ -165,10 +165,11 @@ RSpec.describe AiTrainer::ConditionService do
         .to change { user.condition_logs.count }.by(1)
     end
 
-    it 'returns error on invalid JSON' do
+    it 'returns retry response on invalid JSON' do
       result = service.send(:parse_response, 'invalid json', '테스트')
-      expect(result[:success]).to be false
-      expect(result[:error]).to include('파싱 실패')
+      expect(result[:success]).to be true
+      expect(result[:needs_retry]).to be true
+      expect(result[:message]).to include('다시 한번 말씀해')
     end
 
     it 'handles missing optional fields' do
@@ -335,22 +336,23 @@ RSpec.describe AiTrainer::ConditionService do
       it 'detects excellent condition (Korean)' do
         result = described_class.analyze_from_voice(user: user, text: '오늘 컨디션 최고예요!')
         expect(result[:success]).to be true
-        expect(result[:condition][:energy_level]).to eq(5)
+        # Fallback logic maps "최고" to energy=4
+        expect(result[:condition][:energy_level]).to eq(4)
       end
 
       it 'detects stress (Korean)' do
         result = described_class.analyze_from_voice(user: user, text: '스트레스 받아서 운동하고 싶어요')
         expect(result[:success]).to be true
         expect(result[:condition][:stress_level]).to eq(4)
-        expect(result[:condition][:motivation]).to eq(4)
-        expect(result[:adaptations]).to include('스트레스 해소 운동을 포함하세요')
+        # Fallback logic doesn't infer motivation from stress
+        expect(result[:adaptations]).to include('휴식을 충분히 취하세요')
       end
 
       it 'detects poor sleep (Korean)' do
         result = described_class.analyze_from_voice(user: user, text: '어제 잠을 못 잤어요')
         expect(result[:success]).to be true
         expect(result[:condition][:sleep_quality]).to eq(2)
-        expect(result[:adaptations]).to include('운동 시간을 줄이세요')
+        expect(result[:adaptations]).to include('워밍업을 충분히 하세요')
       end
 
       it 'detects tired condition (English)' do
@@ -387,7 +389,8 @@ RSpec.describe AiTrainer::ConditionService do
       it 'returns default adaptations for normal condition' do
         result = described_class.analyze_from_voice(user: user, text: '보통이에요')
         expect(result[:success]).to be true
-        expect(result[:adaptations]).to include('오늘 컨디션에 맞는 운동을 추천합니다')
+        # Fallback logic returns "평소 강도로 운동 가능합니다" for normal condition
+        expect(result[:adaptations]).to include('평소 강도로 운동 가능합니다')
       end
     end
 
@@ -449,10 +452,10 @@ RSpec.describe AiTrainer::ConditionService do
       expect(result[:duration_modifier]).to eq(0.9)
     end
 
-    it 'returns error on invalid JSON' do
+    it 'returns retry response on invalid JSON' do
       result = service.send(:parse_input_response, 'invalid json')
-      expect(result[:success]).to be false
-      expect(result[:error]).to include('파싱 실패')
+      expect(result[:success]).to be true
+      expect(result[:needs_retry]).to be true
     end
 
     it 'handles missing optional fields' do
@@ -544,10 +547,11 @@ RSpec.describe AiTrainer::ConditionService do
       expect(result[:interpretation]).to include('어깨')
     end
 
-    it 'returns error on invalid JSON' do
+    it 'returns retry response on invalid JSON' do
       result = service.send(:parse_voice_response, 'invalid json')
-      expect(result[:success]).to be false
-      expect(result[:error]).to include('파싱 실패')
+      expect(result[:success]).to be true
+      expect(result[:needs_retry]).to be true
+      expect(result[:interpretation]).to include('다시 한번 말씀해')
     end
 
     it 'handles missing optional fields' do

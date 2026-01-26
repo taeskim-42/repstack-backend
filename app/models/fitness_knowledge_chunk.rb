@@ -20,8 +20,12 @@ class FitnessKnowledgeChunk < ApplicationRecord
   scope :routine_designs, -> { where(knowledge_type: "routine_design") }
   scope :nutrition_recovery, -> { where(knowledge_type: "nutrition_recovery") }
   scope :form_checks, -> { where(knowledge_type: "form_check") }
-  scope :for_exercise, ->(name) { where("exercise_name ILIKE ?", "%#{name}%") }
-  scope :for_muscle_group, ->(group) { where("muscle_group ILIKE ?", "%#{group}%") }
+  scope :for_exercise, ->(name) {
+    where("exercise_name ILIKE :q OR content ILIKE :q OR summary ILIKE :q", q: "%#{name}%")
+  }
+  scope :for_muscle_group, ->(group) {
+    where("muscle_group ILIKE :q OR content ILIKE :q", q: "%#{group}%")
+  }
   scope :with_embedding, -> { where.not(embedding: nil) }
 
   # Enable neighbor gem for vector search (only if pgvector is available)
@@ -59,15 +63,17 @@ class FitnessKnowledgeChunk < ApplicationRecord
     def relevant_for_context(exercise_names: [], muscle_groups: [], knowledge_types: nil, limit: 10)
       scope = all
 
+      # Search in exercise_name, content, and summary fields
       if exercise_names.present?
-        exercise_conditions = exercise_names.map { |n| "exercise_name ILIKE ?" }
-        exercise_values = exercise_names.map { |n| "%#{n}%" }
+        exercise_conditions = exercise_names.map { |_| "(exercise_name ILIKE ? OR content ILIKE ? OR summary ILIKE ?)" }
+        exercise_values = exercise_names.flat_map { |n| ["%#{n}%", "%#{n}%", "%#{n}%"] }
         scope = scope.where(exercise_conditions.join(" OR "), *exercise_values)
       end
 
+      # Search in muscle_group and content fields
       if muscle_groups.present?
-        muscle_conditions = muscle_groups.map { |g| "muscle_group ILIKE ?" }
-        muscle_values = muscle_groups.map { |g| "%#{g}%" }
+        muscle_conditions = muscle_groups.map { |_| "(muscle_group ILIKE ? OR content ILIKE ?)" }
+        muscle_values = muscle_groups.flat_map { |g| ["%#{g}%", "%#{g}%"] }
         scope = scope.where(muscle_conditions.join(" OR "), *muscle_values)
       end
 

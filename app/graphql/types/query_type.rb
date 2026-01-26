@@ -48,5 +48,8 @@ module Types
 
     # Video-based Fitness Test
     field :get_fitness_test_result, resolver: Queries::GetFitnessTestResult
+
+    # AI Trainer
+    field :get_trainer_greeting, resolver: Queries::GetTrainerGreeting
   end
 end

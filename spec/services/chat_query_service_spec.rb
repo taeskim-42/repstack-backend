@@ -187,9 +187,11 @@ RSpec.describe ChatQueryService do
         expect(result[:interpretation]).to include('벤치프레스')
       end
 
-      it 'includes record count' do
+      it 'includes record details' do
         result = described_class.query_records(user: user, params: {})
-        expect(result[:interpretation]).to match(/\d+건/)
+        expect(result[:interpretation]).to include('기록이에요!')
+        expect(result[:interpretation]).to include('kg')
+        expect(result[:interpretation]).to include('회')
       end
     end
   end

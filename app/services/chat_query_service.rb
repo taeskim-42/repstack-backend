@@ -27,8 +27,8 @@ class ChatQueryService
     # Get summary
     summary = calculate_summary(sets, aggregation)
 
-    # Build interpretation message
-    interpretation = build_interpretation(time_range, exercise_name, records.count)
+    # Build interpretation message with record details
+    interpretation = build_interpretation(time_range, exercise_name, records.count, records: records, summary: summary)
 
     {
       success: true,
@@ -143,7 +143,7 @@ class ChatQueryService
     summary
   end
 
-  def build_interpretation(time_range, exercise_name, count)
+  def build_interpretation(time_range, exercise_name, count, records: [], summary: nil)
     time_desc = case time_range
     when :today then "오늘"
     when :yesterday then "어제"
@@ -159,7 +159,21 @@ class ChatQueryService
     if count.zero?
       "#{time_desc} #{exercise_desc}기록이 없어요."
     else
-      "#{time_desc} #{exercise_desc}기록이에요: (#{count}건)"
+      # Build detailed message with actual records
+      message_parts = ["#{time_desc} #{exercise_desc}기록이에요! 💪"]
+
+      # Add record details (limit to 5 for readability)
+      records.first(5).each do |record|
+        weight_str = record[:weight] > 0 ? "#{record[:weight]}kg" : "맨몸"
+        message_parts << "• #{record[:date]}: #{weight_str} x #{record[:reps]}회 (#{record[:sets]}세트)"
+      end
+
+      # Add summary highlight if available
+      if summary && summary[:max_weight]
+        message_parts << "\n📊 최고 기록: #{summary[:max_weight]}kg"
+      end
+
+      message_parts.join("\n")
     end
   end
 end
