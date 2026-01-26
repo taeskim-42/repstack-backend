@@ -23,6 +23,7 @@ class YoutubeKnowledgeExtractionService
   # Prompt for transcript-based analysis
   TRANSCRIPT_ANALYSIS_PROMPT = <<~PROMPT
     아래는 피트니스 YouTube 영상의 자막(트랜스크립트)입니다.
+    자막에는 [MM:SS] 형식의 타임스탬프가 포함되어 있습니다.
     이 내용을 분석하여 피트니스 관련 지식을 추출하세요.
 
     다음 JSON 형식으로 응답하세요:
@@ -38,7 +39,9 @@ class YoutubeKnowledgeExtractionService
           "summary": "한 줄 요약",
           "exercise_name": "운동명 (영어, 예: bench_press, squat, deadlift)",
           "muscle_group": "근육 부위 (영어: chest, back, legs, shoulders, arms, core)",
-          "difficulty_level": "beginner|intermediate|advanced"
+          "difficulty_level": "beginner|intermediate|advanced",
+          "timestamp_start": 해당 내용이 시작되는 시간(초),
+          "timestamp_end": 해당 내용이 끝나는 시간(초)
         }
       ]
     }
@@ -51,6 +54,9 @@ class YoutubeKnowledgeExtractionService
     - 자막에 피트니스 관련 내용이 없으면 빈 knowledge_chunks 배열 반환
     - 모든 텍스트는 한국어로 작성
     - exercise_name과 muscle_group은 영어로 (검색 및 매칭용)
+    - **중요**: timestamp_start와 timestamp_end는 자막의 [MM:SS] 타임스탬프를 참고하여 초 단위 정수로 기록
+      - 예: [05:30]이면 timestamp_start: 330
+      - 해당 지식이 언급되는 구간의 시작과 끝 시간을 기록
 
     자막 내용:
   PROMPT

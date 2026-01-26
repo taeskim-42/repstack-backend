@@ -118,18 +118,59 @@ class YoutubeChannelScraper
 
     private
 
-    # Convert SRT format to plain text
+    # Convert SRT format to text with timestamps
+    # Returns format: "[00:05] 텍스트 [00:10] 텍스트 ..."
     def parse_srt_to_text(srt_content)
       lines = []
       srt_content.split("\n\n").each do |block|
-        # Skip sequence number and timestamp lines
-        text_lines = block.split("\n").drop(2)
+        block_lines = block.split("\n")
+        next if block_lines.length < 3
+
+        # Parse timestamp line (e.g., "00:00:05,000 --> 00:00:10,000")
+        timestamp_line = block_lines[1]
+        start_time = parse_srt_timestamp(timestamp_line)
+
+        # Get text lines (skip sequence number and timestamp)
+        text_lines = block_lines.drop(2)
         text = text_lines.join(" ").strip
         # Remove sound effects like [음악], [웃음]
         text = text.gsub(/\[.*?\]/, "").strip
-        lines << text unless text.empty?
+
+        next if text.empty?
+
+        # Include timestamp with text
+        if start_time
+          lines << "[#{format_seconds(start_time)}] #{text}"
+        else
+          lines << text
+        end
       end
       lines.join(" ").gsub(/\s+/, " ").strip
+    end
+
+    # Parse SRT timestamp to seconds
+    # Input: "00:01:30,500 --> 00:01:35,000"
+    # Output: 90 (seconds)
+    def parse_srt_timestamp(timestamp_line)
+      return nil unless timestamp_line&.include?("-->")
+
+      start_str = timestamp_line.split("-->").first.strip
+      # Format: HH:MM:SS,mmm
+      match = start_str.match(/(\d{2}):(\d{2}):(\d{2}),(\d{3})/)
+      return nil unless match
+
+      hours = match[1].to_i
+      minutes = match[2].to_i
+      seconds = match[3].to_i
+
+      (hours * 3600) + (minutes * 60) + seconds
+    end
+
+    # Format seconds to MM:SS
+    def format_seconds(total_seconds)
+      minutes = total_seconds / 60
+      seconds = total_seconds % 60
+      format("%02d:%02d", minutes, seconds)
     end
 
     def ensure_yt_dlp_installed!
