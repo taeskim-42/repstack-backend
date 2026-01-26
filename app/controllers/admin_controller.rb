@@ -7,9 +7,12 @@ class AdminController < ApplicationController
   before_action :verify_admin_token
 
   # POST /admin/reanalyze_videos
-  # Triggers reanalysis of all completed videos with timestamp extraction
+  # Triggers reanalysis of all videos with timestamp extraction
+  # Use ?force=true to reanalyze all regardless of status
   def reanalyze_videos
-    videos = YoutubeVideo.completed
+    force = params[:force] == "true"
+
+    videos = force ? YoutubeVideo.all : YoutubeVideo.completed
     total = videos.count
 
     videos.find_each do |video|
@@ -19,7 +22,8 @@ class AdminController < ApplicationController
     render json: {
       success: true,
       message: "Enqueued #{total} videos for reanalysis",
-      estimated_hours: (total * 17.0 / 5 / 3600).round(1)
+      estimated_hours: (total * 17.0 / 5 / 3600).round(1),
+      force: force
     }
   end
 
