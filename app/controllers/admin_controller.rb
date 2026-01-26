@@ -3,6 +3,7 @@
 # Admin controller for background job triggers
 # Protected by admin secret token
 class AdminController < ApplicationController
+  skip_before_action :authorize_request
   before_action :verify_admin_token
 
   # POST /admin/reanalyze_videos
