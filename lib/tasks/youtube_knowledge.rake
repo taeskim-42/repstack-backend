@@ -113,6 +113,51 @@ namespace :youtube do
       puts "  Knowledge chunks: #{FitnessKnowledgeChunk.count}"
     end
 
+    desc "Reanalyze all videos with timestamp extraction (background jobs)"
+    task reanalyze_all: :environment do
+      unless GeminiConfig.configured?
+        puts "Error: GEMINI_API_KEY is not configured"
+        exit 1
+      end
+
+      videos = YoutubeVideo.completed
+      total = videos.count
+
+      puts "=" * 50
+      puts "Reanalyzing #{total} videos with timestamp extraction"
+      puts "Estimated time: ~#{(total * 17 / 5 / 60.0).round(1)} hours (with 5 workers)"
+      puts "=" * 50
+
+      videos.find_each.with_index do |video, index|
+        ReanalyzeVideoJob.perform_async(video.id)
+        print "." if (index + 1) % 100 == 0
+      end
+
+      puts "\n\n✓ Enqueued #{total} reanalysis jobs"
+      puts "Monitor progress with: rails youtube:knowledge:stats"
+    end
+
+    desc "Reanalyze specific number of videos (for testing)"
+    task :reanalyze, [:limit] => :environment do |_t, args|
+      limit = (args[:limit] || 10).to_i
+
+      unless GeminiConfig.configured?
+        puts "Error: GEMINI_API_KEY is not configured"
+        exit 1
+      end
+
+      videos = YoutubeVideo.completed.limit(limit)
+
+      puts "Enqueueing #{videos.count} videos for reanalysis..."
+
+      videos.find_each do |video|
+        ReanalyzeVideoJob.perform_async(video.id)
+        puts "  Enqueued: #{video.title[0..50]}"
+      end
+
+      puts "\n✓ Done! Monitor with: rails youtube:knowledge:stats"
+    end
+
     desc "Analyze a single YouTube URL (test)"
     task :test_url, [:url] => :environment do |_t, args|
       url = args[:url]

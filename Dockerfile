@@ -7,11 +7,14 @@ FROM docker.io/library/ruby:3.4.1-slim AS base
 
 WORKDIR /rails
 
-# Install base dependencies
+# Install base dependencies + yt-dlp for YouTube subtitle extraction
 RUN apt-get update -qq && \
     apt-get install --no-install-recommends -y \
       curl \
       libpq-dev \
+      python3 \
+      python3-pip \
+    && pip3 install --break-system-packages yt-dlp \
     && rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Set environment defaults
