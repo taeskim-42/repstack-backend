@@ -3,7 +3,7 @@
 # =============================================================================
 # Base stage - common dependencies
 # =============================================================================
-FROM docker.io/library/ruby:3.4.1-slim AS base
+FROM docker.io/library/ruby:4.0.1-slim AS base
 
 WORKDIR /rails
 
