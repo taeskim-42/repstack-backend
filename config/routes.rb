@@ -26,6 +26,8 @@ Rails.application.routes.draw do
     get "/simulate_all_levels", action: :simulate_all_levels
     post "/tag_knowledge_levels", action: :tag_knowledge_levels
     post "/seed_exercises", action: :seed_exercises
+    get "/test_subtitle_extraction", action: :test_subtitle_extraction
+    post "/test_knowledge_extraction", action: :test_knowledge_extraction
   end
 
   # Defines the root path route ("/")

@@ -174,6 +174,57 @@ class AdminController < ApplicationController
     }
   end
 
+  # GET /admin/test_subtitle_extraction
+  # Test subtitle extraction with timestamps for debugging
+  def test_subtitle_extraction
+    url = params[:url]
+    return render json: { error: "url parameter required" }, status: :bad_request unless url
+
+    # Extract subtitles
+    transcript = YoutubeChannelScraper.extract_subtitles(url)
+
+    if transcript.blank?
+      return render json: { error: "No subtitles found", url: url }
+    end
+
+    # Show first 2000 chars of transcript to verify timestamps
+    render json: {
+      success: true,
+      url: url,
+      transcript_length: transcript.length,
+      transcript_preview: transcript[0..2000],
+      has_timestamps: transcript.include?("["),
+      sample_timestamps: transcript.scan(/\[\d{2}:\d{2}\]/).first(10)
+    }
+  end
+
+  # POST /admin/test_knowledge_extraction
+  # Test full knowledge extraction on a video URL
+  def test_knowledge_extraction
+    url = params[:url]
+    return render json: { error: "url parameter required" }, status: :bad_request unless url
+
+    result = YoutubeKnowledgeExtractionService.analyze_url(url)
+
+    # Check timestamps in result
+    chunks_with_ts = result[:knowledge_chunks]&.select { |c| c[:timestamp_start].present? } || []
+
+    render json: {
+      success: true,
+      url: url,
+      total_chunks: result[:knowledge_chunks]&.count || 0,
+      chunks_with_timestamp: chunks_with_ts.count,
+      sample_chunks: result[:knowledge_chunks]&.first(3)&.map do |c|
+        {
+          type: c[:type],
+          summary: c[:summary],
+          timestamp_start: c[:timestamp_start],
+          timestamp_end: c[:timestamp_end]
+        }
+      end
+    }
+  end
+
   # POST /admin/seed_exercises
   # Seed/update exercise data with form_tips
   def seed_exercises
