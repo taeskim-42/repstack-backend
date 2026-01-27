@@ -80,10 +80,11 @@ module AiTrainer
       # Main entry point for LLM calls
       # @param prompt [String] The prompt to send
       # @param task [Symbol] Task type for model routing
-      # @param messages [Array] Optional message history for multi-turn
+      # @param messages [Array] Optional message history for multi-turn (supports cache_control)
       # @param system [String] Optional system prompt
+      # @param cache_system [Boolean] Whether to cache the system prompt (default: true)
       # @return [Hash] Response with :success, :content, :model, :usage
-      def chat(prompt:, task: :general_chat, messages: nil, system: nil)
+      def chat(prompt:, task: :general_chat, messages: nil, system: nil, cache_system: true)
         config = MODELS[task] || MODELS[:general_chat]
         provider_config = PROVIDERS[config[:provider]]
 
@@ -91,7 +92,7 @@ module AiTrainer
           return mock_response(task)
         end
 
-        send("call_#{config[:provider]}", prompt: prompt, config: config, messages: messages, system: system)
+        send("call_#{config[:provider]}", prompt: prompt, config: config, messages: messages, system: system, cache_system: cache_system)
       rescue StandardError => e
         Rails.logger.error("[LlmGateway] #{task} error: #{e.message}")
         { success: false, error: e.message }
@@ -116,7 +117,7 @@ module AiTrainer
       end
 
       # Anthropic Claude API call
-      def call_anthropic(prompt:, config:, messages: nil, system: nil)
+      def call_anthropic(prompt:, config:, messages: nil, system: nil, cache_system: true)
         provider = PROVIDERS[:anthropic]
         uri = URI(provider[:api_url])
 
@@ -128,15 +129,17 @@ module AiTrainer
         request["Content-Type"] = "application/json"
         request["x-api-key"] = ENV[provider[:env_key]]
         request["anthropic-version"] = provider[:api_version]
+        # Enable prompt caching beta
+        request["anthropic-beta"] = "prompt-caching-2024-07-31"
 
-        body = build_anthropic_body(prompt: prompt, config: config, messages: messages, system: system)
+        body = build_anthropic_body(prompt: prompt, config: config, messages: messages, system: system, cache_system: cache_system)
         request.body = body.to_json
 
         response = http.request(request)
         parse_anthropic_response(response, config[:model])
       end
 
-      def build_anthropic_body(prompt:, config:, messages:, system:)
+      def build_anthropic_body(prompt:, config:, messages:, system:, cache_system: true)
         body = {
           model: config[:model],
           max_tokens: config[:max_tokens]
@@ -145,15 +148,34 @@ module AiTrainer
         # Add temperature if specified
         body[:temperature] = config[:temperature] if config[:temperature]
 
-        # Add system prompt (from param or config)
+        # Add system prompt with optional caching
         system_prompt = system.presence || config[:system]
-        body[:system] = system_prompt if system_prompt.present?
+        if system_prompt.present?
+          if cache_system
+            # Use array format for system with cache_control
+            body[:system] = [
+              {
+                type: "text",
+                text: system_prompt,
+                cache_control: { type: "ephemeral" }
+              }
+            ]
+          else
+            body[:system] = system_prompt
+          end
+        end
 
-        # Build messages array
+        # Build messages array (messages may already include cache_control)
         if messages.present?
-          body[:messages] = messages
+          body[:messages] = messages.map do |msg|
+            # Ensure proper format with string keys converted to symbols
+            formatted = { role: msg[:role] || msg["role"], content: msg[:content] || msg["content"] }
+            cache_ctrl = msg[:cache_control] || msg["cache_control"]
+            formatted[:cache_control] = cache_ctrl if cache_ctrl
+            formatted
+          end
           # Add new user message if prompt is different from last
-          if prompt.present? && (messages.empty? || messages.last[:content] != prompt)
+          if prompt.present? && (messages.empty? || (messages.last[:content] || messages.last["content"]) != prompt)
             body[:messages] << { role: "user", content: prompt }
           end
         else
@@ -166,13 +188,17 @@ module AiTrainer
       def parse_anthropic_response(response, model)
         if response.code.to_i == 200
           data = JSON.parse(response.body)
+          usage = data["usage"] || {}
           {
             success: true,
             content: data.dig("content", 0, "text"),
             model: model,
             usage: {
-              input_tokens: data.dig("usage", "input_tokens"),
-              output_tokens: data.dig("usage", "output_tokens")
+              input_tokens: usage["input_tokens"],
+              output_tokens: usage["output_tokens"],
+              # Prompt caching stats
+              cache_creation_input_tokens: usage["cache_creation_input_tokens"],
+              cache_read_input_tokens: usage["cache_read_input_tokens"]
             }
           }
         else

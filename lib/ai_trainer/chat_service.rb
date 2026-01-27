@@ -7,44 +7,116 @@ module AiTrainer
   # Handles general fitness-related chat using LLM Gateway
   # Routes to cost-efficient models for conversational queries
   # Enhanced with RAG (Retrieval Augmented Generation) from YouTube fitness knowledge
+  # Uses Prompt Caching for cost-efficient conversation history
   class ChatService
     include Constants
 
+    HISTORY_LIMIT = 10  # Max messages to include in context
+    CACHE_LIMIT = 6     # Messages to cache (older ones)
+
     class << self
-      def general_chat(user:, message:)
-        new(user: user).general_chat(message)
+      def general_chat(user:, message:, session_id: nil)
+        new(user: user, session_id: session_id).general_chat(message)
       end
     end
 
-    def initialize(user:)
+    def initialize(user:, session_id: nil)
       @user = user
+      @session_id = session_id || generate_session_id
     end
 
     def general_chat(message)
+      # Save user message
+      save_message(role: "user", content: message)
+
       # Retrieve relevant knowledge from YouTube fitness channels
       knowledge_context = retrieve_knowledge(message)
 
-      prompt = build_prompt(message, knowledge_context)
-      response = LlmGateway.chat(prompt: prompt, task: :general_chat)
+      # Build messages with conversation history (with caching)
+      messages = build_messages_with_history(message)
+
+      # Build system prompt
+      system_prompt = build_system_prompt(knowledge_context)
+
+      # Call LLM with conversation history and caching
+      response = LlmGateway.chat(
+        prompt: message,
+        task: :general_chat,
+        messages: messages,
+        system: system_prompt,
+        cache_system: true
+      )
 
       if response[:success]
+        assistant_message = response[:content].strip
+
+        # Save assistant response
+        save_message(role: "assistant", content: assistant_message)
+
         {
           success: true,
-          message: response[:content].strip,
+          message: assistant_message,
           model: response[:model],
-          knowledge_used: knowledge_context[:used]
+          knowledge_used: knowledge_context[:used],
+          session_id: @session_id,
+          cache_stats: {
+            cache_read_tokens: response.dig(:usage, :cache_read_input_tokens),
+            cache_creation_tokens: response.dig(:usage, :cache_creation_input_tokens)
+          }
         }
       else
         { success: false, message: "죄송해요, 잠시 문제가 생겼어요. 다시 질문해주세요!" }
       end
     rescue StandardError => e
-      Rails.logger.error("ChatService error: #{e.message}")
+      Rails.logger.error("ChatService error: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
       { success: false, message: "죄송해요, 잠시 문제가 생겼어요. 다시 질문해주세요!" }
     end
 
     private
 
-    attr_reader :user
+    attr_reader :user, :session_id
+
+    def save_message(role:, content:)
+      ChatMessage.create!(
+        user: user,
+        role: role,
+        content: content,
+        session_id: @session_id
+      )
+    rescue StandardError => e
+      Rails.logger.warn("Failed to save chat message: #{e.message}")
+    end
+
+    def build_messages_with_history(new_message)
+      # Get recent conversation history
+      history = ChatMessage.recent_for_user(
+        user.id,
+        limit: HISTORY_LIMIT,
+        session_id: @session_id
+      )
+
+      messages = []
+
+      # Add history with caching on older messages
+      history.each_with_index do |msg, idx|
+        # Cache older messages (not the last 2 which change frequently)
+        should_cache = idx < [history.length - 2, CACHE_LIMIT].min
+        messages << msg.to_api_format(cache: should_cache)
+      end
+
+      messages
+    end
+
+    def generate_session_id
+      # Session lasts for 30 minutes of inactivity
+      last_message = ChatMessage.where(user_id: user.id).order(created_at: :desc).first
+
+      if last_message && last_message.created_at > 30.minutes.ago
+        last_message.session_id
+      else
+        "session_#{user.id}_#{Time.current.to_i}"
+      end
+    end
 
     def retrieve_knowledge(message)
       # Extract keywords from message and search RAG
@@ -104,7 +176,8 @@ module AiTrainer
       all_results.uniq { |r| r[:id] }.first(5)
     end
 
-    def build_prompt(message, knowledge_context)
+    # Build system prompt for conversation (cached for efficiency)
+    def build_system_prompt(knowledge_context)
       user_level = user.user_profile&.numeric_level || 1
       user_tier = Constants.tier_for_level(user_level)
 
@@ -134,11 +207,9 @@ module AiTrainer
         5. 답변은 2-3문장으로 간결하게
         6. 이모지를 적절히 사용하세요
         7. 사용자 레벨에 맞는 조언을 제공하세요
+        8. 이전 대화 내용을 참고하여 맥락에 맞게 답변하세요
 
-        ## 사용자 질문
-        "#{message}"
-
-        위 질문에 친근하게 답변하세요. JSON 형식 없이 자연스러운 대화체로 답변합니다.
+        위 규칙에 따라 친근하게 답변하세요. JSON 형식 없이 자연스러운 대화체로 답변합니다.
       RULES
 
       prompt_parts.join("\n")
