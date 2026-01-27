@@ -407,9 +407,11 @@ module AiTrainer
         sources = relevant.first(2).map do |k|
           next unless k[:source]
 
+          # Use summary as title (핵심 내용) instead of video title
           {
-            title: k[:source][:video_title],
-            url: k[:source][:video_url]
+            title: k[:summary] || k[:source][:video_title],
+            url: k[:source][:video_url],
+            channel: k[:source][:channel_name]
           }
         end.compact
 

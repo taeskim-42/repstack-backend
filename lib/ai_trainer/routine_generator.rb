@@ -444,11 +444,12 @@ module AiTrainer
           tips << chunk[:summary] if chunk[:summary].present?
         end
 
-        # Collect video sources
+        # Collect video sources - use summary as title (핵심 내용)
         if chunk[:source].present?
           sources << {
-            title: chunk[:source][:video_title],
-            url: chunk[:source][:video_url]
+            title: chunk[:summary] || chunk[:source][:video_title],
+            url: chunk[:source][:video_url],
+            channel: chunk[:source][:channel_name]
           }
         end
       end
