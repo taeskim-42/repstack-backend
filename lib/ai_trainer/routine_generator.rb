@@ -222,18 +222,24 @@ module AiTrainer
       exercise
     end
 
-    def matches_exercise?(knowledge, exercise_name, target_muscle)
+    def matches_exercise?(knowledge, exercise_name, target_muscle, strict: false)
       return false unless knowledge
 
-      name_match = knowledge[:exercise_name].present? &&
-                   (exercise_name.downcase.include?(knowledge[:exercise_name].downcase) ||
-                    knowledge[:exercise_name].downcase.include?(exercise_name.gsub(/BPM |타바타 /, "").downcase))
+      clean_name = exercise_name.gsub(/BPM |타바타 /, "").downcase
+      knowledge_name = knowledge[:exercise_name]&.downcase
 
-      muscle_match = knowledge[:muscle_group].present? &&
-                     target_muscle.present? &&
-                     muscle_group_matches?(knowledge[:muscle_group], target_muscle)
+      # Exact exercise name match (handles comma-separated values)
+      if knowledge_name.present?
+        knowledge_names = knowledge_name.split(", ").map(&:strip)
+        name_match = knowledge_names.include?(clean_name) || knowledge_name == clean_name
+        return true if name_match
+      end
 
-      name_match || muscle_match
+      # If strict mode or name matched, don't fall back to muscle group
+      return false if strict
+
+      # Fallback to muscle group only when no exercise name match
+      false
     end
 
     def muscle_group_matches?(knowledge_muscle, target_muscle)
