@@ -427,7 +427,8 @@ class ChatService
   def find_active_routine
     # Find today's incomplete routine
     user.workout_routines
-        .where(scheduled_date: Date.current, is_completed: false)
+        .where(is_completed: false)
+        .where("DATE(created_at) = ?", Date.current)
         .order(created_at: :desc)
         .first
   end
@@ -508,8 +509,8 @@ class ChatService
   def handle_generate_routine
     # Check if there's already a routine for today
     existing_routine = user.workout_routines
-                           .where(scheduled_date: Date.current)
                            .where(is_completed: false)
+                           .where("DATE(created_at) = ?", Date.current)
                            .order(created_at: :desc)
                            .first
 
