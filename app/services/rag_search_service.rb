@@ -35,17 +35,24 @@ class RagSearchService
     end
 
     # Get knowledge for user's current context (workout, exercises, goals)
+    # difficulty_level: "beginner", "intermediate", or "advanced"
     def contextual_search(exercises: [], muscle_groups: [], goals: [], knowledge_types: nil, difficulty_level: nil, limit: 10)
       exercise_names = exercises
       goals = goals
-      difficulty = difficulty_level
+
+      # Base scope with level filtering (beginner gets beginner+all, etc.)
+      base_scope = if difficulty_level.present?
+        FitnessKnowledgeChunk.for_level(difficulty_level)
+      else
+        FitnessKnowledgeChunk.all
+      end
 
       # Combine different search strategies
       results = []
 
       # 1. Direct exercise matches
       if exercise_names.present?
-        scope = FitnessKnowledgeChunk.relevant_for_context(
+        scope = base_scope.relevant_for_context(
           exercise_names: exercise_names,
           limit: limit / 2
         )
@@ -55,7 +62,7 @@ class RagSearchService
 
       # 2. Muscle group matches
       if muscle_groups.present?
-        scope = FitnessKnowledgeChunk.relevant_for_context(
+        scope = base_scope.relevant_for_context(
           muscle_groups: muscle_groups,
           limit: limit / 3
         )
@@ -65,12 +72,7 @@ class RagSearchService
 
       # 3. Goal-based search (nutrition for weight loss, etc.)
       if goals.include?("weight_loss") || goals.include?("fat_loss")
-        results += FitnessKnowledgeChunk.nutrition_recovery.limit(2).to_a
-      end
-
-      # Filter by difficulty if specified
-      if difficulty.present?
-        results.select! { |r| r.difficulty_level.nil? || r.difficulty_level == difficulty }
+        results += base_scope.nutrition_recovery.limit(2).to_a
       end
 
       # Deduplicate and limit
