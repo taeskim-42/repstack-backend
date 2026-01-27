@@ -187,8 +187,26 @@ namespace :youtube do
         puts "\n#{i + 1}. [#{chunk[:type]}] #{chunk[:summary]}"
         puts "   Exercise: #{chunk[:exercise_name]}" if chunk[:exercise_name]
         puts "   Muscle: #{chunk[:muscle_group]}" if chunk[:muscle_group]
+        timestamp = if chunk[:timestamp_start]
+          "[#{chunk[:timestamp_start]}s - #{chunk[:timestamp_end]}s]"
+        else
+          "[NO TIMESTAMP ⚠️]"
+        end
+        puts "   Timestamp: #{timestamp}"
         puts "   Content: #{chunk[:content][0..200]}..."
       end
+    end
+
+    desc "Show timestamp statistics"
+    task timestamp_stats: :environment do
+      total = FitnessKnowledgeChunk.count
+      with_ts = FitnessKnowledgeChunk.where.not(timestamp_start: nil).count
+      without_ts = total - with_ts
+
+      puts "\n📊 Timestamp Statistics:"
+      puts "  Total chunks: #{total}"
+      puts "  With timestamps: #{with_ts} (#{(with_ts.to_f / total * 100).round(1)}%)"
+      puts "  Without timestamps: #{without_ts} (#{(without_ts.to_f / total * 100).round(1)}%)"
     end
   end
 end

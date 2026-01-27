@@ -54,9 +54,13 @@ class YoutubeKnowledgeExtractionService
     - 자막에 피트니스 관련 내용이 없으면 빈 knowledge_chunks 배열 반환
     - 모든 텍스트는 한국어로 작성
     - exercise_name과 muscle_group은 영어로 (검색 및 매칭용)
-    - **중요**: timestamp_start와 timestamp_end는 자막의 [MM:SS] 타임스탬프를 참고하여 초 단위 정수로 기록
-      - 예: [05:30]이면 timestamp_start: 330
-      - 해당 지식이 언급되는 구간의 시작과 끝 시간을 기록
+
+    ⚠️ 타임스탬프 필수 (REQUIRED):
+    - timestamp_start와 timestamp_end는 반드시 입력해야 합니다 (null 불가)
+    - 자막의 [MM:SS] 형식을 초 단위 정수로 변환
+    - 예: [05:30]이면 timestamp_start: 330
+    - 해당 지식이 언급되는 구간의 시작과 끝 시간을 정확히 기록
+    - 타임스탬프가 없는 지식은 사용자가 영상에서 찾을 수 없으므로 반드시 포함!
 
     자막 내용:
   PROMPT
