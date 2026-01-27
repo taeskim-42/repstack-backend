@@ -40,6 +40,7 @@ module Types
     # Video-based Fitness Test
     field :create_fitness_test_upload_url, mutation: Mutations::CreateFitnessTestUploadUrl
     field :submit_fitness_test_videos, mutation: Mutations::SubmitFitnessTestVideos
+    field :analyze_video, mutation: Mutations::AnalyzeVideo
 
     # Offline sync
     field :sync_offline_records, mutation: Mutations::SyncOfflineRecords

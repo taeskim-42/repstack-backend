@@ -6,15 +6,20 @@ module Mutations
 
     argument :day_of_week, Integer, required: false, description: "Day of week (1-5, defaults to current day)"
     argument :condition, Types::ConditionInputType, required: false, description: "User's current condition"
+    argument :dynamic, Boolean, required: false, default_value: false,
+             description: "Use dynamic AI generation instead of fixed program"
+    argument :preferences, Types::RoutinePreferencesInputType, required: false,
+             description: "Preferences for dynamic routine generation"
 
     field :success, Boolean, null: false
     field :routine, Types::AiRoutineType, null: true
     field :error, String, null: true
 
-    def resolve(day_of_week: nil, condition: nil)
+    def resolve(day_of_week: nil, condition: nil, dynamic: false, preferences: nil)
       authenticate_user!
 
       condition_inputs = condition&.to_h&.deep_transform_keys { |k| k.to_s.underscore.to_sym } || {}
+      preference_inputs = preferences&.to_h&.deep_transform_keys { |k| k.to_s.underscore.to_sym } || {}
 
       # Fetch recent feedbacks for personalization
       recent_feedbacks = current_user.workout_feedbacks
@@ -25,7 +30,9 @@ module Mutations
         user: current_user,
         day_of_week: day_of_week,
         condition_inputs: condition_inputs,
-        recent_feedbacks: recent_feedbacks
+        recent_feedbacks: recent_feedbacks,
+        dynamic: dynamic,
+        preferences: preference_inputs
       )
 
       if routine.is_a?(Hash) && routine[:success] == false

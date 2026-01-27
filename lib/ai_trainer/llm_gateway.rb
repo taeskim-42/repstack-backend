@@ -52,6 +52,14 @@ module AiTrainer
         model: "claude-3-5-haiku-latest",
         max_tokens: 100,
         temperature: 0.0
+      },
+
+      # Knowledge cleanup - needs better reasoning
+      knowledge_cleanup: {
+        provider: :anthropic,
+        model: "claude-3-5-haiku-latest",
+        max_tokens: 200,
+        temperature: 0.0
       }
     }.freeze
 

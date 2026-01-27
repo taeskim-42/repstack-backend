@@ -20,13 +20,41 @@ class FitnessKnowledgeChunk < ApplicationRecord
   scope :routine_designs, -> { where(knowledge_type: "routine_design") }
   scope :nutrition_recovery, -> { where(knowledge_type: "nutrition_recovery") }
   scope :form_checks, -> { where(knowledge_type: "form_check") }
+  # Exact match for exercise name (handles comma-separated values)
   scope :for_exercise, ->(name) {
+    where("? = ANY(string_to_array(exercise_name, ', ')) OR exercise_name = ?", name, name)
+  }
+  # Fuzzy match for exercise (includes content/summary search)
+  scope :for_exercise_fuzzy, ->(name) {
     where("exercise_name ILIKE :q OR content ILIKE :q OR summary ILIKE :q", q: "%#{name}%")
   }
   scope :for_muscle_group, ->(group) {
     where("muscle_group ILIKE :q OR content ILIKE :q", q: "%#{group}%")
   }
   scope :with_embedding, -> { where.not(embedding: nil) }
+
+  # Difficulty level scopes
+  DIFFICULTY_LEVELS = %w[beginner intermediate advanced all].freeze
+  scope :for_level, ->(level) {
+    case level.to_s
+    when "beginner"
+      where(difficulty_level: %w[beginner all])
+    when "intermediate"
+      where(difficulty_level: %w[intermediate all])
+    when "advanced"
+      where(difficulty_level: %w[advanced all])
+    else
+      all
+    end
+  }
+  scope :for_user_level, ->(numeric_level) {
+    tier = case numeric_level
+           when 1..2 then "beginner"
+           when 3..5 then "intermediate"
+           else "advanced"
+           end
+    for_level(tier)
+  }
 
   # Enable neighbor gem for vector search (only if pgvector is available)
   if column_names.include?("embedding")
@@ -63,10 +91,10 @@ class FitnessKnowledgeChunk < ApplicationRecord
     def relevant_for_context(exercise_names: [], muscle_groups: [], knowledge_types: nil, limit: 10)
       scope = all
 
-      # Search in exercise_name, content, and summary fields
+      # Exact match for exercise names (handles comma-separated values in exercise_name column)
       if exercise_names.present?
-        exercise_conditions = exercise_names.map { |_| "(exercise_name ILIKE ? OR content ILIKE ? OR summary ILIKE ?)" }
-        exercise_values = exercise_names.flat_map { |n| ["%#{n}%", "%#{n}%", "%#{n}%"] }
+        exercise_conditions = exercise_names.map { |_| "(? = ANY(string_to_array(exercise_name, ', ')) OR exercise_name = ?)" }
+        exercise_values = exercise_names.flat_map { |n| [n, n] }
         scope = scope.where(exercise_conditions.join(" OR "), *exercise_values)
       end
 
@@ -87,7 +115,15 @@ class FitnessKnowledgeChunk < ApplicationRecord
   def video_timestamp_url
     return youtube_video.youtube_url unless timestamp_start
 
-    "#{youtube_video.youtube_url}&t=#{timestamp_start}"
+    url = youtube_video.youtube_url
+    # Handle different YouTube URL formats
+    if url.include?("?")
+      # URL already has query params (e.g., youtube.com/watch?v=xxx)
+      "#{url}&t=#{timestamp_start}"
+    else
+      # URL without query params (e.g., youtu.be/xxx)
+      "#{url}?t=#{timestamp_start}"
+    end
   end
 
   def source_reference

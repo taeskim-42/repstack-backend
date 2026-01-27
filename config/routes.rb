@@ -17,7 +17,14 @@ Rails.application.routes.draw do
   # Admin endpoints (protected by token)
   scope "/admin", controller: :admin do
     post "/reanalyze_videos", action: :reanalyze_videos
+    post "/stop_reanalysis", action: :stop_reanalysis
     get "/reanalyze_status", action: :reanalyze_status
+    post "/ai_cleanup_knowledge", action: :ai_cleanup_knowledge
+    get "/sample_knowledge", action: :sample_knowledge
+    delete "/delete_chunks", action: :delete_chunks
+    get "/simulate_beginner", action: :simulate_beginner
+    get "/simulate_all_levels", action: :simulate_all_levels
+    post "/tag_knowledge_levels", action: :tag_knowledge_levels
   end
 
   # Defines the root path route ("/")

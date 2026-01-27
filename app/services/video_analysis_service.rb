@@ -1,13 +1,8 @@
 # frozen_string_literal: true
 
-# Service for analyzing fitness test videos using Claude Vision API
+# Service for analyzing fitness test videos using Gemini Vision API
+# Supports direct YouTube URL analysis and uploaded video files
 class VideoAnalysisService
-  # Claude Vision model for video analysis
-  MODEL = "claude-sonnet-4-20250514"
-  MAX_TOKENS = 2048
-  API_URL = "https://api.anthropic.com/v1/messages"
-  API_VERSION = "2023-06-01"
-
   # Known exercise types with specific evaluation criteria
   EXERCISE_CRITERIA = {
     # Bodyweight exercises
@@ -75,34 +70,142 @@ class VideoAnalysisService
   }.freeze
 
   class << self
-    # Analyze a fitness test video using Claude Vision API
-    # @param video_url [String] Presigned URL to the video
+    # Analyze a fitness test video using Gemini Vision API
+    # @param video_url [String] URL to the video (YouTube URL or presigned URL)
     # @param exercise_type [String] Any exercise type (dynamic)
     # @return [Hash] { success:, rep_count:, form_score:, issues:, feedback: }
-    def analyze_video(video_url:, exercise_type:)
-      unless api_configured?
-        Rails.logger.info("[VideoAnalysisService] API not configured, returning mock response")
+    def analyze_video(video_url:, exercise_type: nil)
+      unless GeminiConfig.configured?
+        Rails.logger.info("[VideoAnalysisService] Gemini API not configured, returning mock response")
         return mock_response(exercise_type)
       end
 
       prompt = build_prompt(exercise_type)
-      response = call_claude_vision(video_url: video_url, prompt: prompt)
 
-      if response[:success]
-        parse_analysis_response(response[:content], exercise_type)
-      else
-        response
-      end
+      # Determine if it's a YouTube URL
+      is_youtube = video_url.include?("youtube.com") || video_url.include?("youtu.be")
+
+      response = if is_youtube
+                   GeminiConfig.analyze_youtube_video(
+                     youtube_url: video_url,
+                     prompt: prompt,
+                     system_instruction: system_instruction
+                   )
+                 else
+                   # For non-YouTube URLs (like S3/R2 presigned URLs), download and upload to Gemini
+                   analyze_from_url(video_url, prompt)
+                 end
+
+      parse_analysis_response(response, exercise_type)
     rescue StandardError => e
       Rails.logger.error("[VideoAnalysisService] Error analyzing video: #{e.message}")
+      Rails.logger.error(e.backtrace.first(5).join("\n"))
       { success: false, error: e.message }
     end
 
+    # Analyze uploaded video data directly
+    # @param video_data [String] Binary video data (from file upload)
+    # @param mime_type [String] MIME type (e.g., "video/mp4", "video/quicktime")
+    # @param exercise_type [String] Optional exercise type for specific criteria
+    # @return [Hash] { success:, rep_count:, form_score:, issues:, feedback: }
+    def analyze_uploaded_video(video_data:, mime_type: "video/mp4", exercise_type: nil)
+      unless GeminiConfig.configured?
+        Rails.logger.info("[VideoAnalysisService] Gemini API not configured, returning mock response")
+        return mock_response(exercise_type)
+      end
+
+      prompt = build_prompt(exercise_type)
+
+      Rails.logger.info("[VideoAnalysisService] Analyzing uploaded video (#{video_data.bytesize} bytes, #{mime_type})")
+
+      response = GeminiConfig.analyze_uploaded_video(
+        video_data: video_data,
+        mime_type: mime_type,
+        prompt: prompt,
+        system_instruction: system_instruction
+      )
+
+      parse_analysis_response(response, exercise_type)
+    rescue StandardError => e
+      Rails.logger.error("[VideoAnalysisService] Error analyzing uploaded video: #{e.message}")
+      Rails.logger.error(e.backtrace.first(5).join("\n"))
+      { success: false, error: e.message }
+    end
+
+    # Analyze YouTube video directly by URL
+    def analyze_youtube(youtube_url:, exercise_type: nil)
+      analyze_video(video_url: youtube_url, exercise_type: exercise_type)
+    end
+
     def api_configured?
-      ENV["ANTHROPIC_API_KEY"].present?
+      GeminiConfig.configured?
     end
 
     private
+
+    # Download video from URL and upload to Gemini for analysis
+    def analyze_from_url(video_url, prompt)
+      Rails.logger.info("[VideoAnalysisService] Downloading video from URL for Gemini upload")
+
+      # Download the video
+      video_response = download_video(video_url)
+      video_data = video_response[:data]
+      mime_type = video_response[:mime_type]
+
+      Rails.logger.info("[VideoAnalysisService] Downloaded #{video_data.bytesize} bytes (#{mime_type})")
+
+      # Upload to Gemini and analyze
+      GeminiConfig.analyze_uploaded_video(
+        video_data: video_data,
+        mime_type: mime_type,
+        prompt: prompt,
+        system_instruction: system_instruction
+      )
+    end
+
+    # Download video from presigned URL
+    def download_video(url)
+      connection = Faraday.new do |conn|
+        conn.adapter Faraday.default_adapter
+        conn.options.timeout = 120 # 2 minutes for download
+        conn.options.open_timeout = 30
+      end
+
+      response = connection.get(url)
+
+      unless response.success?
+        raise "Failed to download video: HTTP #{response.status}"
+      end
+
+      # Determine MIME type from Content-Type header or URL extension
+      content_type = response.headers["content-type"]&.split(";")&.first
+      mime_type = content_type || mime_type_from_url(url)
+
+      { data: response.body, mime_type: mime_type }
+    end
+
+    def mime_type_from_url(url)
+      # Extract extension from URL (before query params)
+      path = URI.parse(url).path
+      ext = File.extname(path).downcase
+
+      case ext
+      when ".mp4" then "video/mp4"
+      when ".mov" then "video/quicktime"
+      when ".avi" then "video/x-msvideo"
+      when ".webm" then "video/webm"
+      when ".mkv" then "video/x-matroska"
+      else "video/mp4" # Default to mp4
+      end
+    end
+
+    def system_instruction
+      <<~INSTRUCTION
+        당신은 전문 피트니스 트레이너이자 운동 분석 전문가입니다.
+        영상을 보고 운동 횟수를 정확하게 카운트하고, 자세를 평가해주세요.
+        반드시 JSON 형식으로만 응답하세요.
+      INSTRUCTION
+    end
 
     def build_prompt(exercise_type)
       exercise_info = EXERCISE_CRITERIA[exercise_type]
@@ -118,30 +221,44 @@ class VideoAnalysisService
       criteria_text = info[:criteria].map.with_index { |c, i| "#{i + 1}. #{c}" }.join("\n")
 
       <<~PROMPT
-        당신은 전문 피트니스 트레이너입니다. 이 영상에서 #{info[:korean_name]}(#{exercise_type}) 운동을 분석해주세요.
+        이 영상에서 #{info[:korean_name]}(#{exercise_type}) 운동을 분석해주세요.
 
         다음 정보를 JSON 형식으로 반환해주세요:
-        1. rep_count: 완료된 정확한 반복 횟수 (숫자)
-        2. form_score: 자세 점수 (0-100, 정수)
-        3. issues: 발견된 자세 문제점 목록 (배열)
-        4. feedback: 개선을 위한 피드백 (문자열)
+        ```json
+        {
+          "rep_count": 완료된 정확한 반복 횟수 (숫자),
+          "form_score": 자세 점수 (0-100, 정수),
+          "issues": ["발견된 자세 문제점 목록"],
+          "feedback": "개선을 위한 피드백"
+        }
+        ```
 
         자세 평가 기준:
         #{criteria_text}
 
-        JSON만 반환하고 다른 텍스트는 포함하지 마세요.
+        중요:
+        - 반복 횟수는 완전한 동작(내려갔다 올라오는 것)만 카운트
+        - 불완전한 동작은 카운트하지 않음
+        - JSON만 반환하고 다른 텍스트는 포함하지 마세요
       PROMPT
     end
 
     def build_generic_exercise_prompt(exercise_type)
+      exercise_name = exercise_type.presence || "운동"
+
       <<~PROMPT
-        당신은 전문 피트니스 트레이너입니다. 이 영상에서 #{exercise_type} 운동을 분석해주세요.
+        이 영상에서 운동을 분석해주세요.
 
         다음 정보를 JSON 형식으로 반환해주세요:
-        1. rep_count: 완료된 정확한 반복 횟수 (숫자)
-        2. form_score: 자세 점수 (0-100, 정수)
-        3. issues: 발견된 자세 문제점 목록 (배열)
-        4. feedback: 개선을 위한 피드백 (문자열)
+        ```json
+        {
+          "exercise_detected": "감지된 운동 종류",
+          "rep_count": 완료된 정확한 반복 횟수 (숫자),
+          "form_score": 자세 점수 (0-100, 정수),
+          "issues": ["발견된 자세 문제점 목록"],
+          "feedback": "개선을 위한 피드백"
+        }
+        ```
 
         일반적인 자세 평가 기준:
         - 동작 범위(ROM)가 충분한지
@@ -150,74 +267,28 @@ class VideoAnalysisService
         - 호흡이 일정한지
         - 부상 위험이 있는 동작이 없는지
 
-        JSON만 반환하고 다른 텍스트는 포함하지 마세요.
+        중요:
+        - 반복 횟수는 완전한 동작만 카운트
+        - 불완전한 동작은 카운트하지 않음
+        - JSON만 반환하고 다른 텍스트는 포함하지 마세요
       PROMPT
-    end
-
-    def call_claude_vision(video_url:, prompt:)
-      uri = URI(API_URL)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
-      http.read_timeout = 120 # Video analysis can take longer
-
-      request = Net::HTTP::Post.new(uri.path)
-      request["Content-Type"] = "application/json"
-      request["x-api-key"] = ENV["ANTHROPIC_API_KEY"]
-      request["anthropic-version"] = API_VERSION
-
-      body = {
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "video",
-                source: {
-                  type: "url",
-                  url: video_url
-                }
-              },
-              {
-                type: "text",
-                text: prompt
-              }
-            ]
-          }
-        ]
-      }
-
-      request.body = body.to_json
-
-      response = http.request(request)
-
-      if response.code.to_i == 200
-        data = JSON.parse(response.body)
-        {
-          success: true,
-          content: data.dig("content", 0, "text"),
-          usage: {
-            input_tokens: data.dig("usage", "input_tokens"),
-            output_tokens: data.dig("usage", "output_tokens")
-          }
-        }
-      else
-        Rails.logger.error("[VideoAnalysisService] API error: #{response.code} - #{response.body}")
-        { success: false, error: "API returned #{response.code}" }
-      end
     end
 
     def parse_analysis_response(content, exercise_type)
       # Extract JSON from response (in case there's extra text)
-      json_match = content.match(/\{[\s\S]*\}/)
-      return { success: false, error: "No JSON found in response" } unless json_match
+      json_match = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/\{[\s\S]*\}/)
 
-      data = JSON.parse(json_match[0])
+      if json_match
+        json_str = json_match[1] || json_match[0]
+        data = JSON.parse(json_str)
+      else
+        # Try parsing the entire content as JSON
+        data = JSON.parse(content)
+      end
 
       {
         success: true,
-        exercise_type: exercise_type.to_s,
+        exercise_type: data["exercise_detected"] || exercise_type.to_s,
         rep_count: data["rep_count"].to_i,
         form_score: data["form_score"].to_i,
         issues: Array(data["issues"]),
@@ -226,7 +297,25 @@ class VideoAnalysisService
       }
     rescue JSON::ParserError => e
       Rails.logger.error("[VideoAnalysisService] JSON parse error: #{e.message}")
-      { success: false, error: "Failed to parse response: #{e.message}" }
+      Rails.logger.error("Raw content: #{content}")
+
+      # Try to extract numbers from text response
+      rep_match = content.match(/(\d+)\s*(?:회|번|개|reps?)/i)
+      score_match = content.match(/(\d+)\s*점/i)
+
+      if rep_match
+        {
+          success: true,
+          exercise_type: exercise_type.to_s,
+          rep_count: rep_match[1].to_i,
+          form_score: score_match ? score_match[1].to_i : 70,
+          issues: [],
+          feedback: content,
+          raw_response: { text: content }
+        }
+      else
+        { success: false, error: "Failed to parse response: #{e.message}", raw_response: content }
+      end
     end
 
     # Mock response for testing without API key
