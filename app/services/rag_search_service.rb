@@ -50,21 +50,22 @@ class RagSearchService
       # Combine different search strategies
       results = []
 
-      # 1. Direct exercise matches
+      # 1. Direct exercise matches (PRIORITY - only use these if found)
       if exercise_names.present?
         scope = base_scope.relevant_for_context(
           exercise_names: exercise_names,
-          limit: limit / 2
+          limit: limit
         )
         scope = scope.where(knowledge_type: knowledge_types) if knowledge_types.present?
         results += scope.to_a
       end
 
-      # 2. Muscle group matches
-      if muscle_groups.present?
+      # 2. Muscle group matches - ONLY if no exercise matches found
+      # This prevents unrelated videos from being included when we have exact matches
+      if results.empty? && muscle_groups.present?
         scope = base_scope.relevant_for_context(
           muscle_groups: muscle_groups,
-          limit: limit / 3
+          limit: limit / 2
         )
         scope = scope.where(knowledge_type: knowledge_types) if knowledge_types.present?
         results += scope.to_a
