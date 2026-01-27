@@ -114,8 +114,16 @@ class FitnessKnowledgeChunk < ApplicationRecord
 
   # Instance methods
   def video_timestamp_url
-    # Always return base URL without timestamp (timestamps were unreliable)
-    youtube_video.youtube_url
+    # Return URL with timestamp if available
+    return youtube_video.youtube_url unless timestamp_start && timestamp_start > 0
+
+    url = youtube_video.youtube_url
+    # Handle different YouTube URL formats
+    if url.include?("?")
+      "#{url}&t=#{timestamp_start}"
+    else
+      "#{url}?t=#{timestamp_start}"
+    end
 
     url = youtube_video.youtube_url
     # Handle different YouTube URL formats
