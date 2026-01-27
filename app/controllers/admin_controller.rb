@@ -174,6 +174,23 @@ class AdminController < ApplicationController
     }
   end
 
+  # POST /admin/seed_exercises
+  # Seed/update exercise data with form_tips
+  def seed_exercises
+    require_relative "../../db/seeds/exercises"
+
+    before_count = Exercise.count
+    seed_exercises_data
+
+    render json: {
+      success: true,
+      message: "Exercises seeded",
+      before_count: before_count,
+      after_count: Exercise.count,
+      with_form_tips: Exercise.where.not(form_tips: [nil, ""]).count
+    }
+  end
+
   # GET /admin/reanalyze_status
   # Check reanalysis progress
   def reanalyze_status

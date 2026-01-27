@@ -854,19 +854,19 @@ EXERCISES_DATA = [
 ].freeze
 
 # Create or update exercises
-def seed_exercises
+def seed_exercises_data
   EXERCISES_DATA.each do |exercise_data|
     exercise = Exercise.find_or_initialize_by(english_name: exercise_data[:english_name])
     exercise.assign_attributes(exercise_data)
 
     if exercise.save
-      puts "✓ #{exercise.name} (#{exercise.english_name})"
+      Rails.logger.info "✓ #{exercise.name} (#{exercise.english_name})"
     else
-      puts "✗ #{exercise.name}: #{exercise.errors.full_messages.join(', ')}"
+      Rails.logger.warn "✗ #{exercise.name}: #{exercise.errors.full_messages.join(', ')}"
     end
   end
 
-  puts "\n총 #{Exercise.count}개 운동 등록 완료"
+  Rails.logger.info "\n총 #{Exercise.count}개 운동 등록 완료"
 end
 
-seed_exercises if __FILE__ == $PROGRAM_NAME
+seed_exercises_data if __FILE__ == $PROGRAM_NAME

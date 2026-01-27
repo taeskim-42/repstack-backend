@@ -107,13 +107,15 @@ class FitnessKnowledgeChunk < ApplicationRecord
 
       scope = scope.where(knowledge_type: knowledge_types) if knowledge_types.present?
 
-      scope.limit(limit)
+      # Random order so different videos appear each time
+      scope.order("RANDOM()").limit(limit)
     end
   end
 
   # Instance methods
   def video_timestamp_url
-    return youtube_video.youtube_url unless timestamp_start
+    # Always return base URL without timestamp (timestamps were unreliable)
+    youtube_video.youtube_url
 
     url = youtube_video.youtube_url
     # Handle different YouTube URL formats
