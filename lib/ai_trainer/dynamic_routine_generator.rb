@@ -385,12 +385,21 @@ module AiTrainer
 
     def enrich_exercise(exercise, contextual_knowledge)
       target_name = exercise[:english_name]&.downcase
-      relevant = contextual_knowledge.select do |k|
-        # Exact match for exercise name (handles comma-separated values)
+      target_muscle = exercise[:target_muscle]&.downcase
+
+      # 1. First try exact exercise name match only
+      exercise_matches = contextual_knowledge.select do |k|
         exercise_names = k[:exercise_name]&.downcase&.split(", ") || []
-        exercise_match = exercise_names.include?(target_name) || k[:exercise_name]&.downcase == target_name
-        muscle_match = k[:muscle_group]&.downcase == exercise[:target_muscle]&.downcase
-        exercise_match || muscle_match
+        exercise_names.include?(target_name) || k[:exercise_name]&.downcase == target_name
+      end
+
+      # 2. Fallback to muscle group only if no exercise matches found
+      relevant = if exercise_matches.present?
+        exercise_matches
+      else
+        contextual_knowledge.select do |k|
+          k[:muscle_group]&.downcase == target_muscle
+        end
       end
 
       if relevant.present?
