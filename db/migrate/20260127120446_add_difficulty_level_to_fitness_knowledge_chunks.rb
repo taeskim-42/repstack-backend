@@ -2,7 +2,12 @@
 
 class AddDifficultyLevelToFitnessKnowledgeChunks < ActiveRecord::Migration[8.0]
   def change
-    add_column :fitness_knowledge_chunks, :difficulty_level, :string, default: "all"
-    add_index :fitness_knowledge_chunks, :difficulty_level
+    unless column_exists?(:fitness_knowledge_chunks, :difficulty_level)
+      add_column :fitness_knowledge_chunks, :difficulty_level, :string, default: "all"
+    end
+
+    unless index_exists?(:fitness_knowledge_chunks, :difficulty_level)
+      add_index :fitness_knowledge_chunks, :difficulty_level
+    end
   end
 end
