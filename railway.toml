@@ -8,3 +8,4 @@ healthcheckTimeout = 300
 startCommand = "/rails/docker-entrypoint.sh"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+# Deployed at 2026-01-27T03:31:19Z
