@@ -249,12 +249,15 @@ class ChatService
       - record_exercise: 운동 기록 (예: "벤치프레스 60kg 8회", "스쿼트 10개 했어")
       - query_records: 기록 조회 (예: "지난주 기록 보여줘", "벤치 최고 무게 얼마야?")
       - check_condition: 컨디션/상태 표현 (예: "오늘 컨디션 좋아", "피곤해", "구웃", "ㅠㅠ", "최고", "별로")
-      - generate_routine: 루틴 생성 요청 (예: "오늘 루틴 만들어줘", "운동 추천해줘")
+      - generate_routine: 루틴 생성의 **명시적 요청**만 해당 (예: "루틴 만들어줘", "오늘 운동 짜줘", "루틴 추천해줘")
+        * "~하고 싶다", "~키우고 싶다"는 희망사항이므로 general_chat
+        * "~알려줘", "~방법" 같은 질문은 general_chat
       - add_to_routine: 기존 루틴에 운동 추가 (예: "랫풀다운 추가해줘")
       - submit_feedback: 운동 피드백 (예: "오늘 운동 힘들었어", "쉬웠어")
-      - general_chat: 일반 대화, 질문 (예: "벤치프레스 자세 알려줘", "단백질 얼마나 먹어야 해?")
+      - general_chat: 일반 대화, 질문, 희망사항 표현 (예: "벤치프레스 자세 알려줘", "등근육 키우고 싶어", "스쿼트 방법")
 
-      한 단어로만 응답하세요 (예: check_condition)
+      ⚠️ 확실하지 않으면 general_chat으로 분류하세요.
+      한 단어로만 응답하세요 (예: general_chat)
     PROMPT
   end
 
@@ -503,6 +506,22 @@ class ChatService
 
   # Handle routine generation (AI - Sonnet)
   def handle_generate_routine
+    # Check if there's already a routine for today
+    existing_routine = user.workout_routines
+                           .where(scheduled_date: Date.current)
+                           .where(is_completed: false)
+                           .order(created_at: :desc)
+                           .first
+
+    if existing_routine
+      # Don't create new routine if one already exists
+      return success_response(
+        message: "이미 오늘의 루틴이 있어요! 기존 루틴을 수정하거나 운동을 추가하시겠어요? 💪",
+        intent: "EXISTING_ROUTINE",
+        data: { routine: existing_routine }
+      )
+    end
+
     # Get today's day of week
     day_of_week = Date.current.cwday # 1=Monday, 7=Sunday
     day_of_week = [ day_of_week, 5 ].min # Cap at 5 (Friday)
