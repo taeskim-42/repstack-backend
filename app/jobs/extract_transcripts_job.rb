@@ -51,7 +51,31 @@ class ExtractTranscriptsJob
       "[ExtractTranscripts] Complete: success=#{success}, no_subs=#{no_subs}, failed=#{failed}"
     )
 
-    { success: success, no_subs: no_subs, failed: failed }
+    # Auto-continue: if there are more videos, queue the next batch
+    remaining_scope = YoutubeVideo.where(transcript: [nil, ""])
+    remaining_scope = remaining_scope.joins(:youtube_channel).where(youtube_channels: { language: language }) if language.present?
+    remaining = remaining_scope.count
+
+    if remaining > 0
+      Rails.logger.info("[ExtractTranscripts] #{remaining} videos remaining for #{language || 'all'}, queuing next batch...")
+      ExtractTranscriptsJob.perform_in(10.seconds, limit, pipeline, language)
+    elsif language == "en"
+      # English done, start Korean automatically
+      ko_remaining = YoutubeVideo.where(transcript: [nil, ""])
+                                 .joins(:youtube_channel)
+                                 .where(youtube_channels: { language: "ko" })
+                                 .count
+      if ko_remaining > 0
+        Rails.logger.info("[ExtractTranscripts] English complete! Starting Korean (#{ko_remaining} videos)...")
+        ExtractTranscriptsJob.perform_in(10.seconds, limit, pipeline, "ko")
+      else
+        Rails.logger.info("[ExtractTranscripts] All languages complete!")
+      end
+    else
+      Rails.logger.info("[ExtractTranscripts] All videos processed for language=#{language || 'all'}!")
+    end
+
+    { success: success, no_subs: no_subs, failed: failed, remaining: remaining }
   end
 
   private
