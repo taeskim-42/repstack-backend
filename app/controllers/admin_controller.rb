@@ -37,23 +37,32 @@ class AdminController < ApplicationController
   def stop_reanalysis
     require "sidekiq/api"
 
-    # Clear the reanalysis queue
-    queue = Sidekiq::Queue.new("youtube_analysis")
-    cleared_count = queue.size
-    queue.clear
+    # Clear all analysis-related queues
+    cleared_count = 0
+    %w[youtube_analysis video_analysis default].each do |queue_name|
+      queue = Sidekiq::Queue.new(queue_name)
+      cleared_count += queue.size
+      queue.clear
+    end
 
     # Also clear any scheduled jobs for ReanalyzeVideoJob
     scheduled = Sidekiq::ScheduledSet.new
     scheduled_cleared = scheduled.select { |job| job.klass == "ReanalyzeVideoJob" }.each(&:delete).count
+
+    # Clear retry set for failed jobs
+    retry_set = Sidekiq::RetrySet.new
+    retry_cleared = retry_set.size
+    retry_set.clear
 
     # Reset analyzing videos back to completed
     analyzing_reset = YoutubeVideo.analyzing.update_all(analysis_status: "completed")
 
     render json: {
       success: true,
-      message: "Reanalysis stopped",
+      message: "All jobs stopped",
       cleared_queued_jobs: cleared_count,
       cleared_scheduled_jobs: scheduled_cleared,
+      cleared_retry_jobs: retry_cleared,
       reset_analyzing_videos: analyzing_reset
     }
   end
