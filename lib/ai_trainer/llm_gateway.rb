@@ -53,12 +53,28 @@ module AiTrainer
         temperature: 0.0
       },
 
+      # Query translation for semantic search
+      query_translation: {
+        provider: :anthropic,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 100,
+        temperature: 0.0
+      },
+
       # Knowledge cleanup - needs better reasoning
       knowledge_cleanup: {
         provider: :anthropic,
         model: "claude-haiku-4-5-20251001",
         max_tokens: 200,
         temperature: 0.0
+      },
+
+      # YouTube transcript knowledge extraction
+      knowledge_extraction: {
+        provider: :anthropic,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 8192,
+        temperature: 0.3
       }
     }.freeze
 

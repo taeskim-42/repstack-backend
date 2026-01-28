@@ -1023,38 +1023,26 @@ class AdminController < ApplicationController
   def translate_query_for_embedding(query)
     return query if query.match?(/\A[a-zA-Z0-9\s]+\z/) # Already English
 
-    begin
-      response = Faraday.post("https://api.openai.com/v1/chat/completions") do |req|
-        req.headers["Content-Type"] = "application/json"
-        req.headers["Authorization"] = "Bearer #{ENV['OPENAI_API_KEY']}"
-        req.options.timeout = 10
-        req.body = {
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "You are a fitness query translator. Translate the Korean fitness query to English. Keep it concise and focused on fitness terms. Only output the English translation, nothing else."
-            },
-            { role: "user", content: query }
-          ],
-          max_tokens: 100,
-          temperature: 0
-        }.to_json
-      end
+    system_prompt = "You are a fitness query translator. Translate the Korean fitness query to English. Keep it concise and focused on fitness terms. Only output the English translation, nothing else."
 
-      if response.success?
-        result = JSON.parse(response.body)
-        translated = result.dig("choices", 0, "message", "content")&.strip
-        Rails.logger.info("[Search] Translated '#{query}' -> '#{translated}'")
-        translated.presence || query
-      else
-        Rails.logger.warn("[Search] Translation failed, using original query")
-        query
-      end
-    rescue StandardError => e
-      Rails.logger.error("[Search] Translation error: #{e.message}")
+    result = AiTrainer::LlmGateway.chat(
+      prompt: query,
+      task: :query_translation,
+      system: system_prompt,
+      cache_system: false
+    )
+
+    if result[:success] && result[:content].present?
+      translated = result[:content].strip
+      Rails.logger.info("[Search] Translated '#{query}' -> '#{translated}'")
+      translated
+    else
+      Rails.logger.warn("[Search] Translation failed, using original query")
       query
     end
+  rescue StandardError => e
+    Rails.logger.error("[Search] Translation error: #{e.message}")
+    query
   end
 
   # Same logic as CreativeRoutineGenerator#extract_target_muscles
