@@ -1,24 +1,27 @@
 # frozen_string_literal: true
 
-# Service to generate text embeddings using Google Gemini API
+# Service to generate text embeddings using OpenAI API
 # Used for RAG (Retrieval Augmented Generation) functionality
 class EmbeddingService
-  GOOGLE_EMBEDDING_URL = "https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent"
-  EMBEDDING_DIMENSION = 768  # Google text-embedding-004 dimension
+  OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings"
+  EMBEDDING_MODEL = "text-embedding-3-small"
+  EMBEDDING_DIMENSION = 1536  # OpenAI text-embedding-3-small dimension
 
   class << self
     def configured?
-      GeminiConfig.configured?
+      ENV["OPENAI_API_KEY"].present?
     end
 
     def generate(text)
-      raise "Gemini API key not configured" unless configured?
+      raise "OpenAI API key not configured" unless configured?
       return nil if text.blank?
 
-      response = client.post("#{GOOGLE_EMBEDDING_URL}?key=#{GeminiConfig.api_key}") do |req|
+      response = client.post(OPENAI_EMBEDDING_URL) do |req|
         req.headers["Content-Type"] = "application/json"
+        req.headers["Authorization"] = "Bearer #{ENV['OPENAI_API_KEY']}"
         req.body = {
-          content: { parts: [{ text: sanitize_text(text) }] }
+          model: EMBEDDING_MODEL,
+          input: sanitize_text(text)
         }.to_json
       end
 
@@ -26,11 +29,25 @@ class EmbeddingService
     end
 
     def generate_batch(texts, batch_size: 20)
-      raise "Gemini API key not configured" unless configured?
+      raise "OpenAI API key not configured" unless configured?
       return [] if texts.empty?
 
-      # Google doesn't have batch API, so we call one by one
-      texts.map { |text| generate(text) }
+      # OpenAI supports batch embedding
+      response = client.post(OPENAI_EMBEDDING_URL) do |req|
+        req.headers["Content-Type"] = "application/json"
+        req.headers["Authorization"] = "Bearer #{ENV['OPENAI_API_KEY']}"
+        req.body = {
+          model: EMBEDDING_MODEL,
+          input: texts.map { |t| sanitize_text(t) }
+        }.to_json
+      end
+
+      if response.success?
+        response.body["data"]&.map { |d| d["embedding"] } || []
+      else
+        Rails.logger.error("OpenAI Embedding batch error: #{response.body}")
+        []
+      end
     end
 
     # Generate and save embedding for a knowledge chunk
@@ -97,10 +114,10 @@ class EmbeddingService
     def handle_response(response)
       if response.success?
         data = response.body
-        data.dig("embedding", "values")
+        data.dig("data", 0, "embedding")
       else
         error_message = response.body.dig("error", "message") || response.body.to_s
-        Rails.logger.error("Google Embedding API error: #{error_message}")
+        Rails.logger.error("OpenAI Embedding API error: #{error_message}")
         nil
       end
     end
