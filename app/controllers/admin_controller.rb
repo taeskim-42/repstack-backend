@@ -1057,21 +1057,22 @@ class AdminController < ApplicationController
 
   # Same logic as CreativeRoutineGenerator#extract_target_muscles
   def extract_target_muscles_from_query(query)
+    # Map Korean keywords to English muscle_group values (matching DB)
     muscle_keywords = {
-      "등" => %w[등 back 광배 승모 lat],
-      "가슴" => %w[가슴 chest 흉근 대흉근 pec],
-      "어깨" => %w[어깨 shoulder 삼각근 deltoid],
-      "팔" => %w[팔 arm 이두 삼두 bicep tricep],
-      "하체" => %w[하체 leg 다리 허벅지 대퇴 quadricep hamstring],
-      "코어" => %w[코어 core 복근 abs 복부],
-      "전신" => %w[전신 full body 전체]
+      "back" => %w[등 back 광배 승모 lat],
+      "chest" => %w[가슴 chest 흉근 대흉근 pec],
+      "shoulders" => %w[어깨 shoulder 삼각근 deltoid],
+      "arms" => %w[팔 arm 이두 삼두 bicep tricep],
+      "legs" => %w[하체 leg 다리 허벅지 대퇴 quadricep hamstring],
+      "core" => %w[코어 core 복근 abs 복부],
+      "full_body" => %w[전신 full body 전체]
     }
 
     query_lower = query.downcase
     matched_muscles = []
 
-    muscle_keywords.each do |muscle, keywords|
-      matched_muscles << muscle if keywords.any? { |kw| query_lower.include?(kw) }
+    muscle_keywords.each do |muscle_en, keywords|
+      matched_muscles << muscle_en if keywords.any? { |kw| query_lower.include?(kw) }
     end
 
     matched_muscles
