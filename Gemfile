@@ -82,5 +82,8 @@ gem "webrick"  # For worker health check endpoint
 # Vector Database (pgvector)
 gem "neighbor", "~> 0.5"           # pgvector for Ruby/Rails
 
-# Note: YouTube videos are fetched using yt-dlp (system command)
-# No gem required - install yt-dlp with: brew install yt-dlp
+# YouTube Transcript extraction (no API key needed)
+gem "youtube-transcript-rb"
+
+# Note: YouTube video metadata still uses yt-dlp (system command)
+# Install with: brew install yt-dlp

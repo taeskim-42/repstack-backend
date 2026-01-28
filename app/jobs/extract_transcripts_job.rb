@@ -43,8 +43,8 @@ class ExtractTranscriptsJob
       when :failed then failed += 1
       end
 
-      # Rate limiting: 10 seconds between requests to avoid YouTube 429 blocks
-      sleep 10
+      # Rate limiting: 2 seconds between requests (youtube-transcript-rb is lighter)
+      sleep 2
     end
 
     Rails.logger.info(
