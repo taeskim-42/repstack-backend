@@ -942,16 +942,26 @@ class AdminController < ApplicationController
         query_embedding = EmbeddingService.generate_query_embedding(query)
 
         if query_embedding.present?
-          chunks = FitnessKnowledgeChunk
+          # Hybrid search: semantic + muscle_group filter
+          base_scope = FitnessKnowledgeChunk
             .where(knowledge_type: knowledge_type)
             .where.not(embedding: nil)
             .for_user_level(user_level)
-            .nearest_neighbors(:embedding, query_embedding, distance: "cosine")
-            .limit(limit)
             .includes(:youtube_video)
 
+          # Apply muscle_group filter if target muscles specified
+          if target_muscles.any?
+            muscle_conditions = target_muscles.map { "muscle_group ILIKE ?" }
+            muscle_values = target_muscles.map { |m| "%#{m}%" }
+            base_scope = base_scope.where(muscle_conditions.join(" OR "), *muscle_values)
+          end
+
+          chunks = base_scope
+            .nearest_neighbors(:embedding, query_embedding, distance: "cosine")
+            .limit(limit)
+
           if chunks.any?
-            actual_type = "semantic"
+            actual_type = target_muscles.any? ? "semantic+muscle_filter" : "semantic"
             results = chunks.map do |c|
               {
                 id: c.id,
