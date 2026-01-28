@@ -16,10 +16,16 @@ class ExtractTranscriptsJob
   # Process videos without transcripts
   # @param limit [Integer] Maximum number of videos to process (default: 100)
   # @param pipeline [Boolean] If true, trigger analysis + embedding after transcript (default: true)
-  def perform(limit = 100, pipeline = true)
-    videos = YoutubeVideo.where(transcript: [nil, ""])
-                         .limit(limit)
-                         .order(:id)
+  # @param language [String] Filter by channel language: "en", "ko", or nil for all
+  def perform(limit = 100, pipeline = true, language = nil)
+    scope = YoutubeVideo.where(transcript: [nil, ""])
+
+    # Filter by channel language if specified
+    if language.present?
+      scope = scope.joins(:youtube_channel).where(youtube_channels: { language: language })
+    end
+
+    videos = scope.limit(limit).order(:id)
 
     total = videos.count
     Rails.logger.info("[ExtractTranscripts] Starting: #{total} videos (pipeline=#{pipeline})")
@@ -51,9 +57,10 @@ class ExtractTranscriptsJob
   private
 
   def extract_single(video, current, total, pipeline)
-    Rails.logger.info("[ExtractTranscripts] [#{current}/#{total}] Processing: #{video.title.truncate(50)}")
+    language = video.youtube_channel&.language || "ko"
+    Rails.logger.info("[ExtractTranscripts] [#{current}/#{total}] Processing: #{video.title.truncate(50)} (#{language})")
 
-    transcript = YoutubeChannelScraper.extract_subtitles(video.youtube_url)
+    transcript = YoutubeChannelScraper.extract_subtitles(video.youtube_url, language: language)
 
     if transcript.present?
       video.update!(transcript: transcript)

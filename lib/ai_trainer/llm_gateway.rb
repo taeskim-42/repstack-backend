@@ -180,14 +180,14 @@ module AiTrainer
           end
         end
 
-        # Build messages array (messages may already include cache_control)
+        # Build messages array (cache_control must be inside content block)
         if messages.present?
           body[:messages] = messages.map do |msg|
-            # Ensure proper format with string keys converted to symbols
-            formatted = { role: msg[:role] || msg["role"], content: msg[:content] || msg["content"] }
-            cache_ctrl = msg[:cache_control] || msg["cache_control"]
-            formatted[:cache_control] = cache_ctrl if cache_ctrl
-            formatted
+            role = msg[:role] || msg["role"]
+            content = msg[:content] || msg["content"]
+
+            # Just pass through - content may already be in array format with cache_control
+            { role: role, content: content }
           end
           # Add new user message if prompt is different from last
           if prompt.present? && (messages.empty? || (messages.last[:content] || messages.last["content"]) != prompt)

@@ -6,21 +6,19 @@ namespace :knowledge do
     puts "Importing workout programs into FitnessKnowledgeChunk..."
 
     # Create a virtual YouTube video for program knowledge
-    channel = YoutubeChannel.find_or_create_by!(
-      channel_id: "PROGRAM_KNOWLEDGE",
-      name: "운동 프로그램 지식",
-      subscribers: 0,
-      total_views: 0,
-      expertise_area: "routine_design"
-    )
+    channel = YoutubeChannel.find_or_create_by!(channel_id: "PROGRAM_KNOWLEDGE") do |c|
+      c.name = "운동 프로그램 지식"
+      c.handle = "@program_knowledge"
+      c.url = "internal://program-knowledge"
+      c.subscriber_count = 0
+      c.video_count = 0
+    end
 
-    video = YoutubeVideo.find_or_create_by!(
-      youtube_channel: channel,
-      video_id: "PROGRAM_TEMPLATES",
-      youtube_url: "internal://program-templates",
-      title: "운동 프로그램 템플릿",
-      duration_seconds: 0
-    )
+    video = YoutubeVideo.find_or_create_by!(youtube_channel: channel, video_id: "PROGRAM_TEMPLATES") do |v|
+      v.title = "운동 프로그램 템플릿"
+      v.duration_seconds = 0
+      v.analysis_status = "completed"
+    end
 
     imported_count = 0
 

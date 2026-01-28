@@ -11,8 +11,8 @@ module AiTrainer
   class ChatService
     include Constants
 
-    HISTORY_LIMIT = 10  # Max messages to include in context
-    CACHE_LIMIT = 6     # Messages to cache (older ones)
+    HISTORY_LIMIT = 30  # Max messages to include in context
+    CACHE_LIMIT = 3     # Messages to cache (Anthropic allows max 4 total, 1 for system prompt)
 
     class << self
       def general_chat(user:, message:, session_id: nil)

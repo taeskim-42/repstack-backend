@@ -1,13 +1,18 @@
 # frozen_string_literal: true
 
-# Service to extract fitness knowledge from YouTube videos using Gemini AI
-# Gemini can directly analyze YouTube video content via URL
+# Service to extract fitness knowledge from YouTube video transcripts
+# Uses Claude AI for analysis (Gemini removed)
+#
+# Usage:
+#   1. First extract transcripts: rails youtube:knowledge:extract_transcripts
+#   2. Then analyze with Claude: YoutubeKnowledgeExtractionService.analyze_video(video)
+#
 class YoutubeKnowledgeExtractionService
   KNOWLEDGE_TYPES = FitnessKnowledgeChunk::KNOWLEDGE_TYPES
 
-  SYSTEM_INSTRUCTION = <<~PROMPT
+  SYSTEM_PROMPT = <<~PROMPT
     당신은 전문 피트니스 지식 추출 AI입니다.
-    주어진 YouTube 피트니스 영상을 분석하여 다음 4가지 유형의 지식을 추출합니다:
+    주어진 YouTube 피트니스 영상의 자막을 분석하여 다음 4가지 유형의 지식을 추출합니다:
 
     1. exercise_technique (운동 기술): 특정 운동의 올바른 수행 방법, 자세, 팁
     2. routine_design (루틴 설계): 운동 프로그램 구성, 분할법, 주간 계획
@@ -16,12 +21,10 @@ class YoutubeKnowledgeExtractionService
 
     각 지식 청크는 독립적으로 의미가 있어야 하며, AI 트레이너가 사용자에게
     조언할 때 참고할 수 있는 형태여야 합니다.
-
-    JSON 형식으로 응답하세요.
   PROMPT
 
-  # Prompt for transcript-based analysis
-  TRANSCRIPT_ANALYSIS_PROMPT = <<~PROMPT
+  # Korean transcript analysis prompt
+  ANALYSIS_PROMPT_KO = <<~PROMPT
     아래는 피트니스 YouTube 영상의 자막(트랜스크립트)입니다.
     자막에는 [MM:SS] 형식의 타임스탬프가 포함되어 있습니다.
     이 내용을 분석하여 피트니스 관련 지식을 추출하세요.
@@ -30,7 +33,7 @@ class YoutubeKnowledgeExtractionService
     {
       "category": "strength|cardio|flexibility|general",
       "difficulty_level": "beginner|intermediate|advanced",
-      "language": "ko|en",
+      "language": "ko",
       "summary": "영상 전체 요약",
       "knowledge_chunks": [
         {
@@ -60,26 +63,81 @@ class YoutubeKnowledgeExtractionService
     - 자막의 [MM:SS] 형식을 초 단위 정수로 변환
     - 예: [05:30]이면 timestamp_start: 330
     - 해당 지식이 언급되는 구간의 시작과 끝 시간을 정확히 기록
-    - 타임스탬프가 없는 지식은 사용자가 영상에서 찾을 수 없으므로 반드시 포함!
 
     자막 내용:
   PROMPT
 
-  class << self
-    def analyze_video(video)
-      return if video.analyzed?
-      raise "Gemini API not configured" unless GeminiConfig.configured?
+  # English transcript analysis prompt (translates to Korean + preserves original)
+  ANALYSIS_PROMPT_EN = <<~PROMPT
+    Below is an English transcript from a fitness YouTube video.
+    Timestamps are included in [MM:SS] format.
+    Analyze this content and extract fitness knowledge, translating to Korean.
 
-      Rails.logger.info("Analyzing video: #{video.title}")
+    Respond in the following JSON format:
+    {
+      "category": "strength|cardio|flexibility|general",
+      "difficulty_level": "beginner|intermediate|advanced",
+      "language": "en",
+      "summary": "영상 전체 요약 (한국어로)",
+      "knowledge_chunks": [
+        {
+          "type": "exercise_technique|routine_design|nutrition_recovery|form_check",
+          "content": "한국어로 번역된 상세 지식 내용 (백과사전처럼 상세하게)",
+          "content_original": "Original English content (preserve exactly as spoken)",
+          "summary": "한 줄 요약 (한국어)",
+          "exercise_name": "exercise name in English (e.g., bench_press, squat, deadlift)",
+          "muscle_group": "muscle group in English (chest, back, legs, shoulders, arms, core)",
+          "difficulty_level": "beginner|intermediate|advanced",
+          "timestamp_start": timestamp in seconds,
+          "timestamp_end": timestamp in seconds
+        }
+      ]
+    }
+
+    Important instructions:
+    - Extract ALL useful fitness information from the transcript
+    - "content" must be in Korean (detailed translation)
+    - "content_original" must preserve the original English text
+    - "summary" must be in Korean
+    - exercise_name and muscle_group in English (for search/matching)
+    - No limit on content length - be as detailed as possible
+    - No limit on number of chunks - extract everything useful
+    - Return empty knowledge_chunks array if no fitness content
+
+    ⚠️ TIMESTAMPS REQUIRED:
+    - timestamp_start and timestamp_end are mandatory (cannot be null)
+    - Convert [MM:SS] format to seconds (e.g., [05:30] = 330)
+    - Record exact start and end times for each knowledge chunk
+
+    Transcript:
+  PROMPT
+
+  # Alias for backward compatibility
+  ANALYSIS_PROMPT = ANALYSIS_PROMPT_KO
+
+  class << self
+    # Check if the service is configured (Claude API available)
+    def configured?
+      AiTrainer::LlmGateway.configured?(task: :knowledge_extraction)
+    end
+
+    # Analyze a video that already has transcript extracted
+    def analyze_video(video)
+      return { error: "Already analyzed" } if video.analyzed?
+      return { error: "No transcript available" } if video.transcript.blank?
+      raise "Claude API not configured" unless configured?
+
+      language = video.youtube_channel&.language || "ko"
+      Rails.logger.info("Analyzing video: #{video.title} (language: #{language})")
 
       video.start_analysis!
 
       begin
-        result = extract_knowledge(video)
-        save_knowledge_chunks(video, result)
+        result = analyze_transcript(video.transcript, language: language)
+        save_knowledge_chunks(video, result, language: language)
         video.complete_analysis!(result)
 
-        Rails.logger.info("Successfully analyzed video: #{video.title}")
+        Rails.logger.info("Successfully analyzed video: #{video.title}, #{video.fitness_knowledge_chunks.count} chunks")
         result
       rescue StandardError => e
         video.fail_analysis!(e.message)
@@ -88,11 +146,13 @@ class YoutubeKnowledgeExtractionService
       end
     end
 
-    def analyze_pending_videos(channel: nil, limit: 10)
-      scope = YoutubeVideo.pending
-      scope = scope.by_channel(channel.id) if channel
+    # Analyze videos that have transcripts but haven't been analyzed
+    def analyze_pending_videos(limit: 10)
+      videos = YoutubeVideo
+        .where(analysis_status: "pending")
+        .where.not(transcript: [nil, ""])
+        .limit(limit)
 
-      videos = scope.limit(limit)
       results = []
 
       videos.find_each do |video|
@@ -105,70 +165,39 @@ class YoutubeKnowledgeExtractionService
       results
     end
 
-    # Analyze a YouTube video directly by URL (without saving to DB)
-    def analyze_url(youtube_url)
-      raise "Gemini API not configured" unless GeminiConfig.configured?
+    # Analyze transcript text directly
+    # @param transcript [String] The transcript text
+    # @param language [String] Source language ("ko" or "en")
+    def analyze_transcript(transcript, language: "ko")
+      raise "Claude API not configured" unless configured?
 
-      Rails.logger.info("Analyzing YouTube URL: #{youtube_url}")
+      analysis_prompt = language == "en" ? ANALYSIS_PROMPT_EN : ANALYSIS_PROMPT_KO
+      prompt = "#{analysis_prompt}\n\n#{transcript}"
 
-      # Extract subtitles using yt-dlp
-      transcript = YoutubeChannelScraper.extract_subtitles(youtube_url)
-
-      if transcript.blank?
-        Rails.logger.warn("No subtitles available for #{youtube_url}")
-        return {
-          category: "general",
-          difficulty_level: "intermediate",
-          language: "ko",
-          summary: "자막을 추출할 수 없습니다",
-          knowledge_chunks: []
-        }
-      end
-
-      analyze_transcript(transcript)
-    end
-
-    # Analyze transcript text directly (useful for testing)
-    def analyze_transcript(transcript)
-      raise "Gemini API not configured" unless GeminiConfig.configured?
-
-      prompt = "#{TRANSCRIPT_ANALYSIS_PROMPT}\n\n#{transcript}"
-
-      response = GeminiConfig.generate_content(
+      response = AiTrainer::LlmGateway.chat(
         prompt: prompt,
-        system_instruction: SYSTEM_INSTRUCTION
+        system: SYSTEM_PROMPT,
+        task: :knowledge_extraction
       )
 
-      parse_response(response)
+      unless response[:success]
+        raise "LLM API error: #{response[:error]}"
+      end
+
+      parse_response(response[:content])
+    end
+
+    # Extract transcript for a video (utility method)
+    def extract_transcript(video)
+      return video.transcript if video.transcript.present?
+
+      language = video.youtube_channel&.language || "ko"
+      transcript = YoutubeChannelScraper.extract_subtitles(video.youtube_url, language: language)
+      video.update!(transcript: transcript) if transcript.present?
+      transcript
     end
 
     private
-
-    def extract_knowledge(video)
-      # Extract subtitles using yt-dlp
-      youtube_url = video.youtube_url
-      transcript = YoutubeChannelScraper.extract_subtitles(youtube_url)
-
-      if transcript.blank?
-        Rails.logger.warn("No subtitles available for #{youtube_url}")
-        return {
-          category: "general",
-          difficulty_level: "intermediate",
-          language: "ko",
-          summary: "자막을 추출할 수 없습니다",
-          knowledge_chunks: []
-        }
-      end
-
-      prompt = "#{TRANSCRIPT_ANALYSIS_PROMPT}\n\n#{transcript}"
-
-      response = GeminiConfig.generate_content(
-        prompt: prompt,
-        system_instruction: SYSTEM_INSTRUCTION
-      )
-
-      parse_response(response)
-    end
 
     def parse_response(response)
       # Extract JSON from response (may be wrapped in markdown code block)
@@ -176,10 +205,9 @@ class YoutubeKnowledgeExtractionService
 
       JSON.parse(json_str, symbolize_names: true)
     rescue JSON::ParserError => e
-      Rails.logger.error("Failed to parse Gemini response: #{e.message}")
+      Rails.logger.error("Failed to parse response: #{e.message}")
       Rails.logger.error("Response was: #{response}")
 
-      # Return minimal valid structure
       {
         category: "general",
         difficulty_level: "intermediate",
@@ -188,7 +216,10 @@ class YoutubeKnowledgeExtractionService
       }
     end
 
-    def save_knowledge_chunks(video, result)
+    def save_knowledge_chunks(video, result, language: "ko")
+      # Clear existing chunks before saving new ones
+      video.fitness_knowledge_chunks.destroy_all
+
       chunks = result[:knowledge_chunks] || []
 
       chunks.each do |chunk_data|
@@ -197,6 +228,8 @@ class YoutubeKnowledgeExtractionService
         video.fitness_knowledge_chunks.create!(
           knowledge_type: chunk_data[:type],
           content: chunk_data[:content],
+          content_original: chunk_data[:content_original], # English original (nil for Korean)
+          language: language,
           summary: chunk_data[:summary],
           exercise_name: chunk_data[:exercise_name],
           muscle_group: chunk_data[:muscle_group],
@@ -204,7 +237,7 @@ class YoutubeKnowledgeExtractionService
           timestamp_start: chunk_data[:timestamp_start],
           timestamp_end: chunk_data[:timestamp_end],
           metadata: {
-            source: "gemini_extraction",
+            source: "claude_extraction",
             extracted_at: Time.current.iso8601
           }
         )

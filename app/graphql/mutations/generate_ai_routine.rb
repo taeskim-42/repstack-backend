@@ -10,13 +10,31 @@ module Mutations
              description: "Use dynamic AI generation instead of fixed program"
     argument :preferences, Types::RoutinePreferencesInputType, required: false,
              description: "Preferences for dynamic routine generation"
+    argument :goal, String, required: false,
+             description: "Training goal (e.g., '등근육 키우고 싶음', '체중 감량')"
 
     field :success, Boolean, null: false
     field :routine, Types::AiRoutineType, null: true
+    field :remaining_generations, Integer, null: true
     field :error, String, null: true
 
-    def resolve(day_of_week: nil, condition: nil, dynamic: false, preferences: nil)
+    def resolve(day_of_week: nil, condition: nil, dynamic: false, preferences: nil, goal: nil)
       authenticate_user!
+
+      # Check rate limit
+      rate_check = RoutineRateLimiter.check_and_increment!(
+        user: current_user,
+        action: :routine_generation
+      )
+
+      unless rate_check[:allowed]
+        return {
+          success: false,
+          routine: nil,
+          remaining_generations: 0,
+          error: rate_check[:error]
+        }
+      end
 
       condition_inputs = condition&.to_h&.deep_transform_keys { |k| k.to_s.underscore.to_sym } || {}
       preference_inputs = preferences&.to_h&.deep_transform_keys { |k| k.to_s.underscore.to_sym } || {}
@@ -32,19 +50,22 @@ module Mutations
         condition_inputs: condition_inputs,
         recent_feedbacks: recent_feedbacks,
         dynamic: dynamic,
-        preferences: preference_inputs
+        preferences: preference_inputs,
+        goal: goal
       )
 
       if routine.is_a?(Hash) && routine[:success] == false
         {
           success: false,
           routine: nil,
+          remaining_generations: rate_check[:remaining],
           error: routine[:error]
         }
       else
         {
           success: true,
           routine: routine,
+          remaining_generations: rate_check[:remaining],
           error: nil
         }
       end

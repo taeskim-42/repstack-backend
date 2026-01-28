@@ -21,6 +21,7 @@ Rails.application.routes.draw do
     get "/reanalyze_status", action: :reanalyze_status
     post "/ai_cleanup_knowledge", action: :ai_cleanup_knowledge
     get "/sample_knowledge", action: :sample_knowledge
+    get "/list_knowledge", action: :list_knowledge
     delete "/delete_chunks", action: :delete_chunks
     get "/simulate_beginner", action: :simulate_beginner
     get "/simulate_all_levels", action: :simulate_all_levels
@@ -28,6 +29,19 @@ Rails.application.routes.draw do
     post "/seed_exercises", action: :seed_exercises
     get "/test_subtitle_extraction", action: :test_subtitle_extraction
     post "/test_knowledge_extraction", action: :test_knowledge_extraction
+    post "/import_program_knowledge", action: :import_program_knowledge
+    post "/import_knowledge_chunk", action: :import_knowledge_chunk
+    get "/embedding_status", action: :embedding_status
+    post "/generate_embeddings", action: :generate_embeddings
+    post "/test_search", action: :test_search
+    get "/check_pgvector", action: :check_pgvector
+    post "/extract_transcripts", action: :extract_transcripts
+    get "/transcript_status", action: :transcript_status
+    get "/channel_status", action: :channel_status
+    post "/bulk_import_videos", action: :bulk_import_videos
+    post "/seed_channels", action: :seed_channels
+    post "/stop_transcript_extraction", action: :stop_transcript_extraction
+    get "/worker_status", action: :worker_status
   end
 
   # Defines the root path route ("/")

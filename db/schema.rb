@@ -10,9 +10,22 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_01_24_135938) do
+ActiveRecord::Schema[8.1].define(version: 2026_01_28_134632) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "chat_messages", force: :cascade do |t|
+    t.text "content", null: false
+    t.datetime "created_at", null: false
+    t.jsonb "metadata", default: {}
+    t.string "role", null: false
+    t.string "session_id"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["user_id", "created_at"], name: "index_chat_messages_on_user_id_and_created_at"
+    t.index ["user_id", "session_id", "created_at"], name: "index_chat_messages_on_user_id_and_session_id_and_created_at"
+    t.index ["user_id"], name: "index_chat_messages_on_user_id"
+  end
 
   create_table "condition_logs", force: :cascade do |t|
     t.integer "available_time", null: false
@@ -30,12 +43,47 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_24_135938) do
     t.index ["user_id"], name: "index_condition_logs_on_user_id"
   end
 
+  create_table "exercises", force: :cascade do |t|
+    t.boolean "active", default: true
+    t.boolean "bpm_compatible", default: true
+    t.text "common_mistakes"
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.integer "difficulty", default: 1
+    t.string "display_name"
+    t.boolean "dropset_compatible", default: false
+    t.string "english_name", null: false
+    t.string "equipment", default: [], array: true
+    t.string "fitness_factors", default: [], array: true
+    t.text "form_tips"
+    t.integer "min_level", default: 1
+    t.string "movement_pattern"
+    t.string "muscle_group", null: false
+    t.string "name", null: false
+    t.string "rom_options", default: ["full"], array: true
+    t.string "secondary_muscles", default: [], array: true
+    t.integer "sort_order", default: 0
+    t.boolean "superset_compatible", default: true
+    t.boolean "tabata_compatible", default: true
+    t.datetime "updated_at", null: false
+    t.jsonb "variations", default: {}
+    t.index ["active"], name: "index_exercises_on_active"
+    t.index ["difficulty"], name: "index_exercises_on_difficulty"
+    t.index ["english_name"], name: "index_exercises_on_english_name", unique: true
+    t.index ["equipment"], name: "index_exercises_on_equipment", using: :gin
+    t.index ["fitness_factors"], name: "index_exercises_on_fitness_factors", using: :gin
+    t.index ["muscle_group"], name: "index_exercises_on_muscle_group"
+    t.index ["name"], name: "index_exercises_on_name", unique: true
+  end
+
   create_table "fitness_knowledge_chunks", force: :cascade do |t|
     t.text "content", null: false
+    t.text "content_original"
     t.datetime "created_at", null: false
     t.string "difficulty_level"
     t.string "exercise_name"
     t.string "knowledge_type", null: false
+    t.string "language", default: "ko", null: false
     t.jsonb "metadata", default: {}
     t.string "muscle_group"
     t.text "summary"
@@ -43,8 +91,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_24_135938) do
     t.integer "timestamp_start"
     t.datetime "updated_at", null: false
     t.bigint "youtube_video_id", null: false
+    t.index ["difficulty_level"], name: "index_fitness_knowledge_chunks_on_difficulty_level"
     t.index ["exercise_name"], name: "index_fitness_knowledge_chunks_on_exercise_name"
     t.index ["knowledge_type"], name: "index_fitness_knowledge_chunks_on_knowledge_type"
+    t.index ["language"], name: "index_fitness_knowledge_chunks_on_language"
     t.index ["muscle_group"], name: "index_fitness_knowledge_chunks_on_muscle_group"
     t.index ["youtube_video_id"], name: "index_fitness_knowledge_chunks_on_youtube_video_id"
   end
@@ -256,6 +306,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_24_135938) do
     t.datetime "created_at", null: false
     t.text "description"
     t.string "handle", null: false
+    t.string "language", default: "ko", null: false
     t.datetime "last_analyzed_at"
     t.datetime "last_synced_at"
     t.string "name", null: false
@@ -267,6 +318,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_24_135938) do
     t.index ["active"], name: "index_youtube_channels_on_active"
     t.index ["channel_id"], name: "index_youtube_channels_on_channel_id", unique: true
     t.index ["handle"], name: "index_youtube_channels_on_handle", unique: true
+    t.index ["language"], name: "index_youtube_channels_on_language"
   end
 
   create_table "youtube_videos", force: :cascade do |t|
@@ -296,6 +348,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_24_135938) do
     t.index ["youtube_channel_id"], name: "index_youtube_videos_on_youtube_channel_id"
   end
 
+  add_foreign_key "chat_messages", "users"
   add_foreign_key "condition_logs", "users"
   add_foreign_key "fitness_knowledge_chunks", "youtube_videos"
   add_foreign_key "fitness_test_submissions", "users"

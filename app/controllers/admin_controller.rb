@@ -58,6 +58,121 @@ class AdminController < ApplicationController
     }
   end
 
+  # GET /admin/worker_status
+  # Check Sidekiq worker status
+  def worker_status
+    require "sidekiq/api"
+
+    stats = Sidekiq::Stats.new
+    processes = Sidekiq::ProcessSet.new
+
+    # Get queue sizes
+    queues = Sidekiq::Queue.all.map do |q|
+      { name: q.name, size: q.size }
+    end
+
+    # Get currently processing jobs
+    workers = Sidekiq::Workers.new
+    current_jobs = workers.map do |process_id, thread_id, work|
+      {
+        queue: work["queue"],
+        class: work["payload"]["class"],
+        args: work["payload"]["args"]&.first(2),
+        started_at: Time.at(work["run_at"]).iso8601
+      }
+    end
+
+    render json: {
+      processed: stats.processed,
+      failed: stats.failed,
+      queues: queues,
+      workers_count: workers.size,
+      current_jobs: current_jobs.first(5)
+    }
+  end
+
+  # POST /admin/stop_transcript_extraction
+  # Stop transcript extraction jobs
+  def stop_transcript_extraction
+    require "sidekiq/api"
+
+    # Clear the low queue (where ExtractTranscriptsJob runs)
+    queue = Sidekiq::Queue.new("low")
+    cleared_count = queue.size
+    queue.clear
+
+    # Clear scheduled ExtractTranscriptsJob
+    scheduled = Sidekiq::ScheduledSet.new
+    scheduled_cleared = scheduled.select { |job| job.klass == "ExtractTranscriptsJob" }.each(&:delete).count
+
+    render json: {
+      success: true,
+      message: "Transcript extraction stopped",
+      cleared_queued_jobs: cleared_count,
+      cleared_scheduled_jobs: scheduled_cleared
+    }
+  end
+
+  # POST /admin/seed_channels
+  # Seed all configured YouTube channels
+  def seed_channels
+    YoutubeChannel.seed_configured_channels!
+
+    channels = YoutubeChannel.all.map do |c|
+      { name: c.name, handle: c.handle, language: c.language }
+    end
+
+    render json: {
+      success: true,
+      channels: channels,
+      total: channels.count
+    }
+  end
+
+  # POST /admin/bulk_import_videos
+  # Import videos from yt-dlp extracted data
+  # Body: { channel_handle: "jeffnippard", videos: [{ video_id: "xxx", title: "...", upload_date: "2024-01-01" }] }
+  def bulk_import_videos
+    channel_handle = params[:channel_handle]
+    videos_data = params[:videos]
+
+    channel = YoutubeChannel.find_by(handle: channel_handle)
+    unless channel
+      return render json: { error: "Channel not found: #{channel_handle}" }, status: :not_found
+    end
+
+    imported = 0
+    skipped = 0
+
+    videos_data.each do |video|
+      existing = channel.youtube_videos.find_by(video_id: video[:video_id])
+      if existing
+        skipped += 1
+        next
+      end
+
+      channel.youtube_videos.create!(
+        video_id: video[:video_id],
+        title: video[:title] || "Untitled",
+        published_at: video[:upload_date],
+        analysis_status: "pending"
+      )
+      imported += 1
+    rescue StandardError => e
+      Rails.logger.warn("Failed to import video #{video[:video_id]}: #{e.message}")
+    end
+
+    channel.mark_synced!
+
+    render json: {
+      success: true,
+      channel: channel.name,
+      imported: imported,
+      skipped: skipped,
+      total_videos: channel.youtube_videos.count
+    }
+  end
+
   # GET /admin/sample_knowledge
   # Get random samples of knowledge data for review
   def sample_knowledge
@@ -553,18 +668,22 @@ class AdminController < ApplicationController
   # Use ?limit=100 (default)
   def extract_transcripts
     limit = [params[:limit]&.to_i || 100, 500].min
+    language = params[:language] # "en", "ko", or nil for all
 
-    without_transcript = YoutubeVideo.where(transcript: [nil, ""]).count
+    scope = YoutubeVideo.where(transcript: [nil, ""])
+    scope = scope.joins(:youtube_channel).where(youtube_channels: { language: language }) if language.present?
+    without_transcript = scope.count
 
     if without_transcript == 0
       return render json: {
         success: true,
         message: "All videos already have transcripts",
-        without_transcript: 0
+        without_transcript: 0,
+        language_filter: language
       }
     end
 
-    ExtractTranscriptsJob.perform_async(limit)
+    ExtractTranscriptsJob.perform_async(limit, true, language)
 
     render json: {
       success: true,
@@ -587,6 +706,28 @@ class AdminController < ApplicationController
       with_transcript: with_transcript,
       without_transcript: without_transcript,
       coverage_percent: (with_transcript.to_f / total * 100).round(1)
+    }
+  end
+
+  # GET /admin/channel_status
+  # Check videos per channel
+  def channel_status
+    channels = YoutubeChannel.all.map do |channel|
+      videos = channel.youtube_videos
+      with_transcript = videos.where.not(transcript: [nil, ""]).count
+      {
+        name: channel.name,
+        handle: channel.handle,
+        language: channel.language,
+        total_videos: videos.count,
+        with_transcript: with_transcript,
+        active: channel.active
+      }
+    end
+
+    render json: {
+      channels: channels,
+      total_channels: channels.count
     }
   end
 

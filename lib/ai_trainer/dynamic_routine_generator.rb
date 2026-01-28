@@ -16,7 +16,7 @@ module AiTrainer
     include DynamicRoutineConfig
 
     attr_reader :user, :level, :day_of_week, :condition_score, :adjustment,
-                :condition_inputs, :recent_feedbacks, :preferences
+                :condition_inputs, :recent_feedbacks, :preferences, :goal, :target_muscles
 
     def initialize(user:, day_of_week: nil)
       @user = user
@@ -29,6 +29,8 @@ module AiTrainer
       @condition_inputs = {}
       @recent_feedbacks = []
       @preferences = default_preferences
+      @goal = nil
+      @target_muscles = []
     end
 
     # Set user preferences
@@ -48,6 +50,17 @@ module AiTrainer
     # Set recent feedbacks for personalization
     def with_feedbacks(feedbacks)
       @recent_feedbacks = feedbacks || []
+      self
+    end
+
+    # Set training goal
+    def with_goal(goal)
+      @goal = goal
+      @target_muscles = extract_target_muscles(goal) if goal.present?
+      # Add focus muscles from goal
+      if @target_muscles.present?
+        @preferences[:focus_muscles] = (@preferences[:focus_muscles] || []) + @target_muscles
+      end
       self
     end
 
@@ -185,6 +198,7 @@ module AiTrainer
         - 레벨: #{@level} (#{Constants.tier_for_level(@level)})
         - 오늘 컨디션: #{@condition_score.round(1)}/5 (#{@adjustment[:korean]})
         #{condition_details}
+        #{goal_section}
 
         ## 오늘의 훈련 목표
         #{training_focus_description(training_focus)}
@@ -247,6 +261,14 @@ module AiTrainer
       end.compact
 
       details.join("\n")
+    end
+
+    def goal_section
+      return "" unless @goal.present?
+
+      section = "## 사용자 목표\n- #{@goal}"
+      section += "\n- 타겟 근육: #{@target_muscles.join(', ')}" if @target_muscles.present?
+      section
     end
 
     def training_focus_description(focus)
@@ -454,6 +476,32 @@ module AiTrainer
 
     def generate_routine_id
       "DRT-#{@level}-D#{@day_of_week}-#{Time.current.to_i}-#{SecureRandom.hex(4)}"
+    end
+
+    # Extract target muscles from goal text
+    def extract_target_muscles(goal_text)
+      return [] unless goal_text.present?
+
+      muscle_keywords = {
+        "가슴" => "chest", "chest" => "chest",
+        "등" => "back", "back" => "back",
+        "어깨" => "shoulder", "shoulder" => "shoulder",
+        "팔" => "arm", "이두" => "arm", "삼두" => "arm", "arm" => "arm",
+        "복근" => "core", "코어" => "core", "core" => "core",
+        "하체" => "leg", "다리" => "leg", "leg" => "leg",
+        "엉덩이" => "glutes", "힙" => "glutes", "glutes" => "glutes"
+      }
+
+      found_muscles = []
+      goal_lower = goal_text.downcase
+
+      muscle_keywords.each do |keyword, muscle|
+        if goal_lower.include?(keyword.downcase)
+          found_muscles << muscle unless found_muscles.include?(muscle)
+        end
+      end
+
+      found_muscles
     end
   end
 end

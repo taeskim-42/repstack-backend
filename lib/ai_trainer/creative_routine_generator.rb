@@ -5,9 +5,13 @@ require_relative "llm_gateway"
 
 module AiTrainer
   # Creative routine generator using RAG + LLM
-  # Instead of copying hardcoded programs, uses knowledge base to create personalized routines
+  # Uses semantic search to find relevant knowledge and generates personalized routines
   class CreativeRoutineGenerator
     include Constants
+
+    # Cache key for tracking recently used knowledge
+    RECENT_KNOWLEDGE_KEY = "routine_generator:recent_knowledge:%{user_id}"
+    RECENT_KNOWLEDGE_EXPIRY = 7.days
 
     def initialize(user:, day_of_week: nil)
       @user = user
@@ -17,6 +21,8 @@ module AiTrainer
       @day_of_week = 5 if @day_of_week > 5
       @condition = nil
       @preferences = {}
+      @goal = nil
+      @target_muscles = []
     end
 
     def with_condition(condition)
@@ -29,26 +35,38 @@ module AiTrainer
       self
     end
 
+    # Set user's training goal (e.g., "등근육 키우고 싶음", "체중 감량")
+    def with_goal(goal)
+      @goal = goal
+      @target_muscles = extract_target_muscles(goal) if goal.present?
+      self
+    end
+
     def generate
       # 1. Gather user context
       user_context = build_user_context
 
-      # 2. Search RAG for relevant knowledge
+      # 2. Search RAG for relevant knowledge (improved with semantic search)
       knowledge = search_relevant_knowledge
 
-      # 3. Build prompt for LLM
+      # 3. Track used knowledge to avoid repetition
+      track_used_knowledge(knowledge)
+
+      # 4. Build prompt for LLM
       prompt = build_generation_prompt(user_context, knowledge)
 
-      # 4. Call LLM to generate routine
+      # 5. Call LLM to generate routine
       response = LlmGateway.chat(
         prompt: prompt,
         task: :routine_generation,
         system: system_prompt
       )
 
-      # 5. Parse and validate response
+      # 6. Parse and validate response
       if response[:success]
-        parse_routine_response(response[:content])
+        result = parse_routine_response(response[:content])
+        result[:knowledge_sources] = knowledge[:sources]
+        result
       else
         fallback_routine
       end
@@ -71,6 +89,8 @@ module AiTrainer
         fitness_factor: Constants::WEEKLY_STRUCTURE[@day_of_week][:fitness_factor],
         condition: @condition,
         preferences: @preferences,
+        goal: @goal,
+        target_muscles: @target_muscles,
         recent_exercises: extract_recent_exercises(recent_workouts),
         equipment_available: profile&.available_equipment || %w[barbell dumbbell cable machine],
         workout_duration: profile&.preferred_duration || 60,
@@ -89,31 +109,186 @@ module AiTrainer
       %w[일 월 화 수 목 금 토][day] + "요일"
     end
 
+    # Extract target muscles from user's goal text
+    def extract_target_muscles(goal)
+      muscle_keywords = {
+        "등" => %w[등 back 광배 승모 lat],
+        "가슴" => %w[가슴 chest 흉근 대흉근 pec],
+        "어깨" => %w[어깨 shoulder 삼각근 deltoid],
+        "팔" => %w[팔 arm 이두 삼두 bicep tricep],
+        "하체" => %w[하체 leg 다리 허벅지 대퇴 quadricep hamstring],
+        "코어" => %w[코어 core 복근 abs 복부],
+        "전신" => %w[전신 full body 전체]
+      }
+
+      goal_lower = goal.downcase
+      matched_muscles = []
+
+      muscle_keywords.each do |muscle, keywords|
+        matched_muscles << muscle if keywords.any? { |kw| goal_lower.include?(kw) }
+      end
+
+      matched_muscles.presence || ["전신"]
+    end
+
+    # Improved knowledge search with semantic search and goal-based filtering
     def search_relevant_knowledge
-      fitness_factor = Constants::WEEKLY_STRUCTURE[@day_of_week][:fitness_factor]
+      recently_used_ids = get_recently_used_knowledge_ids
+      sources = []
 
-      # Search for program templates
-      program_knowledge = FitnessKnowledgeChunk
-        .where(knowledge_type: "routine_design")
-        .for_user_level(@level)
-        .limit(5)
-        .pluck(:content, :summary)
+      # Build search query based on goal and context
+      search_query = build_search_query
 
-      # Search for exercise techniques
-      exercise_knowledge = FitnessKnowledgeChunk
-        .where(knowledge_type: "exercise_technique")
-        .for_user_level(@level)
-        .order("RANDOM()")
-        .limit(5)
-        .pluck(:content, :summary, :exercise_name)
+      # 1. Try semantic search first (if embeddings available)
+      program_knowledge = search_with_embeddings(
+        query: search_query,
+        knowledge_type: "routine_design",
+        exclude_ids: recently_used_ids,
+        limit: 5
+      )
+
+      exercise_knowledge = search_with_embeddings(
+        query: search_query,
+        knowledge_type: "exercise_technique",
+        exclude_ids: recently_used_ids,
+        limit: 5
+      )
+
+      # Track sources
+      sources += program_knowledge.map { |k| { id: k[:id], video_id: k[:video_id], type: "routine_design" } }
+      sources += exercise_knowledge.map { |k| { id: k[:id], video_id: k[:video_id], type: "exercise_technique" } }
 
       {
-        programs: program_knowledge,
-        exercises: exercise_knowledge
+        programs: program_knowledge.map { |k| [k[:content], k[:summary]] },
+        exercises: exercise_knowledge.map { |k| [k[:content], k[:summary], k[:exercise_name]] },
+        sources: sources
       }
     rescue StandardError => e
       Rails.logger.warn("Knowledge search failed: #{e.message}")
-      { programs: [], exercises: [] }
+      { programs: [], exercises: [], sources: [] }
+    end
+
+    # Build search query based on user goal and context
+    def build_search_query
+      parts = []
+
+      # Add goal if present
+      parts << @goal if @goal.present?
+
+      # Add target muscles
+      parts << "#{@target_muscles.join(' ')} 운동" if @target_muscles.any?
+
+      # Add level context
+      tier = Constants.tier_for_level(@level)
+      parts << "#{tier} 루틴"
+
+      # Add fitness factor for the day
+      fitness_factor = Constants::WEEKLY_STRUCTURE[@day_of_week][:fitness_factor]
+      parts << fitness_factor if fitness_factor.present?
+
+      parts.join(" ")
+    end
+
+    # Search using embeddings (semantic search) with fallback to keyword search
+    def search_with_embeddings(query:, knowledge_type:, exclude_ids:, limit:)
+      chunks = []
+
+      # Try semantic search if embeddings are available
+      if EmbeddingService.pgvector_available? && EmbeddingService.configured?
+        query_embedding = EmbeddingService.generate_query_embedding(query)
+
+        if query_embedding.present?
+          chunks = FitnessKnowledgeChunk
+            .where(knowledge_type: knowledge_type)
+            .where.not(embedding: nil)
+            .where.not(id: exclude_ids)
+            .for_user_level(@level)
+            .nearest_neighbors(:embedding, query_embedding, distance: "cosine")
+            .limit(limit)
+            .select(:id, :content, :summary, :exercise_name, :youtube_video_id)
+
+          chunks = chunks.map do |c|
+            {
+              id: c.id,
+              content: c.content,
+              summary: c.summary,
+              exercise_name: c.exercise_name,
+              video_id: c.youtube_video_id
+            }
+          end
+        end
+      end
+
+      # Fallback to keyword search if semantic search returns nothing
+      if chunks.empty?
+        chunks = keyword_search(
+          query: query,
+          knowledge_type: knowledge_type,
+          exclude_ids: exclude_ids,
+          limit: limit
+        )
+      end
+
+      chunks
+    end
+
+    # Keyword-based search as fallback
+    def keyword_search(query:, knowledge_type:, exclude_ids:, limit:)
+      # Extract keywords from query
+      keywords = query.split(/\s+/).reject { |w| w.length < 2 }
+
+      scope = FitnessKnowledgeChunk
+        .where(knowledge_type: knowledge_type)
+        .where.not(id: exclude_ids)
+        .for_user_level(@level)
+
+      # Filter by target muscles if present
+      if @target_muscles.any? && knowledge_type == "exercise_technique"
+        muscle_conditions = @target_muscles.map { |m| "muscle_group ILIKE ? OR exercise_name ILIKE ? OR content ILIKE ?" }
+        muscle_values = @target_muscles.flat_map { |m| ["%#{m}%", "%#{m}%", "%#{m}%"] }
+        scope = scope.where(muscle_conditions.join(" OR "), *muscle_values)
+      end
+
+      # Search by keywords in content/summary
+      if keywords.any?
+        keyword_conditions = keywords.map { "content ILIKE ? OR summary ILIKE ?" }
+        keyword_values = keywords.flat_map { |kw| ["%#{kw}%", "%#{kw}%"] }
+        scope = scope.where(keyword_conditions.join(" OR "), *keyword_values)
+      end
+
+      # Order by relevance (prioritize matches in summary) and add some randomness
+      scope
+        .order(Arel.sql("RANDOM()"))
+        .limit(limit)
+        .select(:id, :content, :summary, :exercise_name, :youtube_video_id)
+        .map do |c|
+          {
+            id: c.id,
+            content: c.content,
+            summary: c.summary,
+            exercise_name: c.exercise_name,
+            video_id: c.youtube_video_id
+          }
+        end
+    end
+
+    # Get IDs of recently used knowledge for this user
+    def get_recently_used_knowledge_ids
+      cache_key = RECENT_KNOWLEDGE_KEY % { user_id: @user.id }
+      Rails.cache.read(cache_key) || []
+    end
+
+    # Track used knowledge to avoid repetition
+    def track_used_knowledge(knowledge)
+      return if knowledge[:sources].blank?
+
+      cache_key = RECENT_KNOWLEDGE_KEY % { user_id: @user.id }
+      existing_ids = Rails.cache.read(cache_key) || []
+
+      new_ids = knowledge[:sources].map { |s| s[:id] }
+      updated_ids = (existing_ids + new_ids).uniq.last(50) # Keep last 50 used
+
+      Rails.cache.write(cache_key, updated_ids, expires_in: RECENT_KNOWLEDGE_EXPIRY)
     end
 
     def system_prompt
@@ -125,6 +300,7 @@ module AiTrainer
         2. 사용자의 레벨, 컨디션, 선호도를 반영하여 개인화합니다
         3. 운동 과학에 기반한 합리적인 세트/횟수를 설정합니다
         4. 다양성을 위해 매번 약간씩 다른 루틴을 제안합니다
+        5. 사용자의 목표가 있다면 그에 맞는 운동을 우선 배치합니다
 
         ## 응답 형식
         반드시 아래 JSON 형식으로만 응답하세요:
@@ -165,6 +341,16 @@ module AiTrainer
         - 사용 가능 장비: #{context[:equipment_available].join(", ")}
       USER_CONTEXT
 
+      # User goal (important!)
+      if context[:goal].present?
+        prompt_parts << <<~GOAL
+          ## 🎯 사용자 목표 (중요!)
+          "#{context[:goal]}"
+          → 타겟 근육: #{context[:target_muscles].join(", ")}
+          → 이 목표에 맞는 운동을 우선적으로 포함하세요!
+        GOAL
+      end
+
       # Condition if provided
       if context[:condition].present?
         prompt_parts << <<~CONDITION
@@ -188,7 +374,7 @@ module AiTrainer
       if knowledge[:programs].any?
         prompt_parts << "## 참고할 프로그램 패턴 (그대로 복사하지 말고 참고만)"
         knowledge[:programs].each do |content, summary|
-          prompt_parts << "- #{summary}: #{content.truncate(200)}"
+          prompt_parts << "- #{summary}: #{content.to_s.truncate(200)}"
         end
       end
 
@@ -196,7 +382,7 @@ module AiTrainer
       if knowledge[:exercises].any?
         prompt_parts << "\n## 운동 지식 (팁으로 활용)"
         knowledge[:exercises].each do |content, summary, exercise_name|
-          prompt_parts << "- #{exercise_name || summary}: #{content.truncate(150)}"
+          prompt_parts << "- #{exercise_name || summary}: #{content.to_s.truncate(150)}"
         end
       end
 
@@ -204,6 +390,7 @@ module AiTrainer
 
         ## 요청
         위 정보를 바탕으로 오늘의 맞춤 운동 루틴을 창의적으로 설계해주세요.
+        #{context[:goal].present? ? "특히 '#{context[:goal]}' 목표에 맞는 운동을 중심으로 구성하세요." : ""}
         4-6개의 운동으로 구성하고, 사용자 레벨과 컨디션에 맞게 조절하세요.
         JSON 형식으로만 응답하세요.
       REQUEST
@@ -246,7 +433,8 @@ module AiTrainer
           data["cooldown_notes"],
           data["coach_message"]
         ].compact,
-        creative: true  # Flag to indicate this was creatively generated
+        creative: true,
+        goal: @goal
       }
     rescue JSON::ParserError => e
       Rails.logger.error("Failed to parse routine JSON: #{e.message}")
@@ -277,7 +465,8 @@ module AiTrainer
         exercises: default_exercises,
         estimated_duration_minutes: 45,
         notes: ["기본 루틴입니다. 컨디션에 맞게 조절하세요."],
-        creative: false
+        creative: false,
+        goal: @goal
       }
     end
 

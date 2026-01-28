@@ -14,12 +14,16 @@ class FitnessKnowledgeChunk < ApplicationRecord
   # Validations
   validates :knowledge_type, presence: true, inclusion: { in: KNOWLEDGE_TYPES }
   validates :content, presence: true
+  validates :language, presence: true, inclusion: { in: %w[ko en] }
 
   # Scopes
   scope :exercise_techniques, -> { where(knowledge_type: "exercise_technique") }
   scope :routine_designs, -> { where(knowledge_type: "routine_design") }
   scope :nutrition_recovery, -> { where(knowledge_type: "nutrition_recovery") }
   scope :form_checks, -> { where(knowledge_type: "form_check") }
+  scope :korean, -> { where(language: "ko") }
+  scope :english, -> { where(language: "en") }
+  scope :with_original, -> { where.not(content_original: nil) }
   # Exact match for exercise name (handles comma-separated values)
   scope :for_exercise, ->(name) {
     where("? = ANY(string_to_array(exercise_name, ', ')) OR exercise_name = ?", name, name)

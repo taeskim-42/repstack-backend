@@ -22,14 +22,27 @@ class ChatMessage < ApplicationRecord
   end
 
   # Convert to Claude API message format
+  # cache_control must be inside content block, not at message level
   def to_api_format(cache: false)
-    msg = { role: role, content: content }
-    msg[:cache_control] = { type: "ephemeral" } if cache
-    msg
+    if cache
+      {
+        role: role,
+        content: [
+          {
+            type: "text",
+            text: content,
+            cache_control: { type: "ephemeral" }
+          }
+        ]
+      }
+    else
+      { role: role, content: content }
+    end
   end
 
   # Build messages array for Claude API with caching
-  def self.build_api_messages(user_id, new_message, session_id: nil, cache_limit: 6)
+  # cache_limit default is 3 (Anthropic allows max 4 total, 1 reserved for system prompt)
+  def self.build_api_messages(user_id, new_message, session_id: nil, cache_limit: 3)
     messages = []
 
     # Get recent history

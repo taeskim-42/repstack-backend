@@ -1,0 +1,1266 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RepStack Knowledge Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="bg-gray-900 text-white min-h-screen">
+  <div class="container mx-auto px-4 py-8 max-w-4xl">
+    <!-- Header -->
+    <header class="mb-8">
+      <h1 class="text-3xl font-bold text-center mb-2">RepStack Knowledge Admin</h1>
+      <p class="text-gray-400 text-center">운동 지식 데이터 관리</p>
+    </header>
+
+    <!-- Config Section -->
+    <div class="bg-gray-800 rounded-lg p-4 mb-6">
+      <div class="flex gap-4 items-end">
+        <div class="flex-1">
+          <label class="block text-sm text-gray-400 mb-1">API URL</label>
+          <input type="text" id="apiUrl" value="https://repstack-backend-production.up.railway.app"
+                 class="w-full bg-gray-700 rounded px-3 py-2 text-sm">
+        </div>
+        <div class="flex-1">
+          <label class="block text-sm text-gray-400 mb-1">Admin Token</label>
+          <input type="password" id="adminToken" value="repstack_admin_1864a749b23220d903a0c3636c1e83b1"
+                 class="w-full bg-gray-700 rounded px-3 py-2 text-sm">
+        </div>
+        <button onclick="testConnection()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded text-sm">
+          Test
+        </button>
+      </div>
+      <div id="connectionStatus" class="mt-2 text-sm"></div>
+    </div>
+
+    <!-- Stats -->
+    <div id="stats" class="grid grid-cols-4 gap-4 mb-6">
+      <div class="bg-gray-800 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-blue-400" id="totalChunks">-</div>
+        <div class="text-sm text-gray-400">Total Knowledge</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-green-400" id="routineChunks">-</div>
+        <div class="text-sm text-gray-400">Routine Design</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4 text-center">
+        <div class="text-2xl font-bold text-purple-400" id="videoCount">-</div>
+        <div class="text-sm text-gray-400">YouTube Videos</div>
+      </div>
+      <div class="bg-gray-800 rounded-lg p-4 text-center cursor-pointer hover:bg-gray-700" onclick="showEmbeddingStatus()">
+        <div class="text-2xl font-bold text-orange-400" id="embeddingCoverage">-</div>
+        <div class="text-sm text-gray-400">Embedding Coverage</div>
+      </div>
+    </div>
+
+    <!-- Pipeline Status -->
+    <div id="pipelineStatus" class="bg-gray-800 rounded-lg p-4 mb-6">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="font-semibold">📊 Pipeline Status</h3>
+        <button onclick="refreshPipelineStatus()" class="text-sm text-blue-400 hover:text-blue-300">Refresh</button>
+      </div>
+      <div id="pipelineContent" class="text-sm text-gray-400">Loading...</div>
+    </div>
+
+    <!-- Current Worker Activity -->
+    <div id="workerStatus" class="bg-gray-800 rounded-lg p-4 mb-6">
+      <div class="flex justify-between items-center mb-3">
+        <h3 class="font-semibold">⚙️ Worker Activity</h3>
+        <span id="workerIndicator" class="flex items-center gap-2">
+          <span class="w-2 h-2 bg-gray-500 rounded-full"></span>
+          <span class="text-xs text-gray-400">Checking...</span>
+        </span>
+      </div>
+      <div id="workerContent" class="text-sm text-gray-400">Loading...</div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="flex border-b border-gray-700 mb-6">
+      <button onclick="showTab('excel')" id="tab-excel"
+              class="px-6 py-3 text-sm font-medium border-b-2 border-blue-500 text-blue-400">
+        Excel Upload
+      </button>
+      <button onclick="showTab('youtube')" id="tab-youtube"
+              class="px-6 py-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white">
+        YouTube URL
+      </button>
+      <button onclick="showTab('query')" id="tab-query"
+              class="px-6 py-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white">
+        Query Test
+      </button>
+      <button onclick="showTab('logs')" id="tab-logs"
+              class="px-6 py-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white">
+        Logs
+      </button>
+      <button onclick="showTab('knowledge')" id="tab-knowledge"
+              class="px-6 py-3 text-sm font-medium border-b-2 border-transparent text-gray-400 hover:text-white">
+        Knowledge List
+      </button>
+    </div>
+
+    <!-- Excel Tab -->
+    <div id="panel-excel" class="tab-panel">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">Excel 루틴 업로드</h2>
+        <p class="text-gray-400 text-sm mb-4">
+          운동 프로그램 Excel 파일을 업로드하면 RAG 지식베이스에 추가됩니다.
+        </p>
+
+        <!-- Drop Zone -->
+        <div id="dropZone"
+             class="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500 transition-colors">
+          <svg class="mx-auto h-12 w-12 text-gray-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+          </svg>
+          <p class="text-gray-400">파일을 드래그하거나 클릭하여 선택</p>
+          <p class="text-gray-500 text-sm mt-1">.xlsx, .xls 파일 지원</p>
+          <input type="file" id="fileInput" accept=".xlsx,.xls" class="hidden">
+        </div>
+
+        <!-- File Info -->
+        <div id="fileInfo" class="hidden mt-4 bg-gray-700 rounded p-4">
+          <div class="flex justify-between items-center">
+            <div>
+              <span id="fileName" class="font-medium"></span>
+              <span id="fileSize" class="text-gray-400 text-sm ml-2"></span>
+            </div>
+            <button onclick="clearFile()" class="text-red-400 hover:text-red-300 text-sm">Remove</button>
+          </div>
+        </div>
+
+        <!-- Preview -->
+        <div id="excelPreview" class="hidden mt-4">
+          <h3 class="text-sm font-medium text-gray-400 mb-2">미리보기</h3>
+          <div class="bg-gray-700 rounded p-4 overflow-x-auto max-h-64 overflow-y-auto">
+            <table id="previewTable" class="w-full text-sm">
+            </table>
+          </div>
+          <div class="mt-4 flex gap-4">
+            <select id="sheetSelect" class="bg-gray-700 rounded px-3 py-2 text-sm">
+            </select>
+            <select id="knowledgeType" class="bg-gray-700 rounded px-3 py-2 text-sm">
+              <option value="routine_design">Routine Design</option>
+              <option value="exercise_technique">Exercise Technique</option>
+              <option value="training_principle">Training Principle</option>
+            </select>
+            <select id="difficultyLevel" class="bg-gray-700 rounded px-3 py-2 text-sm">
+              <option value="all">All Levels</option>
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+              <option value="advanced">Advanced</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Import Button -->
+        <button id="importExcelBtn" onclick="importExcel()" disabled
+                class="mt-4 w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 disabled:cursor-not-allowed py-3 rounded font-medium transition-colors">
+          Import to Knowledge Base
+        </button>
+      </div>
+    </div>
+
+    <!-- YouTube Tab -->
+    <div id="panel-youtube" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">YouTube URL 분석</h2>
+        <p class="text-gray-400 text-sm mb-4">
+          YouTube URL을 입력하면 자막을 분석하여 운동 지식을 추출합니다.
+        </p>
+
+        <!-- Single URL -->
+        <div class="mb-6">
+          <label class="block text-sm text-gray-400 mb-2">Single URL</label>
+          <div class="flex gap-2">
+            <input type="text" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=..."
+                   class="flex-1 bg-gray-700 rounded px-4 py-3">
+            <button onclick="analyzeYouTube()" class="bg-green-600 hover:bg-green-700 px-6 py-3 rounded font-medium">
+              Analyze
+            </button>
+          </div>
+        </div>
+
+        <!-- Bulk URLs -->
+        <div>
+          <label class="block text-sm text-gray-400 mb-2">Bulk URLs (one per line)</label>
+          <textarea id="bulkUrls" rows="5" placeholder="https://www.youtube.com/watch?v=abc123
+https://www.youtube.com/watch?v=def456"
+                    class="w-full bg-gray-700 rounded px-4 py-3 text-sm"></textarea>
+          <button onclick="analyzeBulkYouTube()"
+                  class="mt-2 bg-green-600 hover:bg-green-700 px-6 py-2 rounded font-medium text-sm">
+            Analyze All
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Query Test Tab -->
+    <div id="panel-query" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <h2 class="text-xl font-semibold mb-4">RAG 검색 테스트</h2>
+        <p class="text-gray-400 text-sm mb-4">
+          질문을 입력하여 RAG 검색 결과를 확인합니다. Semantic(벡터), Keyword, Hybrid 검색을 테스트할 수 있습니다.
+        </p>
+
+        <!-- Search Input -->
+        <div class="mb-4">
+          <label class="block text-sm text-gray-400 mb-2">질문 입력</label>
+          <div class="flex gap-2">
+            <input type="text" id="searchQuery" placeholder="예: 등 운동 루틴 추천해줘, 초보자 가슴운동..."
+                   class="flex-1 bg-gray-700 rounded px-4 py-3"
+                   onkeydown="if(event.key==='Enter') runSearch()">
+            <button onclick="runSearch()" class="bg-blue-600 hover:bg-blue-700 px-6 py-3 rounded font-medium">
+              Search
+            </button>
+          </div>
+        </div>
+
+        <!-- Options -->
+        <div class="flex gap-4 mb-6 flex-wrap">
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">검색 방식</label>
+            <select id="searchType" class="bg-gray-700 rounded px-3 py-2 text-sm">
+              <option value="semantic">Semantic (벡터)</option>
+              <option value="keyword">Keyword (키워드)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">지식 유형</label>
+            <select id="searchKnowledgeType" class="bg-gray-700 rounded px-3 py-2 text-sm">
+              <option value="all">All Types</option>
+              <option value="routine_design">Routine Design</option>
+              <option value="exercise_technique">Exercise Technique</option>
+              <option value="training_principle">Training Principle</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">사용자 레벨</label>
+            <select id="searchLevel" class="bg-gray-700 rounded px-3 py-2 text-sm">
+              <option value="1">1 (입문)</option>
+              <option value="2">2</option>
+              <option value="3" selected>3 (초급)</option>
+              <option value="4">4</option>
+              <option value="5">5 (중급)</option>
+              <option value="6">6</option>
+              <option value="7">7 (고급)</option>
+              <option value="8">8 (엘리트)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm text-gray-400 mb-1">결과 수</label>
+            <select id="searchLimit" class="bg-gray-700 rounded px-3 py-2 text-sm">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="20">20</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Quick Examples -->
+        <div class="mb-6">
+          <label class="block text-sm text-gray-400 mb-2">빠른 테스트</label>
+          <div class="flex flex-wrap gap-2">
+            <button onclick="setQuery('등 운동 루틴')" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">등 운동 루틴</button>
+            <button onclick="setQuery('초보자 가슴운동')" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">초보자 가슴운동</button>
+            <button onclick="setQuery('벤치프레스 자세')" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">벤치프레스 자세</button>
+            <button onclick="setQuery('하체 운동 순서')" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">하체 운동 순서</button>
+            <button onclick="setQuery('어깨 넓어지는 운동')" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">어깨 넓어지는 운동</button>
+            <button onclick="setQuery('데드리프트 무게')" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm">데드리프트 무게</button>
+          </div>
+        </div>
+
+        <!-- Debug Info -->
+        <div id="searchDebug" class="hidden mb-4 bg-gray-900 rounded p-3 text-xs font-mono">
+          <div class="flex justify-between items-center mb-2">
+            <span class="text-gray-400">Debug Info</span>
+            <button onclick="document.getElementById('searchDebug').classList.add('hidden')" class="text-gray-500 hover:text-white">×</button>
+          </div>
+          <div id="searchDebugContent" class="text-gray-300"></div>
+        </div>
+
+        <!-- Results -->
+        <div id="searchResults" class="hidden">
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="text-lg font-medium">검색 결과</h3>
+            <span id="searchResultCount" class="text-sm text-gray-400"></span>
+          </div>
+          <div id="searchResultsContent" class="space-y-3 max-h-[600px] overflow-y-auto">
+          </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="searchLoading" class="hidden text-center py-8">
+          <svg class="animate-spin h-8 w-8 mx-auto text-blue-500" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <p class="text-gray-400 mt-2">검색 중...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs Tab -->
+    <div id="panel-logs" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold">Processing Logs</h2>
+          <button onclick="clearLogs()" class="text-sm text-gray-400 hover:text-white">Clear</button>
+        </div>
+        <div id="logContainer" class="bg-gray-900 rounded p-4 h-96 overflow-y-auto font-mono text-sm">
+          <div class="text-gray-500">No logs yet...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Knowledge List Tab -->
+    <div id="panel-knowledge" class="tab-panel hidden">
+      <div class="bg-gray-800 rounded-lg p-6">
+        <div class="flex justify-between items-center mb-4">
+          <h2 class="text-xl font-semibold">Knowledge List</h2>
+          <div class="flex gap-2">
+            <select id="knowledgeTypeFilter" onchange="loadKnowledge(1)" class="bg-gray-700 rounded px-3 py-2 text-sm">
+              <option value="all">All Types</option>
+              <option value="routine_design">Routine Design</option>
+              <option value="exercise_technique">Exercise Technique</option>
+              <option value="training_principle">Training Principle</option>
+              <option value="nutrition">Nutrition</option>
+            </select>
+            <button onclick="exportToExcel()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded text-sm flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+              </svg>
+              Export Excel
+            </button>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div id="knowledgeStats" class="mb-4 text-sm text-gray-400"></div>
+
+        <!-- Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-700">
+              <tr>
+                <th class="px-3 py-2 text-left">ID</th>
+                <th class="px-3 py-2 text-left">Type</th>
+                <th class="px-3 py-2 text-left">Difficulty</th>
+                <th class="px-3 py-2 text-left">Exercise</th>
+                <th class="px-3 py-2 text-left">Summary</th>
+                <th class="px-3 py-2 text-left">Source</th>
+              </tr>
+            </thead>
+            <tbody id="knowledgeTable" class="divide-y divide-gray-700">
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div id="knowledgePagination" class="mt-4 flex justify-between items-center">
+          <div class="text-sm text-gray-400" id="paginationInfo"></div>
+          <div class="flex gap-2">
+            <button onclick="loadKnowledge(currentPage - 1)" id="prevBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm disabled:opacity-50" disabled>
+              Previous
+            </button>
+            <span id="pageInfo" class="px-3 py-1 text-sm"></span>
+            <button onclick="loadKnowledge(currentPage + 1)" id="nextBtn" class="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-sm disabled:opacity-50" disabled>
+              Next
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Knowledge Detail Modal -->
+    <div id="knowledgeModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div class="bg-gray-800 rounded-lg p-6 w-3/4 max-w-4xl max-h-[80vh] overflow-y-auto">
+        <div class="flex justify-between items-start mb-4">
+          <h3 class="text-lg font-semibold" id="modalTitle">Knowledge Detail</h3>
+          <button onclick="closeKnowledgeModal()" class="text-gray-400 hover:text-white">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        <div id="modalContent" class="text-sm"></div>
+      </div>
+    </div>
+
+    <!-- Progress Modal -->
+    <div id="progressModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div class="bg-gray-800 rounded-lg p-6 w-96">
+        <h3 class="text-lg font-semibold mb-4" id="progressTitle">Processing...</h3>
+        <div class="mb-4">
+          <div class="flex justify-between text-sm mb-1">
+            <span id="progressText">0 / 0</span>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div class="w-full bg-gray-700 rounded-full h-2">
+            <div id="progressBar" class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+          </div>
+        </div>
+        <div id="progressDetails" class="text-sm text-gray-400 max-h-32 overflow-y-auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let workbook = null;
+    let currentSheet = null;
+
+    // Tab switching
+    function showTab(tabName) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      document.querySelectorAll('[id^="tab-"]').forEach(t => {
+        t.classList.remove('border-blue-500', 'text-blue-400');
+        t.classList.add('border-transparent', 'text-gray-400');
+      });
+
+      document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+      const tab = document.getElementById(`tab-${tabName}`);
+      tab.classList.add('border-blue-500', 'text-blue-400');
+      tab.classList.remove('border-transparent', 'text-gray-400');
+
+      // Auto-load knowledge list when tab is shown
+      if (tabName === 'knowledge') {
+        loadKnowledge(1);
+      }
+    }
+
+    // API helpers
+    function getApiUrl() {
+      return document.getElementById('apiUrl').value.replace(/\/$/, '');
+    }
+
+    function getHeaders() {
+      return {
+        'Content-Type': 'application/json',
+        'X-Admin-Token': document.getElementById('adminToken').value
+      };
+    }
+
+    // Test connection
+    async function testConnection() {
+      const status = document.getElementById('connectionStatus');
+      status.innerHTML = '<span class="text-yellow-400">Testing...</span>';
+
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/reanalyze_status`, { headers: getHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          status.innerHTML = '<span class="text-green-400">✓ Connected</span>';
+          updateStats(data);
+          refreshEmbeddingCoverage();
+        } else {
+          status.innerHTML = '<span class="text-red-400">✗ Unauthorized</span>';
+        }
+      } catch (e) {
+        status.innerHTML = `<span class="text-red-400">✗ ${e.message}</span>`;
+      }
+    }
+
+    // Update stats
+    async function updateStats(data) {
+      if (data) {
+        document.getElementById('totalChunks').textContent = data.chunks?.total || '-';
+        document.getElementById('videoCount').textContent = data.videos?.total || '-';
+      }
+
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/sample_knowledge?limit=1`, { headers: getHeaders() });
+        if (res.ok) {
+          const d = await res.json();
+          document.getElementById('totalChunks').textContent = d.total_count || '-';
+        }
+      } catch (e) {}
+    }
+
+    // Logging
+    function log(message, type = 'info') {
+      const container = document.getElementById('logContainer');
+      const colors = { info: 'text-gray-300', success: 'text-green-400', error: 'text-red-400', warn: 'text-yellow-400' };
+      const time = new Date().toLocaleTimeString();
+
+      if (container.querySelector('.text-gray-500')) {
+        container.innerHTML = '';
+      }
+
+      container.innerHTML += `<div class="${colors[type]}">[${time}] ${message}</div>`;
+      container.scrollTop = container.scrollHeight;
+    }
+
+    function clearLogs() {
+      document.getElementById('logContainer').innerHTML = '<div class="text-gray-500">No logs yet...</div>';
+    }
+
+    // Progress modal
+    function showProgress(title, current, total, details = '') {
+      document.getElementById('progressModal').classList.remove('hidden');
+      document.getElementById('progressTitle').textContent = title;
+      document.getElementById('progressText').textContent = `${current} / ${total}`;
+      const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+      document.getElementById('progressPercent').textContent = `${percent}%`;
+      document.getElementById('progressBar').style.width = `${percent}%`;
+      document.getElementById('progressDetails').textContent = details;
+    }
+
+    function hideProgress() {
+      document.getElementById('progressModal').classList.add('hidden');
+    }
+
+    // Excel handling
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('border-blue-500');
+    });
+    dropZone.addEventListener('dragleave', () => {
+      dropZone.classList.remove('border-blue-500');
+    });
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('border-blue-500');
+      if (e.dataTransfer.files.length) {
+        handleFile(e.dataTransfer.files[0]);
+      }
+    });
+    fileInput.addEventListener('change', (e) => {
+      if (e.target.files.length) {
+        handleFile(e.target.files[0]);
+      }
+    });
+
+    function handleFile(file) {
+      if (!file.name.match(/\.(xlsx|xls)$/i)) {
+        log('Invalid file type. Please upload .xlsx or .xls', 'error');
+        return;
+      }
+
+      document.getElementById('fileInfo').classList.remove('hidden');
+      document.getElementById('fileName').textContent = file.name;
+      document.getElementById('fileSize').textContent = `(${(file.size / 1024).toFixed(1)} KB)`;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        workbook = XLSX.read(e.target.result, { type: 'array' });
+
+        const select = document.getElementById('sheetSelect');
+        select.innerHTML = workbook.SheetNames.map(name =>
+          `<option value="${name}">${name}</option>`
+        ).join('');
+
+        select.onchange = () => showSheetPreview(select.value);
+        showSheetPreview(workbook.SheetNames[0]);
+
+        document.getElementById('excelPreview').classList.remove('hidden');
+        document.getElementById('importExcelBtn').disabled = false;
+        log(`Loaded ${file.name} with ${workbook.SheetNames.length} sheets`, 'success');
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function showSheetPreview(sheetName) {
+      currentSheet = sheetName;
+      const sheet = workbook.Sheets[sheetName];
+      const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+
+      const table = document.getElementById('previewTable');
+      const preview = data.slice(0, 10);
+
+      table.innerHTML = preview.map((row, i) =>
+        `<tr class="${i === 0 ? 'font-bold text-blue-400' : ''}">
+          ${row.map(cell => `<td class="px-2 py-1 border-b border-gray-600">${cell || ''}</td>`).join('')}
+        </tr>`
+      ).join('');
+
+      if (data.length > 10) {
+        table.innerHTML += `<tr><td colspan="${data[0]?.length || 1}" class="text-gray-500 py-2">... ${data.length - 10} more rows</td></tr>`;
+      }
+    }
+
+    function clearFile() {
+      workbook = null;
+      currentSheet = null;
+      document.getElementById('fileInfo').classList.add('hidden');
+      document.getElementById('excelPreview').classList.add('hidden');
+      document.getElementById('importExcelBtn').disabled = true;
+      fileInput.value = '';
+    }
+
+    async function importExcel() {
+      if (!workbook || !currentSheet) return;
+
+      const sheet = workbook.Sheets[currentSheet];
+      const data = XLSX.utils.sheet_to_json(sheet);
+      const knowledgeType = document.getElementById('knowledgeType').value;
+      const difficultyLevel = document.getElementById('difficultyLevel').value;
+
+      log(`Starting import of ${data.length} rows from "${currentSheet}"`, 'info');
+      showProgress('Importing Excel Data', 0, data.length);
+
+      let success = 0;
+      let failed = 0;
+
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        showProgress('Importing Excel Data', i + 1, data.length, `Processing row ${i + 1}...`);
+
+        try {
+          const res = await fetch(`${getApiUrl()}/admin/import_knowledge_chunk`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({
+              knowledge_type: knowledgeType,
+              difficulty_level: difficultyLevel,
+              content: JSON.stringify(row),
+              summary: row.name || row.exercise || row['운동명'] || `Row ${i + 1}`,
+              exercise_name: row.exercise || row['운동명'] || row.name || null
+            })
+          });
+
+          if (res.ok) {
+            success++;
+          } else {
+            failed++;
+            log(`Row ${i + 1} failed: ${res.statusText}`, 'warn');
+          }
+        } catch (e) {
+          failed++;
+          log(`Row ${i + 1} error: ${e.message}`, 'error');
+        }
+
+        // Small delay to avoid overwhelming the server
+        await new Promise(r => setTimeout(r, 100));
+      }
+
+      hideProgress();
+      log(`Import complete: ${success} success, ${failed} failed`, success > 0 ? 'success' : 'error');
+      updateStats();
+    }
+
+    // YouTube handling
+    async function analyzeYouTube() {
+      const url = document.getElementById('youtubeUrl').value.trim();
+      if (!url) {
+        log('Please enter a YouTube URL', 'warn');
+        return;
+      }
+
+      log(`Analyzing: ${url}`, 'info');
+      showProgress('Analyzing YouTube Video', 0, 1, 'Extracting subtitles...');
+
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/test_knowledge_extraction`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({ url })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          showProgress('Analyzing YouTube Video', 1, 1, `Found ${data.total_chunks} knowledge chunks`);
+          log(`✓ Extracted ${data.total_chunks} chunks (${data.chunks_with_timestamp} with timestamps)`, 'success');
+
+          if (data.sample_chunks) {
+            data.sample_chunks.forEach(c => {
+              log(`  - [${c.type}] ${c.summary}`, 'info');
+            });
+          }
+        } else {
+          log(`Analysis failed: ${data.error || 'Unknown error'}`, 'error');
+        }
+      } catch (e) {
+        log(`Error: ${e.message}`, 'error');
+      }
+
+      hideProgress();
+      document.getElementById('youtubeUrl').value = '';
+      updateStats();
+    }
+
+    async function analyzeBulkYouTube() {
+      const urls = document.getElementById('bulkUrls').value
+        .split('\n')
+        .map(u => u.trim())
+        .filter(u => u.length > 0);
+
+      if (urls.length === 0) {
+        log('Please enter at least one URL', 'warn');
+        return;
+      }
+
+      log(`Starting bulk analysis of ${urls.length} videos`, 'info');
+
+      for (let i = 0; i < urls.length; i++) {
+        showProgress('Analyzing YouTube Videos', i + 1, urls.length, urls[i]);
+
+        try {
+          const res = await fetch(`${getApiUrl()}/admin/test_knowledge_extraction`, {
+            method: 'POST',
+            headers: getHeaders(),
+            body: JSON.stringify({ url: urls[i] })
+          });
+
+          const data = await res.json();
+
+          if (res.ok && data.success) {
+            log(`✓ [${i + 1}/${urls.length}] ${data.total_chunks} chunks extracted`, 'success');
+          } else {
+            log(`✗ [${i + 1}/${urls.length}] Failed: ${data.error || 'Unknown'}`, 'error');
+          }
+        } catch (e) {
+          log(`✗ [${i + 1}/${urls.length}] Error: ${e.message}`, 'error');
+        }
+
+        // Delay between requests
+        await new Promise(r => setTimeout(r, 2000));
+      }
+
+      hideProgress();
+      document.getElementById('bulkUrls').value = '';
+      log(`Bulk analysis complete`, 'success');
+      updateStats();
+    }
+
+    // Embedding status
+    async function showEmbeddingStatus() {
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/embedding_status`, { headers: getHeaders() });
+        if (!res.ok) throw new Error('Failed to fetch');
+
+        const data = await res.json();
+
+        const msg = `
+📊 Embedding Status
+
+Total Chunks: ${data.total_chunks}
+With Embedding: ${data.with_embedding}
+Without Embedding: ${data.without_embedding}
+Coverage: ${data.coverage_percent}%
+
+pgvector: ${data.pgvector_available ? '✓ Available' : '✗ Not available'}
+Gemini API: ${data.gemini_configured ? '✓ Configured' : '✗ Not configured'}
+
+${data.without_embedding > 0 ? `\n⚠️ ${data.without_embedding} chunks need embeddings.\nGenerate now?` : '✓ All chunks have embeddings!'}
+        `;
+
+        if (data.without_embedding > 0 && confirm(msg)) {
+          generateEmbeddings(Math.min(data.without_embedding, 50));
+        } else {
+          alert(msg);
+        }
+      } catch (e) {
+        log(`Embedding status error: ${e.message}`, 'error');
+      }
+    }
+
+    async function generateEmbeddings(limit = 50) {
+      log(`Generating embeddings for ${limit} chunks...`, 'info');
+      showProgress('Generating Embeddings', 0, limit, 'Starting...');
+
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/generate_embeddings?limit=${limit}`, {
+          method: 'POST',
+          headers: getHeaders()
+        });
+
+        const data = await res.json();
+
+        if (data.success) {
+          log(`✓ Generated ${data.embedded_count} embeddings. Remaining: ${data.remaining}`, 'success');
+        } else {
+          log(`✗ Failed: ${data.error}`, 'error');
+        }
+      } catch (e) {
+        log(`Error: ${e.message}`, 'error');
+      }
+
+      hideProgress();
+      refreshEmbeddingCoverage();
+    }
+
+    async function refreshEmbeddingCoverage() {
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/embedding_status`, { headers: getHeaders() });
+        if (res.ok) {
+          const data = await res.json();
+          document.getElementById('embeddingCoverage').textContent = `${data.coverage_percent}%`;
+        }
+      } catch (e) {}
+    }
+
+    // Query Test
+    function setQuery(query) {
+      document.getElementById('searchQuery').value = query;
+      runSearch();
+    }
+
+    async function runSearch() {
+      const query = document.getElementById('searchQuery').value.trim();
+      if (!query) {
+        log('검색어를 입력하세요', 'warn');
+        return;
+      }
+
+      const searchType = document.getElementById('searchType').value;
+      const knowledgeType = document.getElementById('searchKnowledgeType').value;
+      const limit = document.getElementById('searchLimit').value;
+      const level = document.getElementById('searchLevel').value;
+
+      document.getElementById('searchResults').classList.add('hidden');
+      document.getElementById('searchDebug').classList.add('hidden');
+      document.getElementById('searchLoading').classList.remove('hidden');
+
+      log(`Searching: "${query}" (${searchType}, ${knowledgeType}, level=${level})`, 'info');
+
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/test_search`, {
+          method: 'POST',
+          headers: getHeaders(),
+          body: JSON.stringify({
+            query: query,
+            search_type: searchType,
+            knowledge_type: knowledgeType,
+            limit: parseInt(limit),
+            level: parseInt(level)
+          })
+        });
+
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          displaySearchResults(data);
+          log(`Found ${data.result_count} results`, 'success');
+        } else {
+          log(`Search failed: ${data.error || 'Unknown error'}`, 'error');
+          document.getElementById('searchLoading').classList.add('hidden');
+        }
+      } catch (e) {
+        log(`Search error: ${e.message}`, 'error');
+        document.getElementById('searchLoading').classList.add('hidden');
+      }
+    }
+
+    function displaySearchResults(data) {
+      document.getElementById('searchLoading').classList.add('hidden');
+      document.getElementById('searchResults').classList.remove('hidden');
+
+      // Show debug info
+      if (data.debug) {
+        document.getElementById('searchDebug').classList.remove('hidden');
+        document.getElementById('searchDebugContent').innerHTML = `
+          <div class="space-y-2">
+            <div class="grid grid-cols-3 gap-2">
+              <div>Total chunks: <span class="text-blue-400">${data.debug.total_chunks}</span></div>
+              <div>With embedding: <span class="text-green-400">${data.debug.chunks_with_embedding}</span></div>
+              <div>User level: <span class="text-purple-400">${data.debug.user_level}</span></div>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div>Embedding col: <span class="${data.debug.embedding_column_exists ? 'text-green-400' : 'text-red-400'}">${data.debug.embedding_column_exists ? '✓' : '✗'}</span></div>
+              <div>pgvector: <span class="${data.debug.pgvector_available ? 'text-green-400' : 'text-red-400'}">${data.debug.pgvector_available ? '✓' : '✗'}</span></div>
+              <div>Gemini: <span class="${data.debug.gemini_configured ? 'text-green-400' : 'text-red-400'}">${data.debug.gemini_configured ? '✓' : '✗'}</span></div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>Requested: <span class="text-yellow-400">${data.requested_search_type}</span></div>
+              <div>Actual: <span class="text-yellow-400">${data.search_type}</span></div>
+            </div>
+            ${data.debug.search_query_used ? `
+            <div class="mt-2 pt-2 border-t border-gray-700">
+              <div class="text-gray-400">실제 검색 쿼리:</div>
+              <div class="text-cyan-400">"${escapeHtml(data.debug.search_query_used)}"</div>
+            </div>
+            ` : ''}
+          </div>
+        `;
+      }
+
+      document.getElementById('searchResultCount').textContent =
+        `${data.result_count}개 결과 (${data.search_type})`;
+
+      const container = document.getElementById('searchResultsContent');
+
+      if (data.results.length === 0) {
+        container.innerHTML = '<div class="text-gray-500 text-center py-8">검색 결과가 없습니다</div>';
+        return;
+      }
+
+      container.innerHTML = data.results.map((r, idx) => `
+        <div class="bg-gray-700 rounded-lg p-4 hover:bg-gray-600 cursor-pointer" onclick="showSearchResultDetail(${JSON.stringify(r).replace(/"/g, '&quot;')})">
+          <div class="flex justify-between items-start mb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-gray-400 text-sm">#${idx + 1}</span>
+              <span class="px-2 py-0.5 rounded text-xs ${getTypeColor(r.type)}">${r.type}</span>
+              ${r.difficulty ? `<span class="px-2 py-0.5 rounded text-xs ${getDifficultyColor(r.difficulty)}">${r.difficulty}</span>` : ''}
+              ${r.similarity_score !== null ? `<span class="text-green-400 text-xs">유사도: ${(r.similarity_score * 100).toFixed(1)}%</span>` : ''}
+              ${r.has_embedding ? '<span class="text-blue-400 text-xs" title="Has embedding">📊</span>' : '<span class="text-gray-500 text-xs" title="No embedding">⚪</span>'}
+            </div>
+            <span class="text-gray-500 text-xs">ID: ${r.id}</span>
+          </div>
+          ${r.exercise_name ? `<div class="text-yellow-400 text-sm mb-1">🏋️ ${r.exercise_name}</div>` : ''}
+          ${r.muscle_group ? `<div class="text-purple-400 text-xs mb-1">💪 ${r.muscle_group}</div>` : ''}
+          <div class="text-white font-medium mb-2">${escapeHtml(r.summary || 'No summary')}</div>
+          <div class="text-gray-400 text-sm line-clamp-3">${escapeHtml(r.content || '')}</div>
+          ${r.source?.video_title ? `
+            <div class="mt-2 text-xs text-gray-500 flex items-center gap-1">
+              <span>📺</span>
+              <span>${escapeHtml(r.source.video_title)}</span>
+              ${r.source.channel ? `<span class="text-gray-600">| ${escapeHtml(r.source.channel)}</span>` : ''}
+            </div>
+          ` : ''}
+        </div>
+      `).join('');
+    }
+
+    function showSearchResultDetail(result) {
+      document.getElementById('modalTitle').textContent = `#${result.id}: ${result.summary || 'Detail'}`;
+      document.getElementById('modalContent').innerHTML = `
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="text-gray-400 text-xs">Type</label>
+              <div class="text-white">${result.type}</div>
+            </div>
+            <div>
+              <label class="text-gray-400 text-xs">Difficulty</label>
+              <div class="text-white">${result.difficulty || '-'}</div>
+            </div>
+            <div>
+              <label class="text-gray-400 text-xs">Exercise</label>
+              <div class="text-white">${result.exercise_name || '-'}</div>
+            </div>
+            <div>
+              <label class="text-gray-400 text-xs">Muscle Group</label>
+              <div class="text-white">${result.muscle_group || '-'}</div>
+            </div>
+            ${result.similarity_score !== null ? `
+            <div>
+              <label class="text-gray-400 text-xs">Similarity Score</label>
+              <div class="text-green-400">${(result.similarity_score * 100).toFixed(2)}%</div>
+            </div>
+            ` : ''}
+            <div>
+              <label class="text-gray-400 text-xs">Has Embedding</label>
+              <div class="${result.has_embedding ? 'text-green-400' : 'text-gray-500'}">${result.has_embedding ? 'Yes' : 'No'}</div>
+            </div>
+          </div>
+          ${result.source?.video_title ? `
+          <div>
+            <label class="text-gray-400 text-xs">Source</label>
+            <div class="text-white">${escapeHtml(result.source.video_title)} (${escapeHtml(result.source.channel || 'Unknown')})</div>
+          </div>
+          ` : ''}
+          <div>
+            <label class="text-gray-400 text-xs">Summary</label>
+            <div class="text-white">${escapeHtml(result.summary || '-')}</div>
+          </div>
+          <div>
+            <label class="text-gray-400 text-xs">Content</label>
+            <div class="bg-gray-900 rounded p-4 whitespace-pre-wrap font-mono text-xs text-gray-300 max-h-96 overflow-y-auto">${escapeHtml(result.content || '-')}</div>
+          </div>
+        </div>
+      `;
+      document.getElementById('knowledgeModal').classList.remove('hidden');
+    }
+
+    // Knowledge List
+    let currentPage = 1;
+    let allKnowledgeData = [];
+
+    async function loadKnowledge(page = 1) {
+      if (page < 1) return;
+      currentPage = page;
+
+      const type = document.getElementById('knowledgeTypeFilter').value;
+      const table = document.getElementById('knowledgeTable');
+      table.innerHTML = '<tr><td colspan="6" class="px-3 py-8 text-center text-gray-500">Loading...</td></tr>';
+
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/list_knowledge?type=${type}&page=${page}&per_page=50`, {
+          headers: getHeaders()
+        });
+
+        if (!res.ok) throw new Error('Failed to load');
+
+        const data = await res.json();
+        const { pagination } = data;
+
+        document.getElementById('knowledgeStats').textContent =
+          `Total: ${pagination.total_count} chunks | Page ${pagination.page} of ${pagination.total_pages}`;
+
+        document.getElementById('paginationInfo').textContent =
+          `Showing ${(pagination.page - 1) * pagination.per_page + 1}-${Math.min(pagination.page * pagination.per_page, pagination.total_count)} of ${pagination.total_count}`;
+
+        document.getElementById('pageInfo').textContent = `${pagination.page} / ${pagination.total_pages}`;
+        document.getElementById('prevBtn').disabled = pagination.page <= 1;
+        document.getElementById('nextBtn').disabled = pagination.page >= pagination.total_pages;
+
+        if (data.data.length === 0) {
+          table.innerHTML = '<tr><td colspan="6" class="px-3 py-8 text-center text-gray-500">No data found</td></tr>';
+          return;
+        }
+
+        table.innerHTML = data.data.map(chunk => `
+          <tr class="hover:bg-gray-700 cursor-pointer" onclick="showKnowledgeDetail(${chunk.id}, '${escapeHtml(chunk.summary || '')}', \`${escapeHtml(chunk.content || '')}\`)">
+            <td class="px-3 py-2 text-gray-400">${chunk.id}</td>
+            <td class="px-3 py-2"><span class="px-2 py-1 rounded text-xs ${getTypeColor(chunk.type)}">${chunk.type}</span></td>
+            <td class="px-3 py-2"><span class="px-2 py-1 rounded text-xs ${getDifficultyColor(chunk.difficulty)}">${chunk.difficulty || '-'}</span></td>
+            <td class="px-3 py-2">${chunk.exercise_name || '-'}</td>
+            <td class="px-3 py-2 max-w-md truncate">${chunk.summary || '-'}</td>
+            <td class="px-3 py-2 text-gray-400 text-xs max-w-xs truncate">${chunk.video_title || '-'}</td>
+          </tr>
+        `).join('');
+
+      } catch (e) {
+        table.innerHTML = `<tr><td colspan="6" class="px-3 py-8 text-center text-red-400">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    function getTypeColor(type) {
+      const colors = {
+        'routine_design': 'bg-blue-600',
+        'exercise_technique': 'bg-green-600',
+        'training_principle': 'bg-purple-600',
+        'nutrition': 'bg-orange-600'
+      };
+      return colors[type] || 'bg-gray-600';
+    }
+
+    function getDifficultyColor(diff) {
+      const colors = {
+        'beginner': 'bg-green-700',
+        'intermediate': 'bg-yellow-700',
+        'advanced': 'bg-red-700',
+        'all': 'bg-gray-600'
+      };
+      return colors[diff] || 'bg-gray-600';
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return str.replace(/[&<>"'`]/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '`': '&#96;'
+      }[char]));
+    }
+
+    function showKnowledgeDetail(id, summary, content) {
+      document.getElementById('modalTitle').textContent = `#${id}: ${summary}`;
+      document.getElementById('modalContent').innerHTML = `
+        <div class="bg-gray-900 rounded p-4 whitespace-pre-wrap font-mono text-xs">${escapeHtml(content)}</div>
+      `;
+      document.getElementById('knowledgeModal').classList.remove('hidden');
+    }
+
+    function closeKnowledgeModal() {
+      document.getElementById('knowledgeModal').classList.add('hidden');
+    }
+
+    async function exportToExcel() {
+      const type = document.getElementById('knowledgeTypeFilter').value;
+      log('Starting Excel export...', 'info');
+      showProgress('Exporting to Excel', 0, 100, 'Fetching data...');
+
+      try {
+        let allData = [];
+        let page = 1;
+        let totalPages = 1;
+
+        while (page <= totalPages) {
+          const res = await fetch(`${getApiUrl()}/admin/list_knowledge?type=${type}&page=${page}&per_page=500`, {
+            headers: getHeaders()
+          });
+
+          if (!res.ok) throw new Error('Failed to fetch');
+
+          const data = await res.json();
+          allData = allData.concat(data.data);
+          totalPages = data.pagination.total_pages;
+
+          const percent = Math.round((page / totalPages) * 100);
+          showProgress('Exporting to Excel', page, totalPages, `Fetched ${allData.length} records...`);
+
+          page++;
+        }
+
+        // Create workbook
+        const ws = XLSX.utils.json_to_sheet(allData.map(d => ({
+          ID: d.id,
+          Type: d.type,
+          Difficulty: d.difficulty,
+          Exercise: d.exercise_name,
+          Summary: d.summary,
+          Content: d.content,
+          Source: d.video_title,
+          Created: d.created_at
+        })));
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Knowledge');
+
+        // Download
+        const filename = `repstack_knowledge_${type}_${new Date().toISOString().slice(0,10)}.xlsx`;
+        XLSX.writeFile(wb, filename);
+
+        hideProgress();
+        log(`Exported ${allData.length} records to ${filename}`, 'success');
+
+      } catch (e) {
+        hideProgress();
+        log(`Export failed: ${e.message}`, 'error');
+      }
+    }
+
+    // Worker Status
+    async function refreshWorkerStatus() {
+      const content = document.getElementById('workerContent');
+      const indicator = document.getElementById('workerIndicator');
+
+      try {
+        const res = await fetch(`${getApiUrl()}/admin/worker_status`, { headers: getHeaders() });
+        if (!res.ok) {
+          content.innerHTML = '<span class="text-red-400">Failed to load</span>';
+          return;
+        }
+
+        const data = await res.json();
+        const isActive = data.workers_count > 0;
+
+        // Update indicator
+        indicator.innerHTML = isActive
+          ? `<span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span><span class="text-xs text-green-400">${data.workers_count} active</span>`
+          : `<span class="w-2 h-2 bg-gray-500 rounded-full"></span><span class="text-xs text-gray-400">Idle</span>`;
+
+        // Build content
+        let html = `
+          <div class="grid grid-cols-3 gap-4 mb-3">
+            <div class="text-center">
+              <div class="text-lg font-bold text-green-400">${data.processed.toLocaleString()}</div>
+              <div class="text-xs text-gray-500">Processed</div>
+            </div>
+            <div class="text-center">
+              <div class="text-lg font-bold text-red-400">${data.failed}</div>
+              <div class="text-xs text-gray-500">Failed</div>
+            </div>
+            <div class="text-center">
+              <div class="text-lg font-bold text-yellow-400">${data.queues.reduce((a, q) => a + q.size, 0)}</div>
+              <div class="text-xs text-gray-500">Queued</div>
+            </div>
+          </div>
+        `;
+
+        if (data.current_jobs && data.current_jobs.length > 0) {
+          html += `<div class="text-xs font-semibold text-gray-300 mb-2">Currently Processing:</div>`;
+          html += `<div class="space-y-1">`;
+          data.current_jobs.forEach(job => {
+            const jobClass = job.class.replace('Job', '');
+            html += `
+              <div class="bg-gray-700 rounded px-3 py-2 flex items-center gap-2">
+                <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                <span class="text-yellow-400 font-mono text-xs">${jobClass}</span>
+                <span class="text-gray-400 text-xs truncate flex-1">${job.args ? JSON.stringify(job.args).slice(0, 50) : ''}</span>
+              </div>
+            `;
+          });
+          html += `</div>`;
+        } else {
+          html += `<div class="text-gray-500 text-center py-2">No active jobs</div>`;
+        }
+
+        content.innerHTML = html;
+
+      } catch (e) {
+        content.innerHTML = `<span class="text-red-400">Error: ${e.message}</span>`;
+      }
+    }
+
+    // Pipeline Status
+    async function refreshPipelineStatus() {
+      const content = document.getElementById('pipelineContent');
+      content.innerHTML = '<span class="text-yellow-400">Loading...</span>';
+
+      try {
+        // Fetch channel status
+        const channelRes = await fetch(`${getApiUrl()}/admin/channel_status`, { headers: getHeaders() });
+        const transcriptRes = await fetch(`${getApiUrl()}/admin/transcript_status`, { headers: getHeaders() });
+        const embeddingRes = await fetch(`${getApiUrl()}/admin/embedding_status`, { headers: getHeaders() });
+
+        if (!channelRes.ok || !transcriptRes.ok || !embeddingRes.ok) {
+          content.innerHTML = '<span class="text-red-400">Failed to load status</span>';
+          return;
+        }
+
+        const channels = await channelRes.json();
+        const transcript = await transcriptRes.json();
+        const embedding = await embeddingRes.json();
+
+        // Build status HTML
+        let html = `
+          <div class="grid grid-cols-3 gap-4 mb-4">
+            <div class="bg-gray-700 rounded p-3">
+              <div class="text-lg font-bold text-blue-400">${transcript.with_transcript} / ${transcript.total}</div>
+              <div class="text-xs text-gray-400">Transcripts (${transcript.coverage_percent}%)</div>
+            </div>
+            <div class="bg-gray-700 rounded p-3">
+              <div class="text-lg font-bold text-green-400">${embedding.with_embedding} / ${embedding.total_chunks}</div>
+              <div class="text-xs text-gray-400">Embeddings (${embedding.coverage_percent}%)</div>
+            </div>
+            <div class="bg-gray-700 rounded p-3">
+              <div class="text-lg font-bold text-purple-400">${channels.total_channels}</div>
+              <div class="text-xs text-gray-400">Channels</div>
+            </div>
+          </div>
+          <div class="space-y-2">
+            <div class="text-xs font-semibold text-gray-300 mb-2">Channel Progress:</div>
+        `;
+
+        channels.channels.forEach(ch => {
+          const percent = ch.total_videos > 0 ? Math.round((ch.with_transcript / ch.total_videos) * 100) : 0;
+          const color = ch.language === 'en' ? 'bg-blue-500' : 'bg-green-500';
+          html += `
+            <div class="flex items-center gap-2">
+              <span class="w-32 text-xs truncate" title="${ch.name}">${ch.name}</span>
+              <span class="text-xs text-gray-500">${ch.language}</span>
+              <div class="flex-1 bg-gray-700 rounded-full h-2">
+                <div class="${color} h-2 rounded-full" style="width: ${percent}%"></div>
+              </div>
+              <span class="text-xs text-gray-400 w-20 text-right">${ch.with_transcript}/${ch.total_videos}</span>
+            </div>
+          `;
+        });
+
+        html += '</div>';
+        content.innerHTML = html;
+
+      } catch (e) {
+        content.innerHTML = `<span class="text-red-400">Error: ${e.message}</span>`;
+      }
+    }
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      // Try to load saved token
+      const savedToken = localStorage.getItem('repstack_admin_token');
+      if (savedToken) {
+        document.getElementById('adminToken').value = savedToken;
+      }
+
+      // Save token on change
+      document.getElementById('adminToken').addEventListener('change', (e) => {
+        localStorage.setItem('repstack_admin_token', e.target.value);
+      });
+
+      // Auto-refresh pipeline and worker status
+      refreshPipelineStatus();
+      refreshWorkerStatus();
+      setInterval(refreshPipelineStatus, 5000); // Refresh every 5 seconds
+      setInterval(refreshWorkerStatus, 3000); // Refresh every 3 seconds
+    });
+  </script>
+</body>
+</html>

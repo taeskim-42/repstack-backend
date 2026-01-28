@@ -2,6 +2,79 @@
 
 namespace :youtube do
   namespace :knowledge do
+    desc "Extract transcripts for all videos (with timestamps)"
+    task :extract_transcripts, [:limit] => :environment do |_t, args|
+      limit = args[:limit]&.to_i
+
+      puts "=" * 50
+      puts "Extracting transcripts with timestamps"
+      puts "=" * 50
+
+      scope = YoutubeVideo.where(transcript: [nil, ""])
+      scope = scope.limit(limit) if limit
+
+      total = scope.count
+      puts "Videos without transcript: #{total}"
+
+      if total == 0
+        puts "All videos already have transcripts!"
+        exit 0
+      end
+
+      success = 0
+      failed = 0
+      no_subs = 0
+
+      scope.find_each.with_index do |video, index|
+        language = video.youtube_channel&.language || "ko"
+        print "[#{index + 1}/#{total}] [#{language}] #{video.title[0..35]}... "
+
+        begin
+          transcript = YoutubeChannelScraper.extract_subtitles(video.youtube_url, language: language)
+
+          if transcript.present?
+            video.update!(transcript: transcript)
+            puts "✓ (#{transcript.length} chars)"
+            success += 1
+          else
+            puts "✗ (no subtitles)"
+            no_subs += 1
+          end
+        rescue => e
+          puts "✗ (#{e.message[0..30]})"
+          failed += 1
+        end
+
+        # Rate limiting to avoid being blocked (5 seconds for safety)
+        sleep 5
+      end
+
+      puts
+      puts "=" * 50
+      puts "Results:"
+      puts "  Success: #{success}"
+      puts "  No subtitles: #{no_subs}"
+      puts "  Failed: #{failed}"
+      puts "=" * 50
+    end
+
+    desc "Show transcript extraction status"
+    task transcript_stats: :environment do
+      total = YoutubeVideo.count
+      with_transcript = YoutubeVideo.where.not(transcript: [nil, ""]).count
+      without_transcript = total - with_transcript
+
+      puts "\n📊 Transcript Status:"
+      puts "  Total videos: #{total}"
+      puts "  With transcript: #{with_transcript} (#{(with_transcript.to_f / total * 100).round(1)}%)"
+      puts "  Without transcript: #{without_transcript}"
+
+      if with_transcript > 0
+        avg_length = YoutubeVideo.where.not(transcript: [nil, ""]).average("LENGTH(transcript)").to_i
+        puts "  Average transcript length: #{avg_length} chars"
+      end
+    end
+
     desc "Seed YouTube channels from configuration"
     task seed_channels: :environment do
       puts "Seeding YouTube channels..."
@@ -28,27 +101,40 @@ namespace :youtube do
       puts "Done!"
     end
 
-    desc "Analyze pending videos with Gemini AI"
+    desc "Analyze videos with Claude AI (requires transcript)"
     task :analyze, [:limit] => :environment do |_t, args|
       limit = (args[:limit] || 10).to_i
 
-      unless GeminiConfig.configured?
-        puts "Error: GEMINI_API_KEY is not configured"
+      unless YoutubeKnowledgeExtractionService.configured?
+        puts "Error: ANTHROPIC_API_KEY is not configured"
         exit 1
       end
 
-      puts "Analyzing pending videos (limit: #{limit})..."
+      # Only analyze videos that have transcripts
+      videos = YoutubeVideo
+        .where(analysis_status: "pending")
+        .where.not(transcript: [nil, ""])
+        .limit(limit)
+
+      total = videos.count
+      puts "Analyzing #{total} videos with transcripts (limit: #{limit})..."
+
+      if total == 0
+        puts "No videos with transcripts pending analysis."
+        puts "Run 'rails youtube:knowledge:extract_transcripts' first."
+        exit 0
+      end
 
       analyzed = 0
       failed = 0
 
-      YoutubeVideo.pending.limit(limit).find_each do |video|
+      videos.find_each do |video|
         print "  Analyzing: #{video.title[0..50]}... "
         YoutubeKnowledgeExtractionService.analyze_video(video)
         puts "✓ (#{video.fitness_knowledge_chunks.count} chunks)"
         analyzed += 1
       rescue => e
-        puts "✗ #{e.message}"
+        puts "✗ #{e.message[0..50]}"
         failed += 1
       end
 
@@ -74,7 +160,7 @@ namespace :youtube do
       puts "Done!"
     end
 
-    desc "Run full knowledge collection: sync → analyze → embed"
+    desc "Run full knowledge collection: sync → extract transcripts → analyze → embed"
     task :collect, [:analyze_limit] => :environment do |_t, args|
       analyze_limit = (args[:analyze_limit] || 50).to_i
 
@@ -89,11 +175,15 @@ namespace :youtube do
       puts "\n"
       Rake::Task["youtube:knowledge:sync"].invoke
 
-      # 3. Analyze
+      # 3. Extract transcripts (NEW STEP)
+      puts "\n"
+      Rake::Task["youtube:knowledge:extract_transcripts"].invoke(analyze_limit)
+
+      # 4. Analyze with Claude
       puts "\n"
       Rake::Task["youtube:knowledge:analyze"].invoke(analyze_limit)
 
-      # 4. Embed
+      # 5. Embed
       puts "\n"
       Rake::Task["youtube:knowledge:embed"].invoke
 
@@ -113,19 +203,19 @@ namespace :youtube do
       puts "  Knowledge chunks: #{FitnessKnowledgeChunk.count}"
     end
 
-    desc "Reanalyze all videos with timestamp extraction (background jobs)"
+    desc "Reanalyze all videos with Claude (requires transcripts)"
     task reanalyze_all: :environment do
-      unless GeminiConfig.configured?
-        puts "Error: GEMINI_API_KEY is not configured"
+      unless YoutubeKnowledgeExtractionService.configured?
+        puts "Error: ANTHROPIC_API_KEY is not configured"
         exit 1
       end
 
-      videos = YoutubeVideo.completed
+      # Only reanalyze videos that have transcripts
+      videos = YoutubeVideo.where.not(transcript: [nil, ""])
       total = videos.count
 
       puts "=" * 50
-      puts "Reanalyzing #{total} videos with timestamp extraction"
-      puts "Estimated time: ~#{(total * 17 / 5 / 60.0).round(1)} hours (with 5 workers)"
+      puts "Reanalyzing #{total} videos with Claude"
       puts "=" * 50
 
       videos.find_each.with_index do |video, index|
@@ -141,12 +231,12 @@ namespace :youtube do
     task :reanalyze, [:limit] => :environment do |_t, args|
       limit = (args[:limit] || 10).to_i
 
-      unless GeminiConfig.configured?
-        puts "Error: GEMINI_API_KEY is not configured"
+      unless YoutubeKnowledgeExtractionService.configured?
+        puts "Error: ANTHROPIC_API_KEY is not configured"
         exit 1
       end
 
-      videos = YoutubeVideo.completed.limit(limit)
+      videos = YoutubeVideo.where.not(transcript: [nil, ""]).limit(limit)
 
       puts "Enqueueing #{videos.count} videos for reanalysis..."
 
@@ -158,26 +248,42 @@ namespace :youtube do
       puts "\n✓ Done! Monitor with: rails youtube:knowledge:stats"
     end
 
-    desc "Analyze a single YouTube URL (test)"
-    task :test_url, [:url] => :environment do |_t, args|
+    desc "Test analyze a single YouTube URL"
+    task :test_url, [:url, :language] => :environment do |_t, args|
       url = args[:url]
+      language = args[:language] || "ko"
 
       unless url
-        puts "Usage: rails youtube:knowledge:test_url[https://www.youtube.com/watch?v=VIDEO_ID]"
+        puts "Usage: rails youtube:knowledge:test_url[URL,language]"
+        puts "  language: 'ko' (Korean, default) or 'en' (English)"
+        puts "Example: rails youtube:knowledge:test_url[https://www.youtube.com/watch?v=xxx,en]"
         exit 1
       end
 
-      unless GeminiConfig.configured?
-        puts "Error: GEMINI_API_KEY is not configured"
+      unless YoutubeKnowledgeExtractionService.configured?
+        puts "Error: ANTHROPIC_API_KEY is not configured"
         exit 1
       end
 
-      puts "Analyzing: #{url}"
+      puts "Extracting transcript from: #{url}"
+      puts "Language: #{language}"
       puts "-" * 50
 
-      result = YoutubeKnowledgeExtractionService.analyze_url(url)
+      transcript = YoutubeChannelScraper.extract_subtitles(url, language: language)
 
-      puts "Title: #{result[:title]}"
+      if transcript.blank?
+        puts "No subtitles available for this video."
+        exit 1
+      end
+
+      puts "Transcript length: #{transcript.length} chars"
+      puts "First 500 chars:"
+      puts transcript[0..500]
+      puts "\n" + "-" * 50
+
+      puts "\nAnalyzing with Claude (language: #{language})..."
+      result = YoutubeKnowledgeExtractionService.analyze_transcript(transcript, language: language)
+
       puts "Category: #{result[:category]}"
       puts "Difficulty: #{result[:difficulty_level]}"
       puts "Summary: #{result[:summary]}"
@@ -193,7 +299,10 @@ namespace :youtube do
           "[NO TIMESTAMP ⚠️]"
         end
         puts "   Timestamp: #{timestamp}"
-        puts "   Content: #{chunk[:content][0..200]}..."
+        puts "   Content (KO): #{chunk[:content][0..200]}..."
+        if chunk[:content_original]
+          puts "   Content (EN): #{chunk[:content_original][0..200]}..."
+        end
       end
     end
 

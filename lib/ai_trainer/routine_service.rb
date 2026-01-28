@@ -8,11 +8,12 @@ module AiTrainer
   # Uses RAG + LLM to generate personalized, creative routines
   class RoutineService
     class << self
-      def generate(user:, day_of_week: nil, condition: nil, recent_feedbacks: nil)
+      def generate(user:, day_of_week: nil, condition: nil, recent_feedbacks: nil, goal: nil)
         new(user: user).generate(
           day_of_week: day_of_week,
           condition: condition,
-          recent_feedbacks: recent_feedbacks
+          recent_feedbacks: recent_feedbacks,
+          goal: goal
         )
       end
     end
@@ -21,8 +22,11 @@ module AiTrainer
       @user = user
     end
 
-    def generate(day_of_week: nil, condition: nil, recent_feedbacks: nil)
+    def generate(day_of_week: nil, condition: nil, recent_feedbacks: nil, goal: nil)
       generator = CreativeRoutineGenerator.new(user: @user, day_of_week: day_of_week)
+
+      # Apply goal if provided (e.g., "등근육 키우고 싶음")
+      generator.with_goal(goal) if goal.present?
 
       # Apply condition if provided
       generator.with_condition(condition) if condition.present?
