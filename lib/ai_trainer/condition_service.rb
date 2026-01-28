@@ -278,6 +278,16 @@ module AiTrainer
 
     def build_voice_prompt(text)
       <<~PROMPT
+        당신은 전문 피트니스 트레이너입니다. 사용자가 말한 컨디션 상태를 분석하세요.
+
+        ## 예시 (few-shot) - 반드시 참고하세요!
+        - "구웃", "구우웃", "굿", "good" → 좋음 (energyLevel: 4, motivation: 4)
+        - "최고", "완벽", "짱" → 매우 좋음 (energyLevel: 5, motivation: 5)
+        - "쏘쏘", "그냥", "보통" → 보통 (energyLevel: 3, motivation: 3)
+        - "ㅠㅠ", "별로", "안좋아" → 안좋음 (energyLevel: 2, motivation: 2)
+        - "피곤", "지쳤어", "힘들어" → 피곤함 (energyLevel: 2, sleepQuality: 2)
+        - "아파", "통증" → 부상 주의 (soreness 정보 포함)
+
         사용자의 오늘 컨디션: "#{text}"
 
         JSON으로 응답:
