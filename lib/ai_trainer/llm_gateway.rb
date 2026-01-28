@@ -22,26 +22,25 @@ module AiTrainer
       # Cost-efficient - for simple conversational tasks
       general_chat: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 512,
         temperature: 0.7
       },
       condition_check: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
-        temperature: 0.3,
-        system: "당신은 피트니스 트레이너입니다. 사용자가 오늘 컨디션을 말하면 이해하고 운동 강도를 조절하세요. 한국어 슬랭도 자연스럽게 이해하세요."
+        temperature: 0.3
       },
       feedback_analysis: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
         temperature: 0.3
       },
       level_assessment: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
         temperature: 0.5
       },
@@ -49,7 +48,7 @@ module AiTrainer
       # Intent classification - fast, low cost
       intent_classification: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 100,
         temperature: 0.0
       },
@@ -57,7 +56,7 @@ module AiTrainer
       # Knowledge cleanup - needs better reasoning
       knowledge_cleanup: {
         provider: :anthropic,
-        model: "claude-3-5-haiku-latest",
+        model: "claude-haiku-4-5-20251001",
         max_tokens: 200,
         temperature: 0.0
       }
