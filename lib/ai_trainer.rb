@@ -3,31 +3,29 @@
 # AI Trainer module - handles workout routine generation and level management
 module AiTrainer
   class << self
-    # Generate routine using fixed program (legacy)
-    def generate_routine(user:, day_of_week: nil, condition_inputs: {}, recent_feedbacks: nil, dynamic: false, preferences: {})
-      if dynamic
-        generate_dynamic_routine(
-          user: user,
-          day_of_week: day_of_week,
-          condition_inputs: condition_inputs,
-          recent_feedbacks: recent_feedbacks,
-          preferences: preferences
-        )
-      else
-        generator = RoutineGenerator.new(user: user, day_of_week: day_of_week)
-        generator.with_condition(condition_inputs) if condition_inputs.present?
-        generator.with_feedbacks(recent_feedbacks) if recent_feedbacks.present?
-        generator.generate
-      end
+    # Generate routine using CreativeRoutineGenerator (RAG + LLM)
+    # Always uses AI-based creative generation for personalized routines
+    # @param dynamic [Boolean] Ignored - kept for backwards compatibility
+    def generate_routine(user:, day_of_week: nil, condition_inputs: {}, recent_feedbacks: nil, dynamic: false, preferences: {}, goal: nil)
+      # Always use CreativeRoutineGenerator via RoutineService
+      RoutineService.generate(
+        user: user,
+        day_of_week: day_of_week,
+        condition: condition_inputs.presence,
+        recent_feedbacks: recent_feedbacks,
+        goal: goal
+      )
     end
 
-    # Generate routine dynamically using AI
-    def generate_dynamic_routine(user:, day_of_week: nil, condition_inputs: {}, recent_feedbacks: nil, preferences: {})
-      generator = DynamicRoutineGenerator.new(user: user, day_of_week: day_of_week)
-      generator.with_preferences(preferences) if preferences.present?
-      generator.with_condition(condition_inputs) if condition_inputs.present?
-      generator.with_feedbacks(recent_feedbacks) if recent_feedbacks.present?
-      generator.generate
+    # Alias for backwards compatibility
+    def generate_dynamic_routine(user:, day_of_week: nil, condition_inputs: {}, recent_feedbacks: nil, preferences: {}, goal: nil)
+      generate_routine(
+        user: user,
+        day_of_week: day_of_week,
+        condition_inputs: condition_inputs,
+        recent_feedbacks: recent_feedbacks,
+        goal: goal
+      )
     end
 
     def generate_level_test(user:)
