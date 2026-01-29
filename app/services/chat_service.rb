@@ -86,12 +86,18 @@ class ChatService
   def system_prompt
     tier = user.user_profile&.tier || "beginner"
     level = user.user_profile&.level || 1
+    today = Time.current.in_time_zone("Asia/Seoul")
+    day_names = %w[일 월 화 수 목 금 토]
 
     <<~SYSTEM
       당신은 전문 피트니스 AI 트레이너입니다.
 
+      ## 현재 시간
+      - 오늘: #{today.strftime('%Y년 %m월 %d일')} (#{day_names[today.wday]}요일)
+      - 시간: #{today.strftime('%H:%M')}
+
       ## 사용자 정보
-      - 레벨: #{level} (#{tier})
+      - 레벨: #{level} (#{tier_korean(tier)})
       - 이름: #{user.name || '회원'}
 
       ## 중요: Tool 사용 규칙
