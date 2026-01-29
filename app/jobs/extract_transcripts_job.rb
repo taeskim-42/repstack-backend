@@ -19,10 +19,12 @@ class ExtractTranscriptsJob
   # @param language [String] Filter by channel language: "en", "ko", or nil for all
   def perform(limit = 100, pipeline = true, language = nil)
     scope = YoutubeVideo.where(transcript: [nil, ""])
+                        .joins(:youtube_channel)
+                        .where(youtube_channels: { active: true })
 
     # Filter by channel language if specified
     if language.present?
-      scope = scope.joins(:youtube_channel).where(youtube_channels: { language: language })
+      scope = scope.where(youtube_channels: { language: language })
     end
 
     videos = scope.limit(limit).order(:id)
@@ -53,7 +55,9 @@ class ExtractTranscriptsJob
 
     # Auto-continue: if there are more videos, queue the next batch
     remaining_scope = YoutubeVideo.where(transcript: [nil, ""])
-    remaining_scope = remaining_scope.joins(:youtube_channel).where(youtube_channels: { language: language }) if language.present?
+                                  .joins(:youtube_channel)
+                                  .where(youtube_channels: { active: true })
+    remaining_scope = remaining_scope.where(youtube_channels: { language: language }) if language.present?
     remaining = remaining_scope.count
 
     if remaining > 0
@@ -63,7 +67,7 @@ class ExtractTranscriptsJob
       # English done, start Korean automatically
       ko_remaining = YoutubeVideo.where(transcript: [nil, ""])
                                  .joins(:youtube_channel)
-                                 .where(youtube_channels: { language: "ko" })
+                                 .where(youtube_channels: { active: true, language: "ko" })
                                  .count
       if ko_remaining > 0
         Rails.logger.info("[ExtractTranscripts] English complete! Starting Korean (#{ko_remaining} videos)...")

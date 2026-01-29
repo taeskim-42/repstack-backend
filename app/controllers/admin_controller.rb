@@ -138,6 +138,33 @@ class AdminController < ApplicationController
     }
   end
 
+  # POST /admin/toggle_channel
+  # Toggle channel active status
+  # Params: handle (required), active (optional, defaults to toggle)
+  def toggle_channel
+    handle = params[:handle]
+    return render json: { error: "handle parameter required" }, status: :bad_request unless handle.present?
+
+    channel = YoutubeChannel.find_by(handle: handle)
+    return render json: { error: "Channel not found: #{handle}" }, status: :not_found unless channel
+
+    # If active param is specified, use it; otherwise toggle
+    new_active = if params[:active].present?
+      ActiveModel::Type::Boolean.new.cast(params[:active])
+    else
+      !channel.active
+    end
+
+    channel.update!(active: new_active)
+
+    render json: {
+      success: true,
+      channel: channel.name,
+      handle: channel.handle,
+      active: channel.active
+    }
+  end
+
   # POST /admin/bulk_import_videos
   # Import videos from yt-dlp extracted data
   # Body: { channel_handle: "jeffnippard", videos: [{ video_id: "xxx", title: "...", upload_date: "2024-01-01" }] }

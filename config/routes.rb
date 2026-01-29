@@ -40,6 +40,7 @@ Rails.application.routes.draw do
     get "/channel_status", action: :channel_status
     post "/bulk_import_videos", action: :bulk_import_videos
     post "/seed_channels", action: :seed_channels
+    post "/toggle_channel", action: :toggle_channel
     post "/stop_transcript_extraction", action: :stop_transcript_extraction
     get "/worker_status", action: :worker_status
   end
