@@ -12,6 +12,10 @@ module Types
     field :is_complete, Boolean, null: true, description: "Assessment completion status (LEVEL_ASSESSMENT)"
     field :assessment, Types::LevelAssessmentType, null: true, description: "Level assessment result (LEVEL_ASSESSMENT)"
 
+    # General chat fields
+    field :session_id, String, null: true, description: "Chat session ID for continuous conversation"
+    field :knowledge_used, Boolean, null: true, description: "Whether RAG knowledge was used"
+
     # Promotion eligibility (PROMOTION_ELIGIBLE)
     field :current_level, Integer, null: true, description: "Current user level"
     field :target_level, Integer, null: true, description: "Target level for promotion"
