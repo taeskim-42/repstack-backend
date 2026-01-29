@@ -2,11 +2,16 @@
 
 require_relative "constants"
 require_relative "creative_routine_generator"
+require_relative "tool_based_routine_generator"
 
 module AiTrainer
-  # Wrapper service for creative routine generation
-  # Uses RAG + LLM to generate personalized, creative routines
+  # Wrapper service for routine generation
+  # Uses ToolBasedRoutineGenerator (LLM Tool Use) for creative, variable-aware routines
+  # Falls back to CreativeRoutineGenerator if needed
   class RoutineService
+    # Set to true to use the new Tool Use based generator
+    USE_TOOL_BASED_GENERATOR = true
+
     class << self
       def generate(user:, day_of_week: nil, condition: nil, recent_feedbacks: nil, goal: nil)
         new(user: user).generate(
@@ -23,22 +28,11 @@ module AiTrainer
     end
 
     def generate(day_of_week: nil, condition: nil, recent_feedbacks: nil, goal: nil)
-      generator = CreativeRoutineGenerator.new(user: @user, day_of_week: day_of_week)
-
-      # Apply goal if provided (e.g., "등근육 키우고 싶음")
-      generator.with_goal(goal) if goal.present?
-
-      # Apply condition if provided
-      generator.with_condition(condition) if condition.present?
-
-      # Apply preferences from feedbacks
-      if recent_feedbacks.present?
-        preferences = extract_preferences_from_feedbacks(recent_feedbacks)
-        generator.with_preferences(preferences)
-      end
-
-      # Generate the routine
-      result = generator.generate
+      result = if USE_TOOL_BASED_GENERATOR
+                 generate_with_tool_based(day_of_week, condition, goal)
+               else
+                 generate_with_creative(day_of_week, condition, recent_feedbacks, goal)
+               end
 
       return nil unless result.is_a?(Hash) && result[:routine_id]
 
@@ -48,7 +42,38 @@ module AiTrainer
       result
     rescue StandardError => e
       Rails.logger.error("RoutineService error: #{e.message}")
-      nil
+      # Fallback to creative generator if tool-based fails
+      if USE_TOOL_BASED_GENERATOR
+        Rails.logger.info("Falling back to CreativeRoutineGenerator")
+        generate_with_creative(day_of_week, condition, recent_feedbacks, goal)
+      end
+    end
+
+    private
+
+    # New: Tool Use based generator (LLM decides which tools to call)
+    def generate_with_tool_based(day_of_week, condition, goal)
+      generator = ToolBasedRoutineGenerator.new(user: @user, day_of_week: day_of_week)
+
+      generator.with_goal(goal) if goal.present?
+      generator.with_condition(condition) if condition.present?
+
+      generator.generate
+    end
+
+    # Legacy: Creative generator (pre-defined prompt with exercise pool)
+    def generate_with_creative(day_of_week, condition, recent_feedbacks, goal)
+      generator = CreativeRoutineGenerator.new(user: @user, day_of_week: day_of_week)
+
+      generator.with_goal(goal) if goal.present?
+      generator.with_condition(condition) if condition.present?
+
+      if recent_feedbacks.present?
+        preferences = extract_preferences_from_feedbacks(recent_feedbacks)
+        generator.with_preferences(preferences)
+      end
+
+      generator.generate
     end
 
     private

@@ -12,5 +12,8 @@ module Types
     value "GENERAL_CHAT", "General conversation handled by AI"
     value "LEVEL_ASSESSMENT", "New user level assessment (onboarding)"
     value "PROMOTION_ELIGIBLE", "User is eligible for level promotion test"
+    value "REPLACE_EXERCISE", "Exercise replaced in routine"
+    value "ADD_EXERCISE", "Exercise added to routine"
+    value "REGENERATE_ROUTINE", "Routine regenerated with new exercises"
   end
 end

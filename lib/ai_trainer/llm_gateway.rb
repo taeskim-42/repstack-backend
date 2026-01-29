@@ -75,6 +75,14 @@ module AiTrainer
         model: "claude-haiku-4-5-20251001",
         max_tokens: 8192,
         temperature: 0.3
+      },
+
+      # Exercise replacement suggestion
+      exercise_replacement: {
+        provider: :anthropic,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 512,
+        temperature: 0.5
       }
     }.freeze
 
@@ -98,16 +106,17 @@ module AiTrainer
       # @param messages [Array] Optional message history for multi-turn (supports cache_control)
       # @param system [String] Optional system prompt
       # @param cache_system [Boolean] Whether to cache the system prompt (default: true)
-      # @return [Hash] Response with :success, :content, :model, :usage
-      def chat(prompt:, task: :general_chat, messages: nil, system: nil, cache_system: true)
+      # @param tools [Array] Optional tools for function calling
+      # @return [Hash] Response with :success, :content, :model, :usage, :tool_use (if tool called)
+      def chat(prompt:, task: :general_chat, messages: nil, system: nil, cache_system: true, tools: nil)
         config = MODELS[task] || MODELS[:general_chat]
         provider_config = PROVIDERS[config[:provider]]
 
         unless api_configured?(provider_config[:env_key])
-          return mock_response(task)
+          return mock_response(task, tools: tools)
         end
 
-        send("call_#{config[:provider]}", prompt: prompt, config: config, messages: messages, system: system, cache_system: cache_system)
+        send("call_#{config[:provider]}", prompt: prompt, config: config, messages: messages, system: system, cache_system: cache_system, tools: tools)
       rescue StandardError => e
         Rails.logger.error("[LlmGateway] #{task} error: #{e.message}")
         { success: false, error: e.message }
@@ -132,7 +141,7 @@ module AiTrainer
       end
 
       # Anthropic Claude API call
-      def call_anthropic(prompt:, config:, messages: nil, system: nil, cache_system: true)
+      def call_anthropic(prompt:, config:, messages: nil, system: nil, cache_system: true, tools: nil)
         provider = PROVIDERS[:anthropic]
         uri = URI(provider[:api_url])
 
@@ -147,14 +156,14 @@ module AiTrainer
         # Enable prompt caching beta
         request["anthropic-beta"] = "prompt-caching-2024-07-31"
 
-        body = build_anthropic_body(prompt: prompt, config: config, messages: messages, system: system, cache_system: cache_system)
+        body = build_anthropic_body(prompt: prompt, config: config, messages: messages, system: system, cache_system: cache_system, tools: tools)
         request.body = body.to_json
 
         response = http.request(request)
         parse_anthropic_response(response, config[:model])
       end
 
-      def build_anthropic_body(prompt:, config:, messages:, system:, cache_system: true)
+      def build_anthropic_body(prompt:, config:, messages:, system:, cache_system: true, tools: nil)
         body = {
           model: config[:model],
           max_tokens: config[:max_tokens]
@@ -197,6 +206,11 @@ module AiTrainer
           body[:messages] = [{ role: "user", content: prompt }]
         end
 
+        # Add tools for function calling
+        if tools.present?
+          body[:tools] = tools
+        end
+
         body
       end
 
@@ -204,18 +218,35 @@ module AiTrainer
         if response.code.to_i == 200
           data = JSON.parse(response.body)
           usage = data["usage"] || {}
-          {
+          content_blocks = data["content"] || []
+
+          # Check for tool use
+          tool_use_block = content_blocks.find { |block| block["type"] == "tool_use" }
+          text_block = content_blocks.find { |block| block["type"] == "text" }
+
+          result = {
             success: true,
-            content: data.dig("content", 0, "text"),
+            content: text_block&.dig("text"),
             model: model,
+            stop_reason: data["stop_reason"],
             usage: {
               input_tokens: usage["input_tokens"],
               output_tokens: usage["output_tokens"],
-              # Prompt caching stats
               cache_creation_input_tokens: usage["cache_creation_input_tokens"],
               cache_read_input_tokens: usage["cache_read_input_tokens"]
             }
           }
+
+          # Add tool use info if present
+          if tool_use_block
+            result[:tool_use] = {
+              id: tool_use_block["id"],
+              name: tool_use_block["name"],
+              input: tool_use_block["input"]
+            }
+          end
+
+          result
         else
           Rails.logger.error("[LlmGateway] Anthropic API error: #{response.code} - #{response.body}")
           { success: false, error: "API returned #{response.code}" }
@@ -231,8 +262,19 @@ module AiTrainer
       end
 
       # Mock response for development without API key
-      def mock_response(task)
+      def mock_response(task, tools: nil)
         Rails.logger.info("[LlmGateway] Mock response for #{task} (API not configured)")
+
+        # If tools are provided, mock a tool use response
+        if tools.present?
+          return {
+            success: true,
+            content: "테스트 응답입니다.",
+            model: "mock",
+            stop_reason: "end_turn",
+            usage: { input_tokens: 0, output_tokens: 0 }
+          }
+        end
 
         content = case task
         when :routine_generation
@@ -253,6 +295,7 @@ module AiTrainer
           success: true,
           content: content,
           model: "mock",
+          stop_reason: "end_turn",
           usage: { input_tokens: 0, output_tokens: 0 }
         }
       end

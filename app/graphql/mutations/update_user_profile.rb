@@ -17,7 +17,7 @@ module Mutations
     field :user_profile, Types::UserProfileType, null: true
     field :errors, [ String ], null: false
 
-    VALID_LEVELS = %w[beginner intermediate advanced].freeze
+    VALID_LEVELS = %w[none beginner intermediate advanced].freeze
     DAY_RANGE = (1..7).freeze
     LEVEL_RANGE = (1..8).freeze
 

@@ -519,7 +519,7 @@ class ChatService
   end
 
   def tier_korean(tier)
-    { "beginner" => "초급", "intermediate" => "중급", "advanced" => "고급" }[tier] || "초급"
+    { "none" => "입문", "beginner" => "초급", "intermediate" => "중급", "advanced" => "고급" }[tier] || "입문"
   end
 
   # ============================================

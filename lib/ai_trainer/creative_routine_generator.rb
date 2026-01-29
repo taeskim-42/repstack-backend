@@ -46,26 +46,30 @@ module AiTrainer
       # 1. Gather user context
       user_context = build_user_context
 
-      # 2. Search RAG for relevant knowledge (improved with semantic search)
+      # 2. Get exercise pool from all programs (뼈대)
+      exercise_pool = build_exercise_pool
+
+      # 3. Search RAG for relevant knowledge (살)
       knowledge = search_relevant_knowledge
 
-      # 3. Track used knowledge to avoid repetition
+      # 4. Track used knowledge to avoid repetition
       track_used_knowledge(knowledge)
 
-      # 4. Build prompt for LLM
-      prompt = build_generation_prompt(user_context, knowledge)
+      # 5. Build prompt for LLM with exercise pool
+      prompt = build_generation_prompt(user_context, exercise_pool, knowledge)
 
-      # 5. Call LLM to generate routine
+      # 6. Call LLM to generate routine
       response = LlmGateway.chat(
         prompt: prompt,
         task: :routine_generation,
         system: system_prompt
       )
 
-      # 6. Parse and validate response
+      # 7. Parse and validate response
       if response[:success]
         result = parse_routine_response(response[:content])
         result[:knowledge_sources] = knowledge[:sources]
+        result[:exercise_pool_used] = exercise_pool[:summary]
         result
       else
         fallback_routine
@@ -97,6 +101,55 @@ module AiTrainer
         weak_points: profile&.weak_points || [],
         goals: profile&.fitness_goals || []
       }
+    end
+
+    # Build exercise pool from all programs (뼈대)
+    def build_exercise_pool
+      target_muscles = determine_target_muscles
+      all_exercises = []
+      sources_used = []
+
+      target_muscles.each do |muscle|
+        pool = WorkoutPrograms.get_exercise_pool(
+          level: @level,
+          target_muscle: muscle,
+          limit_per_program: 4
+        )
+        all_exercises.concat(pool)
+        sources_used.concat(pool.map { |e| e[:program] }.compact.uniq)
+      end
+
+      # Group by muscle for organized presentation
+      grouped = all_exercises.group_by { |e| e[:target] }
+
+      {
+        exercises: all_exercises,
+        by_muscle: grouped,
+        sources: sources_used.uniq,
+        summary: "#{all_exercises.size}개 운동 (#{sources_used.uniq.join(', ')})"
+      }
+    end
+
+    # Determine which muscles to target today
+    def determine_target_muscles
+      return @target_muscles if @target_muscles.any?
+
+      # Use WEEKLY_STRUCTURE to determine today's focus
+      day_structure = Constants::WEEKLY_STRUCTURE[@day_of_week]
+      return ["전신"] unless day_structure
+
+      case day_structure[:fitness_factor]
+      when /상체/
+        %w[가슴 등 어깨]
+      when /하체/
+        %w[하체]
+      when /당기기/
+        %w[등 이두]
+      when /밀기/
+        %w[가슴 어깨 삼두]
+      else
+        %w[가슴 등 하체] # 전신
+      end
     end
 
     def extract_recent_exercises(workouts)
@@ -328,7 +381,7 @@ module AiTrainer
       SYSTEM
     end
 
-    def build_generation_prompt(context, knowledge)
+    def build_generation_prompt(context, exercise_pool, knowledge)
       prompt_parts = []
 
       # User context
@@ -370,17 +423,47 @@ module AiTrainer
         RECENT
       end
 
-      # Program knowledge from RAG
+      # Exercise pool from programs (뼈대 - skeleton)
+      if exercise_pool[:exercises].any?
+        prompt_parts << <<~POOL
+          ## 📋 운동 풀 (기본 운동 목록 - 이 중에서 선택하여 구성)
+          출처: #{exercise_pool[:sources].join(", ")}
+
+        POOL
+
+        # Group by muscle for better organization
+        exercise_pool[:by_muscle].each do |muscle, exercises|
+          prompt_parts << "### #{muscle}"
+          exercises.first(5).each do |ex|
+            details = []
+            details << "세트: #{ex[:sets]}" if ex[:sets]
+            details << "횟수: #{ex[:reps]}" if ex[:reps]
+            details << "BPM: #{ex[:bpm]}" if ex[:bpm]
+            details << "ROM: #{ex[:rom]}" if ex[:rom]
+
+            prompt_parts << "- **#{ex[:name]}** (#{details.join(', ')})"
+            prompt_parts << "  - #{ex[:how_to].to_s.truncate(100)}" if ex[:how_to].present?
+          end
+          prompt_parts << ""
+        end
+
+        prompt_parts << <<~POOL_GUIDE
+          > 위 운동 풀에서 선택하되, 필요시 변형하거나 다른 운동을 추가해도 됩니다.
+          > 세트/횟수/휴식은 사용자 레벨과 컨디션에 맞게 조절하세요.
+        POOL_GUIDE
+      end
+
+      # Program knowledge from RAG (살 - flesh)
       if knowledge[:programs].any?
-        prompt_parts << "## 참고할 프로그램 패턴 (그대로 복사하지 말고 참고만)"
+        prompt_parts << "\n## 📚 참고할 프로그램 패턴 (그대로 복사하지 말고 참고만)"
         knowledge[:programs].each do |content, summary|
           prompt_parts << "- #{summary}: #{content.to_s.truncate(200)}"
         end
       end
 
-      # Exercise knowledge from RAG
+      # Exercise knowledge from RAG (tips)
       if knowledge[:exercises].any?
-        prompt_parts << "\n## 운동 지식 (팁으로 활용)"
+        prompt_parts << "\n## 💡 운동 지식 (팁으로 활용)"
         knowledge[:exercises].each do |content, summary, exercise_name|
           prompt_parts << "- #{exercise_name || summary}: #{content.to_s.truncate(150)}"
         end
@@ -390,9 +473,14 @@ module AiTrainer
 
         ## 요청
         위 정보를 바탕으로 오늘의 맞춤 운동 루틴을 창의적으로 설계해주세요.
-        #{context[:goal].present? ? "특히 '#{context[:goal]}' 목표에 맞는 운동을 중심으로 구성하세요." : ""}
-        4-6개의 운동으로 구성하고, 사용자 레벨과 컨디션에 맞게 조절하세요.
-        JSON 형식으로만 응답하세요.
+
+        **구성 원칙:**
+        1. 운동 풀에서 주요 운동을 선택 (기본 뼈대)
+        2. RAG 지식을 참고하여 수행 팁과 주의사항 추가 (살)
+        3. 사용자 레벨/컨디션/목표에 맞게 개인화 (맞춤)
+        #{context[:goal].present? ? "\n특히 '#{context[:goal]}' 목표에 맞는 운동을 중심으로 구성하세요." : ""}
+
+        4-6개의 운동으로 구성하고, JSON 형식으로만 응답하세요.
       REQUEST
 
       prompt_parts.join("\n")

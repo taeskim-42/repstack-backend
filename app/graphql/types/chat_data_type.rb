@@ -23,5 +23,11 @@ module Types
     field :estimated_1rms, GraphQL::Types::JSON, null: true, description: "Estimated 1RM for each lift"
     field :required_1rms, GraphQL::Types::JSON, null: true, description: "Required 1RM for promotion"
     field :exercise_results, GraphQL::Types::JSON, null: true, description: "Per-exercise promotion status"
+
+    # Routine modification fields (REPLACE_EXERCISE, ADD_EXERCISE, REGENERATE_ROUTINE)
+    field :new_exercise, Types::RoutineExerciseType, null: true, description: "Newly replaced exercise (REPLACE_EXERCISE)"
+    field :added_exercise, Types::RoutineExerciseType, null: true, description: "Added exercise (ADD_EXERCISE)"
+    field :remaining_replacements, Integer, null: true, description: "Remaining exercise replacements today"
+    field :remaining_regenerations, Integer, null: true, description: "Remaining routine regenerations today"
   end
 end
