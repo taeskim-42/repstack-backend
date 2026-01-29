@@ -44,6 +44,9 @@ class ChatService
   # ============================================
 
   def process_with_tools
+    Rails.logger.info("[ChatService] Processing message: #{message}")
+    Rails.logger.info("[ChatService] Available tools: #{available_tools.map { |t| t[:name] }.join(', ')}")
+
     response = AiTrainer::LlmGateway.chat(
       prompt: build_user_prompt,
       task: :general_chat,
@@ -51,13 +54,16 @@ class ChatService
       tools: available_tools
     )
 
+    Rails.logger.info("[ChatService] LLM response success: #{response[:success]}, tool_use: #{response[:tool_use].present?}")
+
     return error_response("AI 응답 실패") unless response[:success]
 
     # Check if LLM called a tool
     if response[:tool_use]
+      Rails.logger.info("[ChatService] Tool called: #{response[:tool_use][:name]}")
       execute_tool(response[:tool_use])
     else
-      # No tool called - use RAG for general chat
+      Rails.logger.info("[ChatService] No tool called, using RAG for general chat")
       handle_general_chat_with_rag
     end
   end
