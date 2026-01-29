@@ -1,15 +1,16 @@
 class UserProfile < ApplicationRecord
   belongs_to :user
 
-  # Level tier mapping
+  # Level tier mapping (0 = none/경험없음)
   LEVEL_TIERS = {
+    0 => "none",
     1 => "beginner", 2 => "beginner",
     3 => "intermediate", 4 => "intermediate", 5 => "intermediate",
     6 => "advanced", 7 => "advanced", 8 => "advanced"
   }.freeze
 
   # Validations
-  validates :current_level, inclusion: { in: %w[beginner intermediate advanced] }
+  validates :current_level, inclusion: { in: %w[none beginner intermediate advanced] }
   validates :numeric_level, numericality: { in: 1..8 }, allow_nil: true
   validates :week_number, presence: true, numericality: { greater_than: 0 }
   validates :day_number, presence: true, numericality: { in: 1..7 }
@@ -88,10 +89,11 @@ class UserProfile < ApplicationRecord
 
   def tier_korean
     case tier
+    when "none" then "입문"
     when "beginner" then "초급"
     when "intermediate" then "중급"
     when "advanced" then "고급"
-    else "초급"
+    else "입문"
     end
   end
 
