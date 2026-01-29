@@ -678,7 +678,6 @@ class AdminController < ApplicationController
   def extract_transcripts
     limit = [params[:limit]&.to_i || 100, 500].min
     language = params[:language] # "en", "ko", or nil for all
-    parallel = params[:parallel] == "true"
 
     scope = YoutubeVideo.where(transcript: [nil, ""])
     scope = scope.joins(:youtube_channel).where(youtube_channels: { language: language }) if language.present?
@@ -693,38 +692,15 @@ class AdminController < ApplicationController
       }
     end
 
-    if parallel
-      # Start separate job for each channel (parallel processing)
-      channels = YoutubeChannel.where(language: language)
-      channels = YoutubeChannel.all if language.blank?
+    ExtractTranscriptsJob.perform_async(limit, true, language)
 
-      started_channels = []
-      channels.each do |channel|
-        channel_videos = YoutubeVideo.where(youtube_channel_id: channel.id, transcript: [nil, ""])
-        next if channel_videos.count == 0
-
-        ExtractTranscriptsJob.perform_async(limit, true, nil, channel.id)
-        started_channels << { id: channel.id, name: channel.name, pending: channel_videos.count }
-      end
-
-      render json: {
-        success: true,
-        message: "Parallel transcript extraction started",
-        channels_started: started_channels.count,
-        channels: started_channels,
-        total_videos: without_transcript
-      }
-    else
-      ExtractTranscriptsJob.perform_async(limit, true, language)
-
-      render json: {
-        success: true,
-        message: "Transcript extraction started",
-        without_transcript: without_transcript,
-        processing_limit: limit,
-        estimated_minutes: (limit * 5.0 / 60).round(1)
-      }
-    end
+    render json: {
+      success: true,
+      message: "Transcript extraction started",
+      without_transcript: without_transcript,
+      processing_limit: limit,
+      estimated_minutes: (limit * 5.0 / 60).round(1)
+    }
   end
 
   # GET /admin/transcript_status
