@@ -88,13 +88,26 @@ class YoutubeChannelScraper
 
       begin
         api = YoutubeRb::Transcript::YouTubeTranscriptApi.new
-
-        # Try specified language first, then fall back to auto-generated
         languages = language == "en" ? %w[en en-US] : %w[ko ko-KR]
 
-        transcript = api.fetch(video_id, languages: languages)
+        # First try to get transcript list and find auto-generated ones
+        begin
+          transcript_list = api.list(video_id)
 
-        # Convert to timestamped text format: "[MM:SS] text [MM:SS] text ..."
+          # Try auto-generated transcript first (most videos have this)
+          transcript_obj = transcript_list.find_generated_transcript(languages)
+          transcript_obj ||= transcript_list.find_transcript(languages)
+
+          if transcript_obj
+            transcript = transcript_obj.fetch
+            return format_transcript(transcript)
+          end
+        rescue StandardError
+          # Fall back to direct fetch if list fails
+        end
+
+        # Fall back to direct fetch
+        transcript = api.fetch(video_id, languages: languages)
         format_transcript(transcript)
       rescue YoutubeRb::Transcript::NoTranscriptFound => e
         Rails.logger.warn("No transcript found for #{video_url}: #{e.message}")
