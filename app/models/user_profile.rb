@@ -20,6 +20,7 @@ class UserProfile < ApplicationRecord
 
   # Callbacks
   before_validation :set_defaults, on: :create
+  before_validation :normalize_optional_fields
   before_save :sync_level_tier
 
   # Scopes
@@ -131,6 +132,13 @@ class UserProfile < ApplicationRecord
     self.week_number ||= 1
     self.day_number ||= 1
     self.program_start_date ||= Date.current
+  end
+
+  # Convert 0 or empty values to nil for optional fields
+  def normalize_optional_fields
+    self.height = nil if height.present? && height <= 0
+    self.weight = nil if weight.present? && weight <= 0
+    self.body_fat_percentage = nil if body_fat_percentage.present? && body_fat_percentage <= 0
   end
 
   def sync_level_tier
