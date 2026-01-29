@@ -540,6 +540,11 @@ module AiTrainer
       <<~SYSTEM
         당신은 전문 피트니스 트레이너입니다. 사용자에게 맞춤형 운동 루틴을 창의적으로 설계합니다.
 
+        ## 중요: 오늘 하루 운동만 생성
+        - 여러 주 또는 여러 요일의 프로그램을 만들지 마세요
+        - **오늘 하루** 수행할 운동 루틴 1개만 생성하세요
+        - 4-6개의 운동으로 구성된 단일 세션을 만드세요
+
         ## 도구 사용 가이드
         1. search_exercises: 타겟 근육에 맞는 운동을 검색하세요
         2. get_training_variables: 사용자 레벨에 맞는 모든 훈련 변인 가이드라인을 확인하세요
@@ -651,17 +656,25 @@ module AiTrainer
         }
       end
 
+      day_names = %w[일 월 화 수 목 금 토]
+      day_names_en = %w[sunday monday tuesday wednesday thursday friday saturday]
+
       {
         routine_id: "RT-#{@level}-#{Time.current.to_i}-#{SecureRandom.hex(4)}",
         generated_at: Time.current.iso8601,
         user_level: @level,
         tier: level_to_tier(@level),
+        day_of_week: day_names_en[@day_of_week] || "wednesday",
+        day_korean: "#{day_names[@day_of_week]}요일",
+        fitness_factor: "strength",
+        fitness_factor_korean: data["training_focus"] || "근력 훈련",
+        condition: { status: "good", message: "오늘도 화이팅!" },
         training_type: data["training_focus"],
         exercises: exercises,
         estimated_duration_minutes: data["estimated_duration"] || 45,
         # 추가 변인들
-        weekly_frequency: data["weekly_frequency"],  # 빈도
-        progression: data["progression"],            # 주기화/점진
+        weekly_frequency: data["weekly_frequency"],
+        progression: data["progression"],
         variable_adjustments: data["variable_adjustments"],
         notes: [data["coach_message"]].compact,
         creative: true,
@@ -685,11 +698,19 @@ module AiTrainer
     end
 
     def fallback_routine
+      day_names = %w[일 월 화 수 목 금 토]
+      day_names_en = %w[sunday monday tuesday wednesday thursday friday saturday]
+
       {
         routine_id: "RT-FALLBACK-#{Time.current.to_i}",
         generated_at: Time.current.iso8601,
         user_level: @level,
         tier: level_to_tier(@level),
+        day_of_week: day_names_en[@day_of_week] || "wednesday",
+        day_korean: "#{day_names[@day_of_week]}요일",
+        fitness_factor: "general",
+        fitness_factor_korean: "기본 훈련",
+        condition: { status: "good", message: "오늘도 화이팅!" },
         training_type: "general",
         exercises: default_exercises,
         estimated_duration_minutes: 45,
