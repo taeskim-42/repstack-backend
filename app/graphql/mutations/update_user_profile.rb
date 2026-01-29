@@ -11,12 +11,15 @@ module Mutations
     argument :fitness_goal, String, required: false
     argument :week_number, Integer, required: false
     argument :day_number, Integer, required: false
+    argument :numeric_level, Integer, required: false, description: "User's numeric level (1-8)"
+    argument :max_lifts, GraphQL::Types::JSON, required: false, description: "Maximum lift records"
 
     field :user_profile, Types::UserProfileType, null: true
     field :errors, [ String ], null: false
 
     VALID_LEVELS = %w[beginner intermediate advanced].freeze
     DAY_RANGE = (1..7).freeze
+    LEVEL_RANGE = (1..8).freeze
 
     def resolve(**args)
       with_error_handling(user_profile: nil) do
@@ -38,6 +41,10 @@ module Mutations
 
       if args[:day_number] && !DAY_RANGE.include?(args[:day_number])
         raise GraphQL::ExecutionError, "Invalid day number. Must be between #{DAY_RANGE.first} and #{DAY_RANGE.last}"
+      end
+
+      if args[:numeric_level] && !LEVEL_RANGE.include?(args[:numeric_level])
+        raise GraphQL::ExecutionError, "Invalid numeric level. Must be between #{LEVEL_RANGE.first} and #{LEVEL_RANGE.last}"
       end
 
       true
