@@ -10,6 +10,7 @@ module Types
     value "GENERATE_ROUTINE", "Generating routine (e.g., '오늘 루틴 만들어줘')"
     value "SUBMIT_FEEDBACK", "Submitting feedback (e.g., '런지가 힘들었어')"
     value "GENERAL_CHAT", "General conversation handled by AI"
+    value "WELCOME", "Welcome message for newly onboarded users"
     value "LEVEL_ASSESSMENT", "New user level assessment (onboarding)"
     value "PROMOTION_ELIGIBLE", "User is eligible for level promotion test"
     value "REPLACE_EXERCISE", "Exercise replaced in routine"
