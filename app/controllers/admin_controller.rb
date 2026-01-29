@@ -707,7 +707,9 @@ class AdminController < ApplicationController
     language = params[:language] # "en", "ko", or nil for all
 
     scope = YoutubeVideo.where(transcript: [nil, ""])
-    scope = scope.joins(:youtube_channel).where(youtube_channels: { language: language }) if language.present?
+                        .joins(:youtube_channel)
+                        .where(youtube_channels: { active: true })
+    scope = scope.where(youtube_channels: { language: language }) if language.present?
     without_transcript = scope.count
 
     if without_transcript == 0
