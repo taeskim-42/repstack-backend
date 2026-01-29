@@ -6,7 +6,8 @@
 # Usage:
 #   ExtractTranscriptsJob.perform_async          # Process all (up to 100)
 #   ExtractTranscriptsJob.perform_async(50)      # Process 50 videos
-#   ExtractTranscriptsJob.perform_async(50, true) # Pipeline mode (analyze + embed)
+#   ExtractTranscriptsJob.perform_async(50, true, "en") # English only
+#   ExtractTranscriptsJob.perform_async(50, true, nil, 123) # Specific channel
 #
 class ExtractTranscriptsJob
   include Sidekiq::Job
@@ -17,11 +18,14 @@ class ExtractTranscriptsJob
   # @param limit [Integer] Maximum number of videos to process (default: 100)
   # @param pipeline [Boolean] If true, trigger analysis + embedding after transcript (default: true)
   # @param language [String] Filter by channel language: "en", "ko", or nil for all
-  def perform(limit = 100, pipeline = true, language = nil)
+  # @param channel_id [Integer] Filter by specific channel ID for parallel processing
+  def perform(limit = 100, pipeline = true, language = nil, channel_id = nil)
     scope = YoutubeVideo.where(transcript: [nil, ""])
 
-    # Filter by channel language if specified
-    if language.present?
+    # Filter by specific channel (for parallel processing)
+    if channel_id.present?
+      scope = scope.where(youtube_channel_id: channel_id)
+    elsif language.present?
       scope = scope.joins(:youtube_channel).where(youtube_channels: { language: language })
     end
 
@@ -51,28 +55,24 @@ class ExtractTranscriptsJob
       "[ExtractTranscripts] Complete: success=#{success}, no_subs=#{no_subs}, failed=#{failed}"
     )
 
-    # Auto-continue: if there are more videos, queue the next batch
+    # Auto-continue: if there are more videos for this channel/language, queue the next batch
     remaining_scope = YoutubeVideo.where(transcript: [nil, ""])
-    remaining_scope = remaining_scope.joins(:youtube_channel).where(youtube_channels: { language: language }) if language.present?
+    if channel_id.present?
+      remaining_scope = remaining_scope.where(youtube_channel_id: channel_id)
+      channel_name = YoutubeChannel.find_by(id: channel_id)&.name || channel_id
+    elsif language.present?
+      remaining_scope = remaining_scope.joins(:youtube_channel).where(youtube_channels: { language: language })
+      channel_name = language
+    else
+      channel_name = "all"
+    end
     remaining = remaining_scope.count
 
     if remaining > 0
-      Rails.logger.info("[ExtractTranscripts] #{remaining} videos remaining for #{language || 'all'}, queuing next batch...")
-      ExtractTranscriptsJob.perform_in(10.seconds, limit, pipeline, language)
-    elsif language == "en"
-      # English done, start Korean automatically
-      ko_remaining = YoutubeVideo.where(transcript: [nil, ""])
-                                 .joins(:youtube_channel)
-                                 .where(youtube_channels: { language: "ko" })
-                                 .count
-      if ko_remaining > 0
-        Rails.logger.info("[ExtractTranscripts] English complete! Starting Korean (#{ko_remaining} videos)...")
-        ExtractTranscriptsJob.perform_in(10.seconds, limit, pipeline, "ko")
-      else
-        Rails.logger.info("[ExtractTranscripts] All languages complete!")
-      end
+      Rails.logger.info("[ExtractTranscripts] #{remaining} videos remaining for #{channel_name}, queuing next batch...")
+      ExtractTranscriptsJob.perform_in(5.seconds, limit, pipeline, language, channel_id)
     else
-      Rails.logger.info("[ExtractTranscripts] All videos processed for language=#{language || 'all'}!")
+      Rails.logger.info("[ExtractTranscripts] Complete for #{channel_name}!")
     end
 
     { success: success, no_subs: no_subs, failed: failed, remaining: remaining }
