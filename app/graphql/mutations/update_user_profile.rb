@@ -26,7 +26,12 @@ module Mutations
         user = authenticate!
 
         profile = user.user_profile || user.build_user_profile
-        profile.update!(args.compact)
+
+        # Mark onboarding as complete if not already set
+        update_attrs = args.compact
+        update_attrs[:onboarding_completed_at] ||= Time.current if profile.onboarding_completed_at.nil?
+
+        profile.update!(update_attrs)
 
         success_response(user_profile: profile)
       end
