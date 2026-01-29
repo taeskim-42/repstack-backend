@@ -370,13 +370,14 @@ class AdminController < ApplicationController
   # Test subtitle extraction with timestamps for debugging
   def test_subtitle_extraction
     url = params[:url]
+    language = params[:language] || "ko"
     return render json: { error: "url parameter required" }, status: :bad_request unless url
 
     # Extract subtitles
-    transcript = YoutubeChannelScraper.extract_subtitles(url)
+    transcript = YoutubeChannelScraper.extract_subtitles(url, language: language)
 
     if transcript.blank?
-      return render json: { error: "No subtitles found", url: url }
+      return render json: { error: "No subtitles found", url: url, language: language }
     end
 
     # Show first 2000 chars of transcript to verify timestamps
