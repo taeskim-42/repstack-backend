@@ -134,10 +134,10 @@ module AiTrainer
           level: @level,
           tier: tier,
           tier_korean: tier_korean(tier),
-          equipment: profile&.available_equipment || %w[barbell dumbbell cable machine],
-          duration_minutes: profile&.preferred_duration || 60,
-          weak_points: profile&.weak_points || [],
-          goals: profile&.fitness_goals || []
+          equipment: %w[barbell dumbbell cable machine bodyweight],
+          duration_minutes: 60,
+          weak_points: [],
+          goals: [profile&.fitness_goal].compact
         },
         today: {
           day_of_week: @day_of_week,
