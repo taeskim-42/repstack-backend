@@ -637,19 +637,22 @@ module AiTrainer
       json_str = extract_json(content)
       data = JSON.parse(json_str)
 
-      exercises = data["exercises"].map.with_index(1) do |ex, idx|
+      raw_exercises = data["exercises"] || []
+      return fallback_routine if raw_exercises.empty?
+
+      exercises = raw_exercises.map.with_index(1) do |ex, idx|
         {
           order: idx,
           exercise_id: "EX-#{idx}-#{SecureRandom.hex(4)}",
-          exercise_name: ex["name"],
-          target_muscle: ex["target_muscle"],
-          sets: ex["sets"],
-          reps: ex["reps"],
+          exercise_name: ex["name"] || "운동 #{idx}",
+          target_muscle: ex["target_muscle"] || "전신",
+          sets: ex["sets"] || 3,
+          reps: ex["reps"] || 10,
           rpe: ex["rpe"],
           tempo: ex["tempo"],
-          rom: ex["rom"],                    # 가동범위
+          rom: ex["rom"],
           rest_seconds: ex["rest_seconds"] || 60,
-          weight_guide: ex["weight_guide"],  # 무게 가이드
+          weight_guide: ex["weight_guide"],
           instructions: ex["instructions"],
           source_program: ex["source_program"],
           rest_type: "time_based"
