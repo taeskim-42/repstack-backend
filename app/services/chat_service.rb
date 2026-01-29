@@ -85,7 +85,7 @@ class ChatService
 
   def system_prompt
     tier = user.user_profile&.tier || "beginner"
-    level = user.level || 1
+    level = user.user_profile&.level || 1
 
     <<~SYSTEM
       당신은 전문 피트니스 AI 트레이너입니다.
@@ -241,7 +241,7 @@ class ChatService
   # ============================================
 
   def handle_generate_routine(input)
-    unless user.level.present?
+    unless user.user_profile&.level.present?
       return error_response("먼저 간단한 체력 테스트를 완료해주세요! 그래야 맞춤 루틴을 만들 수 있어요.")
     end
 
