@@ -96,11 +96,17 @@ class YoutubeChannelScraper
 
         # Convert to timestamped text format: "[MM:SS] text [MM:SS] text ..."
         format_transcript(transcript)
-      rescue YoutubeRb::Transcript::NoTranscriptFoundError => e
+      rescue YoutubeRb::Transcript::NoTranscriptFound => e
         Rails.logger.warn("No transcript found for #{video_url}: #{e.message}")
         nil
-      rescue YoutubeRb::Transcript::TranscriptsDisabledError => e
+      rescue YoutubeRb::Transcript::NoTranscriptAvailable => e
+        Rails.logger.warn("No transcript available for #{video_url}: #{e.message}")
+        nil
+      rescue YoutubeRb::Transcript::TranscriptsDisabled => e
         Rails.logger.warn("Transcripts disabled for #{video_url}: #{e.message}")
+        nil
+      rescue YoutubeRb::Transcript::TooManyRequests => e
+        Rails.logger.warn("Rate limited for #{video_url}: #{e.message}")
         nil
       rescue StandardError => e
         Rails.logger.error("Failed to extract transcript for #{video_url}: #{e.message}")
