@@ -4,14 +4,15 @@
 # Retrieves relevant fitness knowledge to enhance AI Trainer responses
 class RagSearchService
   class << self
-    # Main search method - combines vector and keyword search
+    # Main search method - uses hybrid search (vector + keyword) for best results
     def search(query, limit: 5, knowledge_types: nil, filters: {})
       return [] if query.blank?
 
-      # Try vector search first if available
       results = if EmbeddingService.pgvector_available? && EmbeddingService.configured?
-        vector_search(query, limit: limit, knowledge_types: knowledge_types, filters: filters)
+        # Hybrid search: combine vector (semantic) + keyword (exact match)
+        hybrid_search(query, limit: limit, knowledge_types: knowledge_types, filters: filters)
       else
+        # Fallback to keyword-only when vector search unavailable
         keyword_search(query, limit: limit, knowledge_types: knowledge_types, filters: filters)
       end
 
@@ -109,9 +110,48 @@ class RagSearchService
 
     private
 
+    # Hybrid search: combines vector (semantic) and keyword (exact match) results
+    # - Vector search finds semantically similar content
+    # - Keyword search finds exact term matches
+    # - Combining both improves recall and precision
+    def hybrid_search(query, limit:, knowledge_types:, filters:)
+      # Split limit between vector and keyword (60/40 favoring semantic)
+      vector_limit = (limit * 0.6).ceil
+      keyword_limit = (limit * 0.4).ceil
+
+      # Get results from both search methods
+      vector_results = vector_search(query, limit: vector_limit, knowledge_types: knowledge_types, filters: filters)
+      keyword_results = keyword_search(query, limit: keyword_limit, knowledge_types: knowledge_types, filters: filters)
+
+      # Merge and deduplicate, prioritizing vector results (semantic relevance)
+      seen_ids = Set.new
+      combined = []
+
+      # Add vector results first (higher priority)
+      vector_results.each do |chunk|
+        next if seen_ids.include?(chunk.id)
+        seen_ids.add(chunk.id)
+        combined << chunk
+      end
+
+      # Add keyword results that weren't in vector results
+      keyword_results.each do |chunk|
+        next if seen_ids.include?(chunk.id)
+        seen_ids.add(chunk.id)
+        combined << chunk
+        break if combined.size >= limit
+      end
+
+      combined.first(limit)
+    end
+
     def vector_search(query, limit:, knowledge_types:, filters:)
       embedding = EmbeddingService.generate_query_embedding(query)
       return keyword_search(query, limit: limit, knowledge_types: knowledge_types, filters: filters) unless embedding
+
+      # IVFFlat 인덱스 정확도 향상을 위해 probes 값 설정
+      # 기본값(1)이 너무 낮아 관련 결과 누락됨, 20으로 설정하여 검색 품질 개선
+      ActiveRecord::Base.connection.execute("SET ivfflat.probes = 20")
 
       scope = FitnessKnowledgeChunk.with_embedding
       scope = scope.where(knowledge_type: knowledge_types) if knowledge_types.present?

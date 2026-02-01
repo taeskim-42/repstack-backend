@@ -151,7 +151,7 @@ namespace :youtube do
       end
 
       unless EmbeddingService.configured?
-        puts "Error: GEMINI_API_KEY is not configured"
+        puts "Error: OPENAI_API_KEY is not configured"
         exit 1
       end
 

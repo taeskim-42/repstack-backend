@@ -200,20 +200,26 @@ class YoutubeKnowledgeExtractionService
     private
 
     def parse_response(response)
-      # Extract JSON from response (may be wrapped in markdown code block)
-      json_str = response.gsub(/```json\n?/, "").gsub(/```\n?/, "").strip
+      # Extract JSON from response - Claude may add explanations after the JSON
+      # Use regex to find the first complete JSON block between ```json and ```
+      if response.include?("```json")
+        match = response.match(/```json\s*([\s\S]*?)```/)
+        json_str = match[1].strip if match
+      else
+        # Try to find JSON object directly
+        match = response.match(/(\{[\s\S]*\})/m)
+        json_str = match[1].strip if match
+      end
+
+      raise "No JSON found in response" if json_str.blank?
 
       JSON.parse(json_str, symbolize_names: true)
     rescue JSON::ParserError => e
       Rails.logger.error("Failed to parse response: #{e.message}")
-      Rails.logger.error("Response was: #{response}")
+      Rails.logger.error("Response was: #{response[0..500]}...")
 
-      {
-        category: "general",
-        difficulty_level: "intermediate",
-        language: "ko",
-        knowledge_chunks: []
-      }
+      # Re-raise so video is marked as failed and can be retried
+      raise "JSON parse error: #{e.message[0..100]}"
     end
 
     def save_knowledge_chunks(video, result, language: "ko")
