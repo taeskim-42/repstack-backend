@@ -19,6 +19,7 @@ module Types
     # Routines
     field :save_routine, mutation: Mutations::SaveRoutine
     field :complete_routine, mutation: Mutations::CompleteRoutine
+    field :delete_routine, mutation: Mutations::DeleteRoutine
 
     # AI Trainer
     field :chat, mutation: Mutations::Chat
