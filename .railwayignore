@@ -1,0 +1,12 @@
+# Large files and local development scripts
+scripts/whisper_pipeline/audio_files/
+scripts/whisper_pipeline/*.log
+scripts/whisper_pipeline/__pycache__/
+scripts/whisper_pipeline/.*.pid
+
+# Local dev files
+*.log
+tmp/
+log/
+coverage/
+node_modules/

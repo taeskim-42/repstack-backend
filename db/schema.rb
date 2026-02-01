@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_01_28_134632) do
+ActiveRecord::Schema[8.1].define(version: 2026_01_30_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -45,6 +45,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_28_134632) do
 
   create_table "exercises", force: :cascade do |t|
     t.boolean "active", default: true
+    t.boolean "ai_generated", default: false
     t.boolean "bpm_compatible", default: true
     t.text "common_mistakes"
     t.datetime "created_at", null: false
@@ -67,13 +68,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_28_134632) do
     t.boolean "tabata_compatible", default: true
     t.datetime "updated_at", null: false
     t.jsonb "variations", default: {}
+    t.jsonb "video_references", default: [], null: false
     t.index ["active"], name: "index_exercises_on_active"
+    t.index ["ai_generated"], name: "index_exercises_on_ai_generated"
     t.index ["difficulty"], name: "index_exercises_on_difficulty"
     t.index ["english_name"], name: "index_exercises_on_english_name", unique: true
     t.index ["equipment"], name: "index_exercises_on_equipment", using: :gin
     t.index ["fitness_factors"], name: "index_exercises_on_fitness_factors", using: :gin
     t.index ["muscle_group"], name: "index_exercises_on_muscle_group"
     t.index ["name"], name: "index_exercises_on_name", unique: true
+    t.index ["video_references"], name: "index_exercises_on_video_references", using: :gin
   end
 
   create_table "fitness_knowledge_chunks", force: :cascade do |t|

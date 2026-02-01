@@ -36,3 +36,17 @@
 coverage/
 .rspec_status
 node_modules/
+
+# Whisper pipeline large files (local only)
+scripts/whisper_pipeline/audio_files/
+scripts/whisper_pipeline/*.log
+scripts/whisper_pipeline/__pycache__/
+scripts/whisper_pipeline/.*.pid
+AGENTS.md
+BOOTSTRAP.md
+HEARTBEAT.md
+IDENTITY.md
+SOUL.md
+TOOLS.md
+USER.md
+scripts/
