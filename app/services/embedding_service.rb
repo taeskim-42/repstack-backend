@@ -4,8 +4,8 @@
 # Used for RAG (Retrieval Augmented Generation) functionality
 class EmbeddingService
   OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings"
-  EMBEDDING_MODEL = "text-embedding-3-small"
-  EMBEDDING_DIMENSION = 1536  # OpenAI text-embedding-3-small dimension
+  EMBEDDING_MODEL = "text-embedding-3-large"
+  EMBEDDING_DIMENSION = 1536  # Reduced from 3072 for pgvector compatibility (max 2000)
 
   class << self
     def configured?
@@ -21,7 +21,8 @@ class EmbeddingService
         req.headers["Authorization"] = "Bearer #{ENV['OPENAI_API_KEY']}"
         req.body = {
           model: EMBEDDING_MODEL,
-          input: sanitize_text(text)
+          input: sanitize_text(text),
+          dimensions: EMBEDDING_DIMENSION
         }.to_json
       end
 
@@ -38,12 +39,15 @@ class EmbeddingService
         req.headers["Authorization"] = "Bearer #{ENV['OPENAI_API_KEY']}"
         req.body = {
           model: EMBEDDING_MODEL,
-          input: texts.map { |t| sanitize_text(t) }
+          input: texts.map { |t| sanitize_text(t) },
+          dimensions: EMBEDDING_DIMENSION
         }.to_json
       end
 
       if response.success?
-        response.body["data"]&.map { |d| d["embedding"] } || []
+        data = response.body
+        data = JSON.parse(data) if data.is_a?(String)
+        data["data"]&.map { |d| d["embedding"] } || []
       else
         Rails.logger.error("OpenAI Embedding batch error: #{response.body}")
         []
@@ -114,9 +118,15 @@ class EmbeddingService
     def handle_response(response)
       if response.success?
         data = response.body
+        # Handle case where body is a String (not parsed as JSON)
+        data = JSON.parse(data) if data.is_a?(String)
         data.dig("data", 0, "embedding")
       else
-        error_message = response.body.dig("error", "message") || response.body.to_s
+        error_message = if response.body.is_a?(Hash)
+          response.body.dig("error", "message") || response.body.to_s
+        else
+          response.body.to_s
+        end
         Rails.logger.error("OpenAI Embedding API error: #{error_message}")
         nil
       end
