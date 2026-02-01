@@ -115,8 +115,18 @@ class ChatService
       2. 운동 기록 요청 → **record_exercise** tool 필수
          예: "벤치프레스 60kg 8회", "스쿼트 10회 했어"
 
+      3. 운동 교체 요청 → **replace_exercise** tool 필수 (routineId가 있을 때)
+         예: "XX 말고 다른거", "XX 대신 다른 운동", "이거 힘들어", "XX 빼줘"
+
+      4. 운동 추가 요청 → **add_exercise** tool 필수 (routineId가 있을 때)
+         예: "XX도 넣어줘", "팔운동 더 하고싶어"
+
+      5. 루틴 전체 재생성 → **regenerate_routine** tool 필수 (routineId가 있을 때)
+         예: "다른 루틴으로", "전부 바꿔줘", "마음에 안들어"
+
       ## 일반 대화만 tool 없이 답변
       - 운동 지식 질문, 폼 체크 설명, 일반 인사 등
+      - 단, "XX 말고", "XX 대신" 등 교체 요청은 반드시 replace_exercise 호출!
 
       ## 응답 스타일
       - 친근하고 격려하는 톤
@@ -228,6 +238,20 @@ class ChatService
             },
             required: []
           }
+        },
+        {
+          name: "delete_routine",
+          description: "현재 루틴을 삭제합니다. 완료된 루틴은 삭제할 수 없습니다. '루틴 삭제해줘', '이 루틴 지워줘' 등의 요청에 사용합니다.",
+          input_schema: {
+            type: "object",
+            properties: {
+              confirm: {
+                type: "boolean",
+                description: "삭제 확인 (true일 때만 삭제)"
+              }
+            },
+            required: %w[confirm]
+          }
         }
       ]
     end
@@ -252,6 +276,8 @@ class ChatService
       handle_add_exercise(input)
     when "regenerate_routine"
       handle_regenerate_routine(input)
+    when "delete_routine"
+      handle_delete_routine(input)
     else
       error_response("알 수 없는 작업입니다: #{tool_name}")
     end
@@ -320,7 +346,7 @@ class ChatService
       success_response(
         message: msg,
         intent: "RECORD_EXERCISE",
-        data: { records: [record_item] }
+        data: { records: [ record_item ] }
       )
     else
       error_response(result[:error] || "기록 저장에 실패했어요.")
@@ -350,8 +376,8 @@ class ChatService
       sets: replacement[:sets],
       reps: replacement[:reps],
       rest_duration_seconds: replacement[:rest_seconds] || 60,
-      instructions: replacement[:instructions],
-      weight_suggestion: replacement[:weight_guide]
+      how_to: replacement[:instructions],
+      weight_description: replacement[:weight_guide]
     )
 
     success_response(
@@ -371,9 +397,11 @@ class ChatService
     return error_response("완료된 루틴에는 운동을 추가할 수 없어요.") if routine.is_completed
 
     final_order = (routine.routine_exercises.maximum(:order_index) || -1) + 1
+    # Normalize exercise name to Korean
+    normalized_name = AiTrainer::ExerciseNameNormalizer.normalize_if_needed(input["exercise_name"])
 
     exercise = routine.routine_exercises.create!(
-      exercise_name: input["exercise_name"],
+      exercise_name: normalized_name,
       order_index: final_order,
       sets: input["sets"] || 3,
       reps: input["reps"] || 10,
@@ -382,7 +410,7 @@ class ChatService
     )
 
     success_response(
-      message: "**#{input['exercise_name']}** #{exercise.sets}세트 x #{exercise.reps}회를 추가했어요! 💪",
+      message: "**#{normalized_name}** #{exercise.sets}세트 x #{exercise.reps}회를 추가했어요! 💪",
       intent: "ADD_EXERCISE",
       data: {
         routine: routine.reload,
@@ -416,8 +444,8 @@ class ChatService
         reps: ex[:reps],
         target_muscle: ex[:target_muscle],
         rest_duration_seconds: ex[:rest_seconds] || 60,
-        instructions: ex[:instructions],
-        weight_suggestion: ex[:weight_description]
+        how_to: ex[:instructions],
+        weight_description: ex[:weight_description] || ex[:weight_guide]
       )
     end
 
@@ -433,6 +461,28 @@ class ChatService
         routine: routine.reload,
         remaining_regenerations: rate_check[:remaining]
       }
+    )
+  end
+
+  def handle_delete_routine(input)
+    routine = current_routine
+    return error_response("삭제할 루틴을 찾을 수 없어요.") unless routine
+
+    unless input["confirm"] == true
+      return error_response("삭제를 확인해주세요.")
+    end
+
+    if routine.is_completed?
+      return error_response("완료된 루틴은 삭제할 수 없어요. 운동 기록이 사라질 수 있거든요!")
+    end
+
+    routine_id = routine.id
+    routine.destroy!
+
+    success_response(
+      message: "루틴을 삭제했어요. 새로운 루틴이 필요하면 말씀해주세요!",
+      intent: "DELETE_ROUTINE",
+      data: { deleted_routine_id: routine_id }
     )
   end
 
@@ -573,7 +623,32 @@ class ChatService
   # ============================================
 
   def current_routine
-    @current_routine ||= user.workout_routines.find_by(id: routine_id)
+    return @current_routine if defined?(@current_routine)
+
+    @current_routine = if routine_id.present?
+      # Try direct ID lookup first (normal case: DB ID)
+      found = user.workout_routines.find_by(id: routine_id)
+
+      # Fallback: If ID looks like "RT-{level}-{timestamp}-{hex}" format
+      # This handles edge cases where DB save succeeded but ID wasn't updated in response
+      if found.nil? && routine_id.to_s.start_with?("RT-")
+        Rails.logger.warn("[ChatService] Routine ID '#{routine_id}' is AI-generated format, attempting fallback lookup")
+
+        # Try to extract timestamp from RT-5-1769931298-21ed8d66 format
+        if routine_id =~ /RT-\d+-(\d+)-/
+          timestamp = Regexp.last_match(1).to_i
+          # Find routine created within 5 minutes of that timestamp
+          time_range = Time.at(timestamp - 300)..Time.at(timestamp + 300)
+          found = user.workout_routines.where(created_at: time_range).order(created_at: :desc).first
+          Rails.logger.info("[ChatService] Found routine by timestamp range: #{found&.id}")
+        end
+
+        # Last resort: use most recent incomplete routine
+        found ||= user.workout_routines.where(is_completed: false).order(created_at: :desc).first
+      end
+
+      found
+    end
   end
 
   def find_exercise_in_routine(routine, exercise_name)
@@ -581,10 +656,19 @@ class ChatService
 
     name_lower = exercise_name.downcase.gsub(/\s+/, "")
 
-    routine.routine_exercises.find do |ex|
-      ex.exercise_name.downcase.gsub(/\s+/, "").include?(name_lower) ||
-        name_lower.include?(ex.exercise_name.downcase.gsub(/\s+/, ""))
+    # Load exercises from DB
+    exercises = routine.routine_exercises.reload
+
+    Rails.logger.info("[ChatService] Looking for '#{exercise_name}' in routine #{routine.id}")
+    Rails.logger.info("[ChatService] Routine has #{exercises.count} exercises: #{exercises.map(&:exercise_name).join(', ')}")
+
+    found = exercises.find do |ex|
+      ex_name = ex.exercise_name.to_s.downcase.gsub(/\s+/, "")
+      ex_name.include?(name_lower) || name_lower.include?(ex_name)
     end
+
+    Rails.logger.info("[ChatService] Found exercise: #{found&.exercise_name || 'nil'}")
+    found
   end
 
   def generate_exercise_replacement(routine:, old_exercise:, reason:)
@@ -619,9 +703,11 @@ class ChatService
     return { success: false, error: "AI 응답 실패" } unless response[:success]
 
     data = JSON.parse(extract_json(response[:content]))
+    # Normalize exercise name to Korean
+    normalized_name = AiTrainer::ExerciseNameNormalizer.normalize_if_needed(data["exercise_name"])
     {
       success: true,
-      exercise_name: data["exercise_name"],
+      exercise_name: normalized_name,
       sets: data["sets"] || 3,
       reps: data["reps"] || 10,
       rest_seconds: data["rest_seconds"] || 60,
