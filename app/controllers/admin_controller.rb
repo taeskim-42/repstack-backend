@@ -6,6 +6,505 @@ class AdminController < ApplicationController
   skip_before_action :authorize_request
   before_action :verify_admin_token
 
+  # GET /admin/chat - Chat UI for testing AI Trainer
+  def chat_ui
+    render html: chat_html.html_safe, layout: false
+  end
+
+  # POST /admin/chat - Process chat message
+  def chat_send
+    message = params[:message]
+    return render json: { error: "message required" }, status: :bad_request if message.blank?
+
+    user_type = params[:user_type] || "existing"
+    level = params[:level]&.to_i || 5
+    user, token = get_or_create_test_user(level, user_type: user_type)
+
+    result = ChatService.process(
+      user: user,
+      message: message,
+      routine_id: params[:routine_id],
+      session_id: params[:session_id]
+    )
+
+    render json: result.merge(jwt_token: token, user_type: user_type)
+  end
+
+  # GET /admin/test_user_info
+  def test_user_info
+    user_type = params[:user_type] || "existing"
+    email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
+    user = User.find_by(email: email)
+
+    return render json: { error: "Test user not found", user_type: user_type }, status: :not_found unless user
+
+    token = JsonWebToken.encode(user_id: user.id)
+
+    render json: {
+      id: user.id,
+      email: user.email,
+      user_type: user_type,
+      level: user.user_profile&.numeric_level,
+      jwt_token: token,
+      recent_routines: user.workout_routines.order(created_at: :desc).limit(5).map { |r|
+        { id: r.id, created_at: r.created_at, exercises_count: r.routine_exercises.count }
+      }
+    }
+  end
+
+  # POST /admin/reset_test_user
+  def reset_test_user
+    user_type = params[:user_type] || "existing"
+    email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
+    user = User.find_by(email: email)
+
+    return render json: { error: "Test user not found" }, status: :not_found unless user
+
+    user.workout_routines.destroy_all
+    user.workout_sessions.destroy_all
+    new_level = user_type == "new" ? 1 : (params[:level]&.to_i || 5)
+    user.user_profile&.update(numeric_level: new_level)
+
+    render json: { success: true, message: "Test user reset", user_type: user_type }
+  end
+
+  # POST /admin/delete_test_routines
+  def delete_test_routines
+    user_type = params[:user_type] || "existing"
+    email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
+    user = User.find_by(email: email)
+
+    return render json: { error: "Test user not found" }, status: :not_found unless user
+
+    count = user.workout_routines.count
+    user.workout_routines.destroy_all
+
+    render json: { success: true, deleted: count, user_type: user_type }
+  end
+
+  # POST /admin/normalize_exercises
+  # mode=preview (기본) / mode=execute (실행)
+  # 1. 영어 이름 → 한글 변환
+  # 2. 중복 운동 제거 (한글 이름 기준)
+  def normalize_exercises
+    mode = params[:mode] || "preview"
+
+    results = {
+      mode: mode,
+      step1_conversions: [],
+      step2_duplicates: [],
+      summary: {}
+    }
+
+    # Step 1: 영어 → 한글 변환
+    Exercise.find_each do |exercise|
+      current_name = exercise.display_name || exercise.name
+      korean_name = AiTrainer::ExerciseNameNormalizer.normalize(current_name)
+
+      next unless korean_name != current_name && AiTrainer::ExerciseNameNormalizer.korean?(korean_name)
+
+      if mode == "execute"
+        exercise.update!(display_name: korean_name)
+      end
+      results[:step1_conversions] << { id: exercise.id, from: current_name, to: korean_name }
+    end
+
+    # Step 2: 중복 제거 (display_name 기준)
+    duplicates = Exercise.group(:display_name)
+                         .having("COUNT(*) > 1")
+                         .count
+
+    duplicates.each do |name, count|
+      next if name.blank?
+
+      exercises = Exercise.where(display_name: name).order(:id)
+      keep = exercises.first
+      to_delete = exercises.offset(1)
+
+      to_delete.each do |dup|
+        results[:step2_duplicates] << {
+          keep_id: keep.id,
+          delete_id: dup.id,
+          name: name
+        }
+
+        if mode == "execute"
+          # 참조 업데이트: routine_exercises의 exercise_name을 유지 (이미 문자열이므로 OK)
+          # workout_sets도 exercise_name 문자열 사용
+          dup.destroy
+        end
+      end
+    end
+
+    results[:summary] = {
+      conversions: results[:step1_conversions].count,
+      duplicates_removed: results[:step2_duplicates].count
+    }
+
+    render json: results
+  end
+
+  # GET /admin/exercise_stats
+  def exercise_stats
+    total = Exercise.count
+    english_exercises = Exercise.all.reject { |e| (e.display_name || e.name).to_s.match?(/[가-힣]/) }
+    korean_count = total - english_exercises.count
+
+    render json: {
+      total: total,
+      korean: korean_count,
+      english: english_exercises.count,
+      korean_percent: (korean_count.to_f / total * 100).round(1),
+      english_list: english_exercises.map { |e| { id: e.id, name: e.display_name || e.name } }
+    }
+  end
+
+  # GET /admin/exercise_data_status
+  # 운동 데이터 필드 채움 현황
+  def exercise_data_status
+    total = Exercise.count
+
+    fields = {
+      description: Exercise.where.not(description: [nil, ""]).count,
+      form_tips: Exercise.where.not(form_tips: [nil, ""]).count,
+      common_mistakes: Exercise.where.not(common_mistakes: [nil, ""]).count,
+      equipment: Exercise.where("array_length(equipment, 1) > 0").count,
+      secondary_muscles: Exercise.where("array_length(secondary_muscles, 1) > 0").count,
+      video_references: Exercise.where("jsonb_array_length(video_references) > 0").count,
+      variations: Exercise.where("variations != '{}'::jsonb").count
+    }
+
+    field_stats = fields.map do |name, count|
+      { field: name.to_s, count: count, percent: (count.to_f / total * 100).round(1) }
+    end
+
+    # 샘플 데이터 (설명 있는 운동 3개)
+    samples = Exercise.where.not(description: [nil, ""]).limit(3).map do |e|
+      {
+        name: e.display_name || e.name,
+        description: e.description&.truncate(200),
+        form_tips: e.form_tips&.truncate(100),
+        equipment: e.equipment,
+        video_count: e.video_references&.size || 0
+      }
+    end
+
+    # 비디오 없는 운동 샘플
+    no_video_samples = Exercise.where("jsonb_array_length(video_references) = 0 OR video_references IS NULL")
+                               .limit(10)
+                               .pluck(:display_name)
+
+    # Knowledge Chunks 현황
+    chunk_stats = {
+      total_chunks: FitnessKnowledgeChunk.count,
+      chunks_with_exercise: FitnessKnowledgeChunk.where.not(exercise_name: [nil, ""]).count,
+      unique_exercises_in_chunks: FitnessKnowledgeChunk.where.not(exercise_name: [nil, ""]).distinct.pluck(:exercise_name).count,
+      by_knowledge_type: FitnessKnowledgeChunk.group(:knowledge_type).count
+    }
+
+    # YouTube Videos 현황
+    video_stats = {
+      total_videos: YoutubeVideo.count,
+      analyzed: YoutubeVideo.where(analysis_status: "completed").count,
+      pending: YoutubeVideo.where(analysis_status: "pending").count,
+      with_transcript: YoutubeVideo.where.not(transcript: [nil, ""]).count
+    }
+
+    # Chunk에 있는 운동 vs Exercise 테이블 매칭
+    chunk_exercise_names = FitnessKnowledgeChunk.where.not(exercise_name: [nil, ""]).distinct.pluck(:exercise_name)
+    exercise_names = Exercise.pluck(:display_name, :name, :english_name).flatten.compact.map(&:downcase)
+
+    matched = chunk_exercise_names.select { |name| exercise_names.include?(name.downcase) }
+    unmatched = chunk_exercise_names.reject { |name| exercise_names.include?(name.downcase) }
+
+    # Chunk exercise_name 샘플 (다양한 유형)
+    chunk_samples = FitnessKnowledgeChunk
+      .where.not(exercise_name: [nil, ""])
+      .order("RANDOM()")
+      .limit(30)
+      .pluck(:exercise_name, :knowledge_type, :summary)
+      .map { |name, type, summary| { exercise_name: name, type: type, summary: summary&.truncate(100) } }
+
+    render json: {
+      exercise_table: {
+        total: total,
+        field_stats: field_stats
+      },
+      knowledge_chunks: chunk_stats,
+      youtube_videos: video_stats,
+      chunk_exercise_matching: {
+        total_in_chunks: chunk_exercise_names.count,
+        matched_with_exercise_table: matched.count,
+        unmatched: unmatched.count,
+        unmatched_samples: unmatched.first(20)
+      },
+      chunk_samples: chunk_samples
+    }
+  end
+
+  # POST /admin/deactivate_suspicious_exercises
+  # 분석 결과 의심 항목 비활성화 (예외 항목 제외)
+  def deactivate_suspicious_exercises
+    # 유지할 운동들
+    keep_names = [
+      "1RM 테스트",
+      "싱글레그 브릿지 테스트",
+      "파버 테스트",
+      "포즈 스쿼트"
+    ]
+
+    # 비활성화할 패턴들
+    non_exercise_patterns = [
+      /해부학|anatomy/i, /생리학|physiology/i, /테스트|test|평가|assessment/i,
+      /진단|diagnosis/i, /분석|analysis/i, /모니터링|monitoring/i, /추적|tracking/i,
+      /식사|meal|breakfast|lunch|dinner/i, /영양|nutrition|섭취|intake/i,
+      /레시피|recipe/i, /요리|cooking/i, /칼로리|calori/i,
+      /스테로이드|steroid/i, /주사|injection/i, /사이클|cycle/i, /부작용|side effect/i,
+      /트렌볼론|trenbolone/i, /아나드롤|anadrol/i, /디아나볼|dianabol/i,
+      /클렌부테롤|clenbuterol/i, /난드롤론|nandrolone/i, /sarm|rad.?140/i, /finasteride|minoxidil/i,
+      /수면|sleep|nap/i, /스트레스|stress/i, /습관|habit/i, /동기|motivation/i,
+      /마인드|mind|mental/i, /목표 설정|goal setting/i, /라이프스타일|lifestyle/i,
+      /콘텐츠|content/i, /코칭|coaching/i, /온라인|online/i, /제품|product/i,
+      /전략|strategy/i, /방법론|methodology/i, /단계|phase/i, /주기화|periodization/i,
+      /유지|maintenance/i, /적응|adaptation/i, /포즈|pose/i, /프레젠테이션|presentation/i,
+      /복싱|boxing/i, /주짓수|jiu.?jitsu/i, /레슬링|wrestling/i, /서핑|surfing/i,
+      /수영|swimming/i, /야구|baseball/i, /격투|combat/i, /사이클링|cycling/i
+    ]
+
+    exercises = Exercise.where(active: true)
+    to_deactivate = []
+
+    exercises.each do |ex|
+      name = ex.display_name || ex.name
+
+      # 유지할 운동은 스킵
+      next if keep_names.any? { |keep| name.include?(keep) }
+
+      # 패턴 매칭되면 비활성화 대상
+      if non_exercise_patterns.any? { |pattern| name.match?(pattern) }
+        to_deactivate << ex
+      end
+    end
+
+    # 비활성화 실행
+    deactivated_names = to_deactivate.map { |ex| ex.display_name || ex.name }
+    Exercise.where(id: to_deactivate.map(&:id)).update_all(active: false)
+
+    remaining = Exercise.where(active: true).count
+
+    render json: {
+      deactivated_count: to_deactivate.count,
+      deactivated_names: deactivated_names,
+      remaining_active: remaining,
+      kept: keep_names
+    }
+  end
+
+  # GET /admin/analyze_exercises
+  # 활성 운동 분석 - 루틴에 부적합한 항목 찾기
+  def analyze_exercises
+    exercises = Exercise.where(active: true).order(:display_name)
+
+    # 운동이 아닌 것 같은 패턴들
+    non_exercise_patterns = [
+      # 개념/이론
+      /해부학|anatomy/i,
+      /생리학|physiology/i,
+      /테스트|test|평가|assessment/i,
+      /진단|diagnosis/i,
+      /분석|analysis/i,
+      /모니터링|monitoring/i,
+      /추적|tracking/i,
+
+      # 영양/식단
+      /식사|meal|breakfast|lunch|dinner/i,
+      /영양|nutrition|섭취|intake/i,
+      /레시피|recipe/i,
+      /요리|cooking/i,
+      /칼로리|calori/i,
+      /단백질|protein/i,
+      /탄수화물|carb/i,
+
+      # 약물/보충제
+      /스테로이드|steroid/i,
+      /주사|injection/i,
+      /사이클|cycle/i,
+      /부작용|side effect/i,
+      /트렌볼론|trenbolone/i,
+      /아나드롤|anadrol/i,
+      /디아나볼|dianabol/i,
+      /클렌부테롤|clenbuterol/i,
+      /난드롤론|nandrolone/i,
+      /테스토스테론|testosterone/i,
+      /sarm|rad.?140/i,
+      /finasteride|minoxidil/i,
+
+      # 라이프스타일
+      /수면|sleep|nap/i,
+      /스트레스|stress/i,
+      /습관|habit/i,
+      /동기|motivation/i,
+      /마인드|mind|mental/i,
+      /목표 설정|goal setting/i,
+      /라이프스타일|lifestyle/i,
+
+      # 비즈니스/콘텐츠
+      /콘텐츠|content/i,
+      /코칭|coaching/i,
+      /온라인|online/i,
+      /제품|product/i,
+      /평가|evaluation/i,
+
+      # 일반 개념
+      /전략|strategy/i,
+      /방법론|methodology/i,
+      /원칙|principle/i,
+      /진행|progression(?! 운동)/i,
+      /단계|phase/i,
+      /주기화|periodization/i,
+      /유지|maintenance/i,
+      /적응|adaptation/i,
+
+      # 포즈 (보디빌딩)
+      /포즈|pose/i,
+      /프레젠테이션|presentation/i,
+
+      # 스포츠 (웨이트가 아닌)
+      /복싱|boxing/i,
+      /주짓수|jiu.?jitsu/i,
+      /레슬링|wrestling/i,
+      /서핑|surfing/i,
+      /수영|swimming/i,
+      /야구|baseball/i,
+      /격투|combat/i
+    ]
+
+    suspicious = []
+    valid = []
+
+    exercises.each do |ex|
+      name = ex.display_name || ex.name
+      is_suspicious = non_exercise_patterns.any? { |pattern| name.match?(pattern) }
+
+      if is_suspicious
+        suspicious << {
+          id: ex.id,
+          name: name,
+          muscle_group: ex.muscle_group,
+          video_count: ex.video_references&.size || 0,
+          description: ex.description&.truncate(100)
+        }
+      else
+        valid << { id: ex.id, name: name }
+      end
+    end
+
+    render json: {
+      total_active: exercises.count,
+      suspicious_count: suspicious.count,
+      valid_count: valid.count,
+      suspicious_exercises: suspicious,
+      valid_sample: valid.first(30)
+    }
+  end
+
+  # POST /admin/deactivate_exercises_without_video
+  # 영상 없는 운동 비활성화
+  # ?dry_run=true (기본) - 미리보기만
+  # ?dry_run=false - 실제 실행
+  def deactivate_exercises_without_video
+    dry_run = params[:dry_run] != "false"
+
+    # 영상 없는 운동 찾기
+    exercises_without_video = Exercise.where(
+      "video_references = '[]'::jsonb OR video_references IS NULL OR jsonb_array_length(video_references) = 0"
+    ).where(active: true)
+
+    count = exercises_without_video.count
+    samples = exercises_without_video.limit(20).pluck(:id, :display_name)
+
+    if !dry_run && count > 0
+      exercises_without_video.update_all(active: false)
+    end
+
+    # 남은 활성 운동 통계
+    active_count = Exercise.where(active: true).count
+    active_with_video = Exercise.where(active: true)
+      .where("jsonb_array_length(video_references) > 0").count
+
+    render json: {
+      dry_run: dry_run,
+      deactivated_count: dry_run ? 0 : count,
+      would_deactivate: count,
+      samples: samples.map { |id, name| { id: id, name: name } },
+      after_stats: {
+        total_active: dry_run ? active_count : (active_count - count),
+        with_video: active_with_video
+      }
+    }
+  end
+
+  # POST /admin/test_routine_generator
+  # ToolBasedRoutineGenerator 직접 테스트
+  def test_routine_generator
+    user_type = params[:user_type] || "existing"
+    level = params[:level]&.to_i || 5
+    goal = params[:goal] || "가슴 운동"
+
+    user, _token = get_or_create_test_user(level, user_type: user_type)
+
+    generator = AiTrainer::ToolBasedRoutineGenerator.new(user: user)
+    generator.with_goal(goal)
+
+    result = generator.generate
+
+    # 운동별 데이터 상세 확인
+    exercise_details = result[:exercises]&.map do |ex|
+      {
+        name: ex[:exercise_name],
+        has_description: ex[:description].present?,
+        has_instructions: ex[:instructions].present?,
+        video_count: ex[:video_references]&.size || 0,
+        video_urls: ex[:video_references]&.map { |v| v[:url] }
+      }
+    end
+
+    render json: {
+      success: result[:exercises].present?,
+      routine_name: result[:fitness_factor_korean],
+      exercise_count: result[:exercises]&.size || 0,
+      exercises_with_video: result[:exercises]&.count { |e| e[:video_references]&.any? } || 0,
+      exercises_with_description: result[:exercises]&.count { |e| e[:description].present? } || 0,
+      exercise_details: exercise_details,
+      full_routine: result
+    }
+  end
+
+  # POST /admin/sync_exercise_knowledge
+  # Chunk 데이터를 Exercise 테이블에 동기화
+  # ?dry_run=true (기본) - 미리보기만
+  # ?dry_run=false - 실제 실행
+  def sync_exercise_knowledge
+    dry_run = params[:dry_run] != "false"
+
+    service = ExerciseKnowledgeSyncService.new(dry_run: dry_run)
+    stats = service.sync_all
+
+    # 동기화 후 Exercise 데이터 현황
+    exercise_stats = {
+      total: Exercise.count,
+      with_description: Exercise.where.not(description: [nil, ""]).count,
+      with_form_tips: Exercise.where.not(form_tips: [nil, ""]).count,
+      with_video_refs: Exercise.where("jsonb_array_length(video_references) > 0").count
+    }
+
+    render json: {
+      dry_run: dry_run,
+      sync_stats: stats,
+      exercise_stats_after: exercise_stats
+    }
+  end
+
   # POST /admin/reanalyze_videos
   # Triggers reanalysis of all videos with timestamp extraction
   # Use ?status=pending|completed|all (default: all)
@@ -1391,5 +1890,425 @@ class AdminController < ApplicationController
     unless expected.present? && ActiveSupport::SecurityUtils.secure_compare(token.to_s, expected)
       render json: { error: "Unauthorized" }, status: :unauthorized
     end
+  end
+
+  def get_or_create_test_user(level = 5, user_type: "existing")
+    if user_type == "new"
+      # 신규 유저: 레벨 1, 루틴/기록 없음
+      email = "test_new@repstack.io"
+      name = "신규 테스트 유저"
+      target_level = 1
+    else
+      # 기존 유저: 선택한 레벨
+      email = "test@repstack.io"
+      name = "기존 테스트 유저"
+      target_level = level
+    end
+
+    user = User.find_or_create_by!(email: email) do |u|
+      u.password = SecureRandom.hex(16)
+      u.name = name
+    end
+
+    user.user_profile ||= user.create_user_profile!
+    user.user_profile.update!(numeric_level: target_level) if user.user_profile.numeric_level != target_level
+
+    token = JsonWebToken.encode(user_id: user.id)
+    [user, token]
+  end
+
+  def chat_html
+    <<~HTML
+      <!DOCTYPE html>
+      <html lang="ko">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>AI Trainer API Test</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f0f1a;
+            color: #eee;
+            height: 100vh;
+            display: flex;
+          }
+          .left-panel {
+            width: 320px;
+            background: #16213e;
+            border-right: 1px solid #0f3460;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+          }
+          .panel-section {
+            padding: 16px;
+            border-bottom: 1px solid #0f3460;
+          }
+          .panel-section h3 {
+            font-size: 13px;
+            color: #e94560;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+          }
+          .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+          }
+          .test-btn {
+            background: #0f3460;
+            border: 1px solid #1a4a7a;
+            color: #fff;
+            padding: 10px 8px;
+            border-radius: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-align: center;
+          }
+          .test-btn:hover { background: #1a4a7a; border-color: #e94560; }
+          .test-btn.full { grid-column: span 2; }
+          .test-btn.danger { border-color: #ff4444; color: #ff6b6b; }
+          .test-btn.danger:hover { background: #4a1a1a; }
+          .form-group { margin-bottom: 12px; }
+          .form-group label { display: block; font-size: 11px; color: #888; margin-bottom: 4px; }
+          .form-group select, .form-group input {
+            width: 100%;
+            background: #0f3460;
+            border: 1px solid #1a4a7a;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+          }
+          .user-info { background: #0f3460; padding: 12px; border-radius: 8px; font-size: 12px; }
+          .user-info div { margin-bottom: 4px; }
+          .user-info span { color: #e94560; }
+          .right-panel { flex: 1; display: flex; flex-direction: column; }
+          .header {
+            background: #16213e;
+            padding: 12px 20px;
+            border-bottom: 1px solid #0f3460;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+          }
+          .header h1 { font-size: 18px; color: #e94560; }
+          .header-actions { display: flex; gap: 8px; }
+          .header-btn {
+            background: #0f3460;
+            border: 1px solid #1a4a7a;
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+          }
+          .header-btn:hover { border-color: #e94560; }
+          .header-btn.active { background: #e94560; border-color: #e94560; }
+          .main-content { flex: 1; display: flex; overflow: hidden; }
+          .chat-area { flex: 1; display: flex; flex-direction: column; }
+          .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+          }
+          .message {
+            max-width: 85%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            font-size: 14px;
+          }
+          .message.user { background: #e94560; align-self: flex-end; border-bottom-right-radius: 4px; }
+          .message.bot { background: #1a2744; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #0f3460; }
+          .message.system { background: #2a2a4a; align-self: center; font-size: 12px; color: #888; }
+          .message.error { background: #4a1a1a; border: 1px solid #ff4444; align-self: center; }
+          .message .intent-badge { display: inline-block; background: #e94560; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-bottom: 8px; }
+          .message .routine-card { margin-top: 12px; padding: 12px; background: #0f3460; border-radius: 8px; font-size: 13px; }
+          .message .routine-card h4 { color: #e94560; margin-bottom: 8px; }
+          .message .exercise-item { padding: 6px 0; border-bottom: 1px solid #1a4a7a; }
+          .message .exercise-item:last-child { border-bottom: none; }
+          .input-area { background: #16213e; padding: 12px 16px; border-top: 1px solid #0f3460; display: flex; gap: 8px; }
+          .input-area input { flex: 1; background: #0f3460; border: 1px solid #1a4a7a; color: #fff; padding: 12px 16px; border-radius: 20px; font-size: 14px; outline: none; }
+          .input-area input:focus { border-color: #e94560; }
+          .input-area button { background: #e94560; color: #fff; border: none; padding: 12px 24px; border-radius: 20px; font-size: 14px; font-weight: 600; cursor: pointer; }
+          .input-area button:hover { background: #ff6b6b; }
+          .input-area button:disabled { background: #666; }
+          .raw-panel { width: 400px; background: #0a0a15; border-left: 1px solid #0f3460; display: none; flex-direction: column; }
+          .raw-panel.visible { display: flex; }
+          .raw-panel h3 { padding: 12px 16px; background: #16213e; font-size: 13px; color: #e94560; border-bottom: 1px solid #0f3460; }
+          .raw-content { flex: 1; overflow-y: auto; padding: 12px; }
+          .raw-block { margin-bottom: 16px; }
+          .raw-block h4 { font-size: 11px; color: #888; margin-bottom: 6px; text-transform: uppercase; }
+          .raw-block pre { background: #16213e; padding: 12px; border-radius: 6px; font-size: 11px; overflow-x: auto; white-space: pre-wrap; color: #8f8; }
+          .raw-block pre.error { color: #f88; }
+        </style>
+      </head>
+      <body>
+        <div class="left-panel">
+          <div class="panel-section">
+            <h3>⚙️ 설정</h3>
+            <div class="form-group">
+              <label>Admin Token</label>
+              <input type="password" id="token" placeholder="Admin Token">
+            </div>
+            <div class="form-group">
+              <label>User Type</label>
+              <select id="userType">
+                <option value="new">🆕 신규 유저 (Lv.1, 기록없음)</option>
+                <option value="existing" selected>👤 기존 유저 (레벨 선택)</option>
+              </select>
+            </div>
+            <div class="form-group" id="levelGroup">
+              <label>User Level (1-8)</label>
+              <select id="level">
+                <option value="1">1 - 입문</option>
+                <option value="2">2 - 초급</option>
+                <option value="3">3 - 초급+</option>
+                <option value="4">4 - 중급</option>
+                <option value="5" selected>5 - 중급+</option>
+                <option value="6">6 - 중상급</option>
+                <option value="7">7 - 고급</option>
+                <option value="8">8 - 최고급</option>
+              </select>
+            </div>
+          </div>
+          <div class="panel-section">
+            <h3>👤 테스트 유저</h3>
+            <div class="user-info" id="userInfo">
+              <div>ID: <span id="userId">-</span></div>
+              <div>Level: <span id="userLevel">-</span></div>
+              <div>Routines: <span id="userRoutines">-</span></div>
+            </div>
+            <div style="margin-top: 12px;">
+              <button class="test-btn full" onclick="resetUser()">🔄 유저 리셋</button>
+            </div>
+          </div>
+          <div class="panel-section">
+            <h3>🚀 빠른 테스트</h3>
+            <div class="btn-grid">
+              <button class="test-btn" onclick="quickTest('등 운동 루틴 만들어줘')">등 루틴</button>
+              <button class="test-btn" onclick="quickTest('가슴 운동 추천해줘')">가슴 루틴</button>
+              <button class="test-btn" onclick="quickTest('하체 운동 루틴')">하체 루틴</button>
+              <button class="test-btn" onclick="quickTest('전신 운동')">전신 루틴</button>
+              <button class="test-btn" onclick="quickTest('오늘 피곤한데 운동 뭐해')">컨디션 반영</button>
+              <button class="test-btn" onclick="quickTest('30분만 운동하고 싶어')">시간 제한</button>
+            </div>
+          </div>
+          <div class="panel-section">
+            <h3>💬 일반 질문 (RAG)</h3>
+            <div class="btn-grid">
+              <button class="test-btn" onclick="quickTest('스쿼트 자세 알려줘')">스쿼트 자세</button>
+              <button class="test-btn" onclick="quickTest('벤치프레스 팁')">벤치 팁</button>
+              <button class="test-btn" onclick="quickTest('데드리프트 허리 아파')">데드 허리</button>
+              <button class="test-btn" onclick="quickTest('3분할 추천해줘')">3분할 추천</button>
+            </div>
+          </div>
+          <div class="panel-section">
+            <h3>🔄 루틴 수정</h3>
+            <div class="btn-grid">
+              <button class="test-btn" onclick="quickTest('이거 말고 다른 운동')">운동 교체</button>
+              <button class="test-btn" onclick="quickTest('운동 하나 더 추가해줘')">운동 추가</button>
+              <button class="test-btn full" onclick="quickTest('루틴 다시 만들어줘')">루틴 재생성</button>
+            </div>
+          </div>
+          <div class="panel-section">
+            <h3>🗑️ 관리</h3>
+            <div class="btn-grid">
+              <button class="test-btn danger" onclick="clearChat()">채팅 클리어</button>
+              <button class="test-btn danger" onclick="deleteRoutines()">루틴 삭제</button>
+            </div>
+          </div>
+        </div>
+        <div class="right-panel">
+          <div class="header">
+            <h1>🏋️ AI Trainer API Test</h1>
+            <div class="header-actions">
+              <button class="header-btn" id="toggleRaw" onclick="toggleRawPanel()">Raw 보기</button>
+              <button class="header-btn" onclick="refreshUserInfo()">새로고침</button>
+            </div>
+          </div>
+          <div class="main-content">
+            <div class="chat-area">
+              <div class="chat-container" id="chat"></div>
+              <div class="input-area">
+                <input type="text" id="message" placeholder="메시지 입력..." autofocus>
+                <button id="send" onclick="sendMessage()">전송</button>
+              </div>
+            </div>
+            <div class="raw-panel" id="rawPanel">
+              <h3>📋 Raw API Response</h3>
+              <div class="raw-content">
+                <div class="raw-block"><h4>Request</h4><pre id="rawRequest">-</pre></div>
+                <div class="raw-block"><h4>Response</h4><pre id="rawResponse">-</pre></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <script>
+          const chat = document.getElementById('chat');
+          const input = document.getElementById('message');
+          const sendBtn = document.getElementById('send');
+          const levelSelect = document.getElementById('level');
+          const userTypeSelect = document.getElementById('userType');
+          const levelGroup = document.getElementById('levelGroup');
+          const tokenInput = document.getElementById('token');
+          let sessionId = 'admin_' + Date.now();
+          let currentRoutineId = null;
+
+          tokenInput.value = localStorage.getItem('admin_token') || new URLSearchParams(window.location.search).get('admin_token') || '';
+          tokenInput.addEventListener('change', () => localStorage.setItem('admin_token', tokenInput.value));
+          levelSelect.addEventListener('change', () => refreshUserInfo());
+          userTypeSelect.addEventListener('change', () => {
+            levelGroup.style.display = userTypeSelect.value === 'new' ? 'none' : 'block';
+            sessionId = 'admin_' + Date.now();
+            currentRoutineId = null;
+            refreshUserInfo();
+          });
+
+          document.addEventListener('DOMContentLoaded', () => {
+            addSystemMessage('API 테스트 준비 완료. 좌측 버튼으로 빠른 테스트 가능!');
+            refreshUserInfo();
+          });
+
+          function getToken() {
+            const token = tokenInput.value;
+            if (!token) { alert('Admin Token을 입력하세요'); return null; }
+            return token;
+          }
+
+          function addMessage(text, type, extra = {}) {
+            const div = document.createElement('div');
+            div.className = 'message ' + type;
+            let html = '';
+            if (extra.intent) html += '<span class="intent-badge">' + extra.intent + '</span><br>';
+            html += text.replace(/\\n/g, '<br>');
+            if (extra.routine) html += formatRoutineCard(extra.routine);
+            div.innerHTML = html;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+          }
+
+          function addSystemMessage(text) {
+            const div = document.createElement('div');
+            div.className = 'message system';
+            div.textContent = text;
+            chat.appendChild(div);
+            chat.scrollTop = chat.scrollHeight;
+          }
+
+          function formatRoutineCard(routine) {
+            if (!routine) return '';
+            let html = '<div class="routine-card">';
+            html += '<h4>📋 ' + (routine.dayKorean || '루틴') + '</h4>';
+            if (routine.estimatedDurationMinutes) html += '<div>⏱️ ' + routine.estimatedDurationMinutes + '분</div>';
+            if (routine.exercises && routine.exercises.length > 0) {
+              routine.exercises.forEach((ex, i) => {
+                html += '<div class="exercise-item">';
+                html += '<strong>' + (i+1) + '. ' + ex.exerciseName + '</strong>';
+                if (ex.sets || ex.reps) html += ' - ' + (ex.sets || '?') + '세트 x ' + (ex.reps || '?') + '회';
+                html += '</div>';
+              });
+            }
+            if (routine.routineId) {
+              html += '<div style="margin-top:8px;font-size:11px;color:#888;">ID: ' + routine.routineId + '</div>';
+              currentRoutineId = routine.routineId;
+            }
+            html += '</div>';
+            return html;
+          }
+
+          async function sendMessage(customMessage = null) {
+            const message = customMessage || input.value.trim();
+            if (!message) return;
+            const token = getToken();
+            if (!token) return;
+            if (!customMessage) { addMessage(message, 'user'); input.value = ''; }
+            sendBtn.disabled = true;
+            const reqBody = { message, level: levelSelect.value, user_type: userTypeSelect.value, session_id: sessionId, routine_id: currentRoutineId };
+            document.getElementById('rawRequest').textContent = JSON.stringify(reqBody, null, 2);
+            try {
+              const res = await fetch('/admin/chat?admin_token=' + encodeURIComponent(token), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(reqBody)
+              });
+              const data = await res.json();
+              document.getElementById('rawResponse').textContent = JSON.stringify(data, null, 2);
+              document.getElementById('rawResponse').className = data.success ? '' : 'error';
+              if (data.success) {
+                addMessage(data.message || '(응답 없음)', 'bot', { intent: data.intent, routine: data.data?.routine });
+                if (data.data?.routine?.routineId) currentRoutineId = data.data.routine.routineId;
+              } else {
+                addMessage('Error: ' + (data.error || 'Unknown'), 'error');
+              }
+              refreshUserInfo();
+            } catch (e) {
+              addMessage('Network Error: ' + e.message, 'error');
+              document.getElementById('rawResponse').textContent = e.message;
+              document.getElementById('rawResponse').className = 'error';
+            }
+            sendBtn.disabled = false;
+            input.focus();
+          }
+
+          function quickTest(message) { addMessage(message, 'user'); sendMessage(message); }
+
+          async function refreshUserInfo() {
+            const token = getToken();
+            if (!token) return;
+            try {
+              const res = await fetch('/admin/test_user_info?admin_token=' + encodeURIComponent(token) + '&level=' + levelSelect.value + '&user_type=' + userTypeSelect.value);
+              const data = await res.json();
+              const userTypeLabel = userTypeSelect.value === 'new' ? '🆕' : '👤';
+              document.getElementById('userId').textContent = userTypeLabel + ' ' + (data.id || '-');
+              document.getElementById('userLevel').textContent = data.level || '-';
+              document.getElementById('userRoutines').textContent = data.recent_routines?.length || '0';
+            } catch (e) { console.error('Failed to fetch user info:', e); }
+          }
+
+          async function resetUser() {
+            const token = getToken();
+            if (!token) return;
+            const userType = userTypeSelect.value;
+            const label = userType === 'new' ? '신규' : '기존';
+            if (!confirm(label + ' 테스트 유저를 리셋하시겠습니까?')) return;
+            try {
+              const res = await fetch('/admin/reset_test_user?admin_token=' + encodeURIComponent(token) + '&user_type=' + userType, { method: 'POST' });
+              addSystemMessage('✅ ' + label + ' 유저 리셋 완료');
+              currentRoutineId = null;
+              sessionId = 'admin_' + Date.now();
+              refreshUserInfo();
+            } catch (e) { addMessage('Reset Error: ' + e.message, 'error'); }
+          }
+
+          async function deleteRoutines() {
+            const token = getToken();
+            if (!token) return;
+            const userType = userTypeSelect.value;
+            if (!confirm('선택된 유저의 모든 루틴을 삭제하시겠습니까?')) return;
+            try {
+              const res = await fetch('/admin/delete_test_routines?admin_token=' + encodeURIComponent(token) + '&user_type=' + userType, { method: 'POST' });
+              const data = await res.json();
+              addSystemMessage('✅ 루틴 ' + (data.deleted || 0) + '개 삭제됨');
+              currentRoutineId = null;
+              refreshUserInfo();
+            } catch (e) { addMessage('Delete Error: ' + e.message, 'error'); }
+          }
+
+          function clearChat() { chat.innerHTML = ''; addSystemMessage('채팅 클리어됨'); }
+          function toggleRawPanel() { document.getElementById('rawPanel').classList.toggle('visible'); document.getElementById('toggleRaw').classList.toggle('active'); }
+          input.addEventListener('keypress', (e) => { if (e.key === 'Enter') sendMessage(); });
+        </script>
+      </body>
+      </html>
+    HTML
   end
 end

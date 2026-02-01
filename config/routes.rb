@@ -16,6 +16,19 @@ Rails.application.routes.draw do
 
   # Admin endpoints (protected by token)
   scope "/admin", controller: :admin do
+    get "/chat", action: :chat_ui
+    post "/chat", action: :chat_send
+    get "/test_user_info", action: :test_user_info
+    post "/reset_test_user", action: :reset_test_user
+    post "/delete_test_routines", action: :delete_test_routines
+    post "/normalize_exercises", action: :normalize_exercises
+    get "/exercise_stats", action: :exercise_stats
+    get "/exercise_data_status", action: :exercise_data_status
+    post "/sync_exercise_knowledge", action: :sync_exercise_knowledge
+    post "/test_routine_generator", action: :test_routine_generator
+    get "/analyze_exercises", action: :analyze_exercises
+    post "/deactivate_suspicious_exercises", action: :deactivate_suspicious_exercises
+    post "/deactivate_exercises_without_video", action: :deactivate_exercises_without_video
     post "/reanalyze_videos", action: :reanalyze_videos
     post "/stop_reanalysis", action: :stop_reanalysis
     get "/reanalyze_status", action: :reanalyze_status
