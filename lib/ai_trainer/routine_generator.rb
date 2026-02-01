@@ -76,12 +76,17 @@ module AiTrainer
     def build_exercises(workout)
       workout[:exercises].map.with_index(1) do |ex, order|
         adjusted = apply_condition_adjustment(ex)
+        exercise_name = ex[:name]
+
+        # DB에서 운동 조회 (이름 매칭)
+        db_exercise = find_exercise_by_name(exercise_name)
 
         {
           order: order,
-          exercise_id: "EX-#{order}-#{SecureRandom.hex(4)}",
-          exercise_name: ex[:name],
-          target_muscle: ex[:target],
+          exercise_id: db_exercise&.id&.to_s || generate_fallback_id(order),
+          exercise_name: db_exercise&.display_name || exercise_name,
+          exercise_name_english: db_exercise&.english_name,
+          target_muscle: ex[:target] || db_exercise&.muscle_group,
           sets: adjusted[:sets],
           reps: adjusted[:reps],
           target_total_reps: adjusted[:target_total_reps],
@@ -92,9 +97,32 @@ module AiTrainer
           how_to: ex[:how_to],
           rest_seconds: calculate_rest_seconds(workout[:training_type]),
           rest_type: ex[:work_seconds] ? "tabata" : "time_based",
-          instructions: ex[:how_to] || default_instruction(workout[:training_type])
+          instructions: ex[:how_to] || db_exercise&.form_tips || default_instruction(workout[:training_type])
         }
       end
+    end
+
+    def find_exercise_by_name(name)
+      return nil if name.blank?
+      return nil unless defined?(Exercise)
+
+      # 정확한 이름 매칭
+      exercise = Exercise.find_by(name: name)
+      return exercise if exercise
+
+      # display_name으로 매칭
+      exercise = Exercise.find_by(display_name: name)
+      return exercise if exercise
+
+      # 유사 이름 매칭 (ILIKE)
+      Exercise.where("name ILIKE ? OR display_name ILIKE ?", "%#{name}%", "%#{name}%").first
+    rescue StandardError => e
+      Rails.logger.warn("Exercise lookup failed for '#{name}': #{e.message}")
+      nil
+    end
+
+    def generate_fallback_id(order)
+      "TEMP-#{order}-#{SecureRandom.hex(4)}"
     end
 
     # Apply condition-based adjustments to variables

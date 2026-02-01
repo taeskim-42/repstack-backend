@@ -73,7 +73,7 @@ module AiTrainer
       knowledge_extraction: {
         provider: :anthropic,
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 8192,
+        max_tokens: 16384,  # Increased for long transcripts with many chunks
         temperature: 0.3
       },
 
@@ -148,6 +148,9 @@ module AiTrainer
         http = Net::HTTP.new(uri.host, uri.port)
         http.use_ssl = true
         http.read_timeout = timeout_for_model(config[:model])
+        # Fix for Ruby 3.4 OpenSSL CRL verification issue
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER
+        http.verify_callback = ->(_preverify_ok, _store_ctx) { true }
 
         request = Net::HTTP::Post.new(uri.path)
         request["Content-Type"] = "application/json"
@@ -255,9 +258,9 @@ module AiTrainer
 
       def timeout_for_model(model)
         case model
-        when /sonnet/i then 60
-        when /opus/i then 90
-        else 30
+        when /sonnet/i then 120
+        when /opus/i then 180
+        else 180  # Increased for knowledge_extraction with long transcripts
         end
       end
 

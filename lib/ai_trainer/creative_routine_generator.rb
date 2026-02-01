@@ -493,15 +493,21 @@ module AiTrainer
 
       # Build routine response
       exercises = data["exercises"].map.with_index(1) do |ex, idx|
+        exercise_name = ex["name"] || "운동 #{idx}"
+
+        # DB에서 운동 조회 (이름 매칭)
+        db_exercise = find_exercise_by_name(exercise_name)
+
         {
           order: idx,
-          exercise_id: "EX-#{idx}-#{SecureRandom.hex(4)}",
-          exercise_name: ex["name"],
-          target_muscle: ex["target_muscle"],
+          exercise_id: db_exercise&.id&.to_s || generate_fallback_id(idx),
+          exercise_name: db_exercise&.display_name || exercise_name,
+          exercise_name_english: db_exercise&.english_name,
+          target_muscle: ex["target_muscle"] || db_exercise&.muscle_group || "전신",
           sets: ex["sets"],
           reps: ex["reps"],
           rest_seconds: ex["rest_seconds"] || 60,
-          instructions: ex["instructions"],
+          instructions: ex["instructions"] || db_exercise&.form_tips,
           weight_description: ex["weight_guide"],
           rest_type: "time_based"
         }
@@ -560,10 +566,49 @@ module AiTrainer
 
     def default_exercises
       [
-        { order: 1, exercise_name: "푸시업", target_muscle: "가슴", sets: 3, reps: 10, rest_seconds: 60 },
-        { order: 2, exercise_name: "스쿼트", target_muscle: "하체", sets: 3, reps: 10, rest_seconds: 60 },
-        { order: 3, exercise_name: "플랭크", target_muscle: "코어", sets: 3, reps: 30, rest_seconds: 45 }
+        build_default_exercise("푸시업", 1, target: "가슴", reps: 10),
+        build_default_exercise("맨몸 스쿼트", 2, target: "하체", reps: 10),
+        build_default_exercise("플랭크", 3, target: "코어", reps: 30, rest: 45)
       ]
+    end
+
+    def build_default_exercise(name, order, target:, reps:, rest: 60)
+      db_exercise = find_exercise_by_name(name)
+
+      {
+        order: order,
+        exercise_id: db_exercise&.id&.to_s || generate_fallback_id(order),
+        exercise_name: db_exercise&.display_name || name,
+        exercise_name_english: db_exercise&.english_name,
+        target_muscle: db_exercise&.muscle_group || target,
+        sets: 3,
+        reps: reps,
+        rest_seconds: rest,
+        rest_type: "time_based"
+      }
+    end
+
+    def find_exercise_by_name(name)
+      return nil if name.blank?
+      return nil unless defined?(Exercise)
+
+      # 정확한 이름 매칭
+      exercise = Exercise.find_by(name: name)
+      return exercise if exercise
+
+      # display_name으로 매칭
+      exercise = Exercise.find_by(display_name: name)
+      return exercise if exercise
+
+      # 유사 이름 매칭 (ILIKE)
+      Exercise.where("name ILIKE ? OR display_name ILIKE ?", "%#{name}%", "%#{name}%").first
+    rescue StandardError => e
+      Rails.logger.warn("Exercise lookup failed for '#{name}': #{e.message}")
+      nil
+    end
+
+    def generate_fallback_id(idx)
+      "TEMP-#{idx}-#{SecureRandom.hex(4)}"
     end
   end
 end

@@ -3,6 +3,7 @@
 require_relative "constants"
 require_relative "llm_gateway"
 require_relative "workout_programs"
+require_relative "exercise_name_normalizer"
 
 module AiTrainer
   # Tool-based routine generator using LLM Tool Use
@@ -66,6 +67,46 @@ module AiTrainer
       high_energy: { volume_modifier: 1.1, intensity_modifier: 1.0, note: "볼륨 약간 증가 가능" }
     }.freeze
 
+    # Split programs by level
+    # 초급: 전신 운동 (주 3회)
+    # 중급: 상하체 분할 (주 4회) 또는 PPL (주 3-6회)
+    # 고급: PPL 또는 4-5분할
+    SPLIT_PROGRAMS = {
+      beginner: {
+        name: "전신 운동",
+        description: "모든 주요 근육을 매 세션에 훈련",
+        schedule: {
+          1 => { focus: "전신", muscles: %w[legs chest back shoulders core] },  # 월
+          2 => { focus: "휴식", muscles: [] },                                    # 화
+          3 => { focus: "전신", muscles: %w[legs chest back shoulders core] },  # 수
+          4 => { focus: "휴식", muscles: [] },                                    # 목
+          5 => { focus: "전신", muscles: %w[legs chest back shoulders core] }   # 금
+        }
+      },
+      intermediate: {
+        name: "상하체 분할",
+        description: "상체와 하체를 번갈아 훈련",
+        schedule: {
+          1 => { focus: "상체", muscles: %w[chest back shoulders arms] },       # 월
+          2 => { focus: "하체", muscles: %w[legs core] },                        # 화
+          3 => { focus: "휴식", muscles: [] },                                    # 수
+          4 => { focus: "상체", muscles: %w[chest back shoulders arms] },       # 목
+          5 => { focus: "하체", muscles: %w[legs core] }                         # 금
+        }
+      },
+      advanced: {
+        name: "PPL 분할",
+        description: "밀기-당기기-하체 3분할",
+        schedule: {
+          1 => { focus: "밀기 (Push)", muscles: %w[chest shoulders arms] },     # 월: 가슴, 어깨, 삼두
+          2 => { focus: "당기기 (Pull)", muscles: %w[back arms] },               # 화: 등, 이두
+          3 => { focus: "하체 (Legs)", muscles: %w[legs core] },                 # 수: 하체, 코어
+          4 => { focus: "밀기 (Push)", muscles: %w[chest shoulders arms] },     # 목
+          5 => { focus: "당기기 (Pull)", muscles: %w[back arms] }                # 금
+        }
+      }
+    }.freeze
+
     def initialize(user:, day_of_week: nil)
       @user = user
       @level = user.user_profile&.numeric_level || 1
@@ -88,18 +129,23 @@ module AiTrainer
     end
 
     def generate
+      Rails.logger.info("[ToolBasedRoutineGenerator] Starting generation with goal: #{@goal.inspect}")
+
       # 1. Build context for LLM
       context = build_context
 
       # 2. First LLM call with tools
+      Rails.logger.info("[ToolBasedRoutineGenerator] Calling LLM with tools...")
       response = call_llm_with_tools(context)
+      Rails.logger.info("[ToolBasedRoutineGenerator] LLM response: success=#{response[:success]}, model=#{response[:model]}, tool_use=#{response[:tool_use].present?}, content_length=#{response[:content]&.length}")
 
       # 3. Handle tool calls in a loop until done
-      max_iterations = 5
+      max_iterations = 10
       iteration = 0
 
       while response[:tool_use] && iteration < max_iterations
         iteration += 1
+        Rails.logger.info("[ToolBasedRoutineGenerator] Tool call #{iteration}: #{response[:tool_use][:name]}")
 
         # Execute the tool
         tool_result = execute_tool(response[:tool_use])
@@ -107,15 +153,26 @@ module AiTrainer
 
         # Continue conversation with tool result
         response = continue_with_tool_result(context, response, tool_result)
+        Rails.logger.info("[ToolBasedRoutineGenerator] After tool result: success=#{response[:success]}, tool_use=#{response[:tool_use].present?}")
       end
 
-      # 4. Parse final response
+      Rails.logger.info("[ToolBasedRoutineGenerator] Final: iterations=#{iteration}, tool_calls=#{@tool_calls.length}")
+
+      # 4. If no content yet, force final response (도구 호출 중단하고 JSON 반환 요청)
+      if response[:success] && !response[:content].present? && @tool_calls.any?
+        Rails.logger.info("[ToolBasedRoutineGenerator] Forcing final JSON response...")
+        response = force_final_response(context)
+      end
+
+      # 5. Parse final response
       if response[:success] && response[:content]
         result = parse_routine_response(response[:content])
         result[:tool_calls] = @tool_calls
         result[:generation_method] = "tool_based"
+        Rails.logger.info("[ToolBasedRoutineGenerator] Success! exercises=#{result[:exercises]&.length}")
         result
       else
+        Rails.logger.warn("[ToolBasedRoutineGenerator] Fallback: success=#{response[:success]}, content=#{response[:content].present?}")
         fallback_routine
       end
     rescue StandardError => e
@@ -233,81 +290,30 @@ module AiTrainer
       )
     end
 
+    # Force LLM to return final JSON without more tool calls
+    def force_final_response(context)
+      force_message = <<~MSG
+        도구 호출은 충분합니다. 지금까지 수집한 정보를 바탕으로 **즉시 JSON 형식의 최종 루틴을 반환하세요**.
+        더 이상 도구를 호출하지 마세요. 바로 JSON을 출력하세요.
+      MSG
+
+      LlmGateway.chat(
+        prompt: force_message,
+        task: :routine_generation,
+        system: system_prompt,
+        tools: nil  # No tools - force text response
+      )
+    end
+
     def available_tools
       [
         {
-          name: "search_exercises",
-          description: "근육 부위별 운동을 검색합니다. 3개 프로그램(초중고급, 심현도, 김성환)에서 추출된 운동 풀에서 검색합니다.",
+          name: "get_routine_data",
+          description: "루틴 생성에 필요한 모든 데이터를 한 번에 가져옵니다. 이 도구를 1번만 호출하면 됩니다.",
           input_schema: {
             type: "object",
-            properties: {
-              muscle: {
-                type: "string",
-                description: "타겟 근육 (가슴, 등, 어깨, 하체, 팔, 코어, 전신)"
-              },
-              movement_type: {
-                type: "string",
-                description: "동작 유형 (선택사항): compound(복합), isolation(고립), push(밀기), pull(당기기)",
-                enum: %w[compound isolation push pull]
-              },
-              limit: {
-                type: "integer",
-                description: "반환할 최대 운동 수 (기본 10)"
-              }
-            },
-            required: ["muscle"]
-          }
-        },
-        {
-          name: "get_training_variables",
-          description: "사용자 레벨과 컨디션에 맞는 훈련 변인 가이드라인을 조회합니다.",
-          input_schema: {
-            type: "object",
-            properties: {
-              include_condition_adjustment: {
-                type: "boolean",
-                description: "컨디션에 따른 조정값 포함 여부"
-              }
-            },
+            properties: {},
             required: []
-          }
-        },
-        {
-          name: "get_program_pattern",
-          description: "특정 프로그램의 훈련 패턴/철학을 조회합니다.",
-          input_schema: {
-            type: "object",
-            properties: {
-              program: {
-                type: "string",
-                description: "프로그램 이름",
-                enum: %w[심현도 김성환 초중고급]
-              }
-            },
-            required: ["program"]
-          }
-        },
-        {
-          name: "get_rag_knowledge",
-          description: "유튜브 영상에서 추출한 운동 지식을 검색합니다. 운동 팁, 자세 교정, 프로그램 설계 등의 정보를 얻을 수 있습니다.",
-          input_schema: {
-            type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description: "검색 쿼리 (예: '벤치프레스 자세', '등 운동 팁')"
-              },
-              knowledge_type: {
-                type: "string",
-                description: "지식 유형",
-                enum: %w[exercise_technique routine_design nutrition recovery]
-              },
-              limit: {
-                type: "integer",
-                description: "반환할 최대 결과 수 (기본 5)"
-              }
-            },
-            required: ["query"]
           }
         }
       ]
@@ -315,6 +321,8 @@ module AiTrainer
 
     def execute_tool(tool_use)
       case tool_use[:name]
+      when "get_routine_data"
+        get_routine_data
       when "search_exercises"
         search_exercises(tool_use[:input])
       when "get_training_variables"
@@ -328,64 +336,229 @@ module AiTrainer
       end
     end
 
+    # Single tool that returns all data needed for routine generation
+    def get_routine_data
+      tier = level_to_tier(@level)
+      variables = VARIABLE_GUIDELINES[tier]
+      split = SPLIT_PROGRAMS[tier]
+      today_schedule = split[:schedule][@day_of_week] || split[:schedule][1]
+
+      # If user has a specific goal, extract muscles from it (overrides schedule)
+      goal_muscles = extract_muscles_from_goal(@goal) if @goal.present?
+      Rails.logger.info("[ToolBasedRoutineGenerator] Goal: #{@goal.inspect}, extracted muscles: #{goal_muscles.inspect}")
+
+      # Use goal muscles if specified, otherwise use schedule
+      target_muscles = if goal_muscles.present?
+        Rails.logger.info("[ToolBasedRoutineGenerator] Using GOAL-based muscles: #{goal_muscles}")
+        goal_muscles
+      else
+        Rails.logger.info("[ToolBasedRoutineGenerator] Using SCHEDULE-based muscles: #{today_schedule[:muscles]}")
+        today_schedule[:muscles]
+      end
+
+      # Get exercises for target muscles
+      exercises_by_muscle = {}
+
+      if target_muscles.empty?
+        # 휴식일이면 가벼운 전신 또는 유산소 추천
+        %w[core].each do |muscle|
+          exercises = Exercise.active.for_level(@level).for_muscle(muscle).order(:difficulty).limit(5)
+          exercises_by_muscle[muscle] = exercises.map { |ex| exercise_to_hash(ex) }
+        end
+      else
+        target_muscles.each do |muscle|
+          exercises = Exercise.active.for_level(@level).for_muscle(muscle).order(:difficulty).limit(8)
+          exercises_by_muscle[muscle] = exercises.map { |ex| exercise_to_hash(ex) }
+        end
+      end
+
+      # Get recent workout history
+      recent_history = get_recent_workout_history
+
+      # Determine focus text
+      focus_text = if goal_muscles.present?
+        "사용자 요청: #{@goal}"
+      else
+        today_schedule[:focus]
+      end
+
+      {
+        user_level: @level,
+        tier: tier,
+        tier_korean: tier_korean(tier),
+        split_program: {
+          name: split[:name],
+          description: split[:description],
+          today_focus: focus_text,
+          target_muscles: target_muscles,
+          user_goal: @goal
+        },
+        training_variables: {
+          sets_per_exercise: "#{variables[:sets_per_exercise].min}-#{variables[:sets_per_exercise].max}",
+          reps_range: "#{variables[:reps_range].min}-#{variables[:reps_range].max}",
+          rpe_range: "#{variables[:rpe_range].min}-#{variables[:rpe_range].max}",
+          rest_seconds: "#{variables[:rest_seconds].min}-#{variables[:rest_seconds].max}",
+          tempo: variables[:tempo],
+          exercises_count: "#{variables[:exercises_count].min}-#{variables[:exercises_count].max}"
+        },
+        exercises: exercises_by_muscle,
+        recent_workouts: recent_history,
+        instructions: build_instructions(focus_text, target_muscles, goal_muscles.present?)
+      }
+    end
+
+    # Extract muscle groups from user's goal text
+    def extract_muscles_from_goal(goal)
+      return nil if goal.blank?
+
+      goal_lower = goal.downcase
+
+      # Keyword to muscle group mapping
+      muscle_keywords = {
+        "back" => %w[등 광배 광배근 척추 백 back lat pull],
+        "chest" => %w[가슴 체스트 흉근 chest pec push],
+        "shoulders" => %w[어깨 숄더 삼각근 shoulder delt],
+        "legs" => %w[하체 다리 허벅지 대퇴 햄스트링 종아리 leg quad hamstring calf squat],
+        "arms" => %w[팔 이두 삼두 이두근 삼두근 bicep tricep arm curl],
+        "core" => %w[코어 복근 복부 core abs abdominal plank]
+      }
+
+      detected_muscles = []
+
+      muscle_keywords.each do |muscle, keywords|
+        if keywords.any? { |kw| goal_lower.include?(kw) }
+          detected_muscles << muscle
+        end
+      end
+
+      # Full body keywords
+      fullbody_keywords = %w[전신 풀바디 전체 fullbody full-body]
+      if fullbody_keywords.any? { |kw| goal_lower.include?(kw) }
+        detected_muscles = %w[legs chest back shoulders core]
+      end
+
+      detected_muscles.uniq.presence
+    end
+
+    # Build instructions based on whether user specified a goal
+    def build_instructions(focus_text, target_muscles, is_user_goal)
+      if is_user_goal
+        "⚠️ 사용자가 명시적으로 '#{@goal}'을 요청했습니다. " \
+        "반드시 #{target_muscles.join(', ')} 근육 중심의 루틴을 구성하세요. " \
+        "스케줄보다 사용자 요청을 우선하세요. 반드시 id를 exercise_id로 포함하세요."
+      else
+        "오늘은 '#{focus_text}' 훈련일입니다. #{target_muscles.join(', ')} 근육을 타겟으로 루틴을 구성하세요. 반드시 id를 exercise_id로 포함하세요."
+      end
+    end
+
+    def get_recent_workout_history
+      # Get last 7 days of workout sessions
+      recent_sessions = @user.workout_sessions
+                             .where("started_at > ?", 7.days.ago)
+                             .includes(:workout_sets)
+                             .order(started_at: :desc)
+                             .limit(5)
+
+      return [] if recent_sessions.empty?
+
+      recent_sessions.map do |session|
+        exercises = session.workout_sets.group_by(&:exercise_name).keys
+        {
+          date: session.started_at.strftime("%m/%d"),
+          exercises: exercises.first(6),
+          muscle_groups: session.workout_sets.pluck(:target_muscle).uniq.compact
+        }
+      end
+    rescue StandardError => e
+      Rails.logger.warn("Failed to get workout history: #{e.message}")
+      []
+    end
+
+    # Convert Exercise model to hash with all enriched data
+    def exercise_to_hash(ex)
+      {
+        id: ex.id,
+        name: ex.display_name || ex.name,
+        difficulty: ex.difficulty,
+        equipment: ex.equipment,
+        description: ex.description&.truncate(200),
+        form_tips: ex.form_tips&.truncate(200),
+        video_count: ex.video_references&.size || 0,
+        has_video: ex.video_references&.any? || false
+      }
+    end
+
     # Tool implementations
 
     def search_exercises(input)
       muscle = input["muscle"] || input[:muscle]
-      limit = input["limit"] || input[:limit] || 10
 
-      exercises = WorkoutPrograms.get_exercise_pool(
-        level: @level,
-        target_muscle: muscle,
-        limit_per_program: (limit / 3.0).ceil
-      )
+      # Map Korean muscle names to DB muscle_group values
+      muscle_mapping = {
+        "가슴" => "chest",
+        "등" => "back",
+        "어깨" => "shoulders",
+        "하체" => "legs",
+        "팔" => "arms",
+        "코어" => "core",
+        "전신" => nil # nil means all
+      }
+      db_muscle = muscle_mapping[muscle] || muscle
+
+      # 전신 검색 시 더 많은 운동 반환
+      default_limit = db_muscle.nil? ? 30 : 10
+      limit = input["limit"] || input[:limit] || default_limit
+
+      # Query DB Exercise table directly
+      exercises = Exercise.active.for_level(@level)
+      exercises = exercises.for_muscle(db_muscle) if db_muscle.present?
+      exercises = exercises.order(:difficulty).limit(limit)
 
       # Filter by movement type if specified
       movement_type = input["movement_type"] || input[:movement_type]
-      if movement_type
-        exercises = filter_by_movement_type(exercises, movement_type)
-      end
+      exercises = filter_by_movement_type_db(exercises, movement_type) if movement_type
 
       {
         muscle: muscle,
         level: @level,
-        exercises: exercises.first(limit).map do |ex|
+        exercises: exercises.map do |ex|
           {
-            name: ex[:name],
-            target: ex[:target],
-            sets: ex[:sets],
-            reps: ex[:reps],
-            bpm: ex[:bpm],
-            rom: ex[:rom],
-            how_to: ex[:how_to]&.truncate(150),
-            source: ex[:program]
+            id: ex.id, # Include DB ID
+            name: ex.display_name || ex.name,
+            target: ex.muscle_group,
+            equipment: ex.equipment,
+            difficulty: ex.difficulty,
+            description: ex.description&.truncate(150),
+            form_tips: ex.form_tips&.truncate(150),
+            has_video: ex.video_references&.any? || false,
+            video_count: ex.video_references&.size || 0
           }
         end,
-        total_found: exercises.size
+        total_found: exercises.size,
+        note: "반드시 이 목록의 운동만 사용하세요. id를 exercise_id로 포함해주세요. has_video=true인 운동을 우선 선택하세요."
       }
+    rescue StandardError => e
+      Rails.logger.error("search_exercises failed: #{e.message}")
+      { error: "운동 검색 실패", exercises: [] }
     end
 
-    def filter_by_movement_type(exercises, movement_type)
+    def filter_by_movement_type_db(exercises, movement_type)
       compound_keywords = %w[스쿼트 데드리프트 벤치프레스 로우 프레스 풀업 친업 딥스 런지]
       isolation_keywords = %w[컬 익스텐션 플라이 레이즈 킥백 크런치]
       push_keywords = %w[프레스 푸시 딥스 플라이 레이즈 익스텐션]
       pull_keywords = %w[로우 풀 컬 친업 풀업 데드리프트]
 
-      exercises.select do |ex|
-        name = ex[:name].to_s.downcase
-        case movement_type
-        when "compound"
-          compound_keywords.any? { |kw| name.include?(kw) }
-        when "isolation"
-          isolation_keywords.any? { |kw| name.include?(kw) }
-        when "push"
-          push_keywords.any? { |kw| name.include?(kw) }
-        when "pull"
-          pull_keywords.any? { |kw| name.include?(kw) }
-        else
-          true
-        end
-      end
+      keywords = case movement_type
+                 when "compound" then compound_keywords
+                 when "isolation" then isolation_keywords
+                 when "push" then push_keywords
+                 when "pull" then pull_keywords
+                 else return exercises
+                 end
+
+      # Build ILIKE conditions for DB query
+      conditions = keywords.map { |kw| "name ILIKE '%#{kw}%' OR display_name ILIKE '%#{kw}%'" }
+      exercises.where(conditions.join(" OR "))
     end
 
     def get_training_variables(input)
@@ -545,11 +718,25 @@ module AiTrainer
         - **오늘 하루** 수행할 운동 루틴 1개만 생성하세요
         - 4-6개의 운동으로 구성된 단일 세션을 만드세요
 
-        ## 도구 사용 가이드
-        1. search_exercises: 타겟 근육에 맞는 운동을 검색하세요
-        2. get_training_variables: 사용자 레벨에 맞는 모든 훈련 변인 가이드라인을 확인하세요
-        3. get_program_pattern: 프로그램 철학을 참고하여 믹스하세요 (심현도의 템포 + 김성환의 볼륨 등)
-        4. get_rag_knowledge: 운동 팁이나 자세 관련 지식이 필요하면 검색하세요
+        ## ⚠️ 매우 중요: 운동 선택 규칙
+        - **반드시 get_routine_data에서 제공된 운동만 사용하세요**
+        - 제공되지 않은 운동을 임의로 추가하지 마세요
+        - 각 운동의 **id**를 JSON의 **exercise_id** 필드에 반드시 포함하세요
+        - **운동 이름은 반드시 한글로 작성하세요** (예: "벤치프레스", "데드리프트", "스쿼트")
+        - 영어 운동명(Bench Press, Deadlift) 대신 한글 운동명을 사용하세요
+        - **has_video=true인 운동을 우선 선택하세요** (사용자에게 참고 영상 제공 가능)
+
+        ## 최근 운동 기록 활용
+        - recent_workouts에 최근 7일간 운동 기록이 포함됨
+        - **최근에 한 운동은 피하고 다른 운동을 선택**하여 균형있게 훈련
+        - 같은 근육 그룹을 연속으로 훈련하지 않도록 주의
+
+        ## 도구 사용 (⚠️ 1번만 호출!)
+        1. get_routine_data 호출 → 모든 운동 + 훈련 변인 한번에 조회
+        2. 즉시 JSON 반환
+
+        ❌ 여러 번 도구 호출 금지
+        ✅ get_routine_data 1번 → JSON 반환
 
         ## 루틴 설계 원칙 (9가지 변인 모두 고려)
         1. **운동 순서**: 복합운동 먼저 → 고립운동 마무리
@@ -562,6 +749,12 @@ module AiTrainer
         8. **빈도**: 주당 훈련 빈도 안내
         9. **주기화**: 점진적 과부하 방법 안내
 
+        ## 시간 기반 운동 처리
+        플랭크, 홀드, 월싯 등 **시간으로 측정하는 운동**은:
+        - `is_time_based: true` 설정
+        - `work_seconds`: 운동 시간 (초)
+        - `reps`: null 또는 생략
+
         ## 응답 형식
         도구를 사용하여 정보를 수집한 후, 최종 루틴을 아래 JSON 형식으로 응답하세요:
         ```json
@@ -571,10 +764,13 @@ module AiTrainer
           "estimated_duration": 45,
           "exercises": [
             {
+              "exercise_id": 123,
               "name": "운동명",
               "target_muscle": "타겟 근육",
               "sets": 4,
               "reps": 10,
+              "is_time_based": false,
+              "work_seconds": null,
               "rpe": 8,
               "tempo": "3-1-2",
               "rom": "full",
@@ -582,6 +778,17 @@ module AiTrainer
               "weight_guide": "무게 선택 기준",
               "instructions": "수행 팁",
               "source_program": "참고 프로그램"
+            },
+            {
+              "exercise_id": 456,
+              "name": "플랭크",
+              "target_muscle": "코어",
+              "sets": 3,
+              "reps": null,
+              "is_time_based": true,
+              "work_seconds": 30,
+              "rest_seconds": 45,
+              "instructions": "코어에 힘을 주고 버티기"
             }
           ],
           "weekly_frequency": "주당 훈련 빈도 안내",
@@ -641,21 +848,56 @@ module AiTrainer
       return fallback_routine if raw_exercises.empty?
 
       exercises = raw_exercises.map.with_index(1) do |ex, idx|
+        raw_name = ex["name"] || "운동 #{idx}"
+        # Normalize English names to Korean
+        exercise_name = ExerciseNameNormalizer.normalize_if_needed(raw_name)
+        Rails.logger.info("[ToolBasedRoutineGenerator] Normalized exercise name: '#{raw_name}' → '#{exercise_name}'") if raw_name != exercise_name
+
+        # AI가 제공한 exercise_id 우선 사용
+        exercise_id = ex["exercise_id"]
+        db_exercise = nil
+
+        if exercise_id.present?
+          # ID로 직접 조회 (가장 확실)
+          db_exercise = Exercise.find_by(id: exercise_id)
+        end
+
+        # ID가 없거나 조회 실패 시 이름으로 fallback (both original and normalized)
+        db_exercise ||= find_exercise_by_name(exercise_name)
+        db_exercise ||= find_exercise_by_name(raw_name) if raw_name != exercise_name
+
+        # 여전히 없으면 DB에 새로 추가 (with normalized name)
+        db_exercise ||= create_exercise_from_ai_response(ex.merge("name" => exercise_name))
+
+        # 시간 기반 운동 판단
+        is_time_based = ex["is_time_based"] || time_based_exercise?(exercise_name)
+        work_seconds = is_time_based ? (ex["work_seconds"] || ex["reps"] || 30) : nil
+
+        # Fetch video references from Exercise DB (pre-synced data)
+        videos = fetch_video_references(exercise_name, exercise_id: db_exercise&.id)
+
         {
           order: idx,
-          exercise_id: "EX-#{idx}-#{SecureRandom.hex(4)}",
-          exercise_name: ex["name"] || "운동 #{idx}",
-          target_muscle: ex["target_muscle"] || "전신",
+          exercise_id: db_exercise&.id&.to_s || generate_fallback_id(idx),
+          exercise_name: db_exercise&.display_name || exercise_name,
+          exercise_name_english: db_exercise&.english_name,
+          target_muscle: ex["target_muscle"] || db_exercise&.muscle_group || "전신",
           sets: ex["sets"] || 3,
-          reps: ex["reps"] || 10,
+          reps: is_time_based ? nil : (ex["reps"] || 10),
+          work_seconds: work_seconds,
           rpe: ex["rpe"],
           tempo: ex["tempo"],
           rom: ex["rom"],
           rest_seconds: ex["rest_seconds"] || 60,
           weight_guide: ex["weight_guide"],
-          instructions: ex["instructions"],
+          # Use AI instructions, fallback to DB form_tips
+          instructions: ex["instructions"].presence || db_exercise&.form_tips,
+          # Include description from DB
+          description: db_exercise&.description,
           source_program: ex["source_program"],
-          rest_type: "time_based"
+          rest_type: "time_based",
+          # Video references from Exercise DB (pre-synced)
+          video_references: videos
         }
       end
 
@@ -726,11 +968,138 @@ module AiTrainer
 
     def default_exercises
       [
-        { order: 1, exercise_name: "스쿼트", target_muscle: "하체", sets: 3, reps: 10, rest_seconds: 90 },
-        { order: 2, exercise_name: "벤치프레스", target_muscle: "가슴", sets: 3, reps: 10, rest_seconds: 90 },
-        { order: 3, exercise_name: "바벨로우", target_muscle: "등", sets: 3, reps: 10, rest_seconds: 90 },
-        { order: 4, exercise_name: "플랭크", target_muscle: "코어", sets: 3, reps: 30, rest_seconds: 45 }
+        build_default_exercise("맨몸 스쿼트", 1, target: "하체", reps: 10),
+        build_default_exercise("벤치프레스", 2, target: "가슴", reps: 10),
+        build_default_exercise("바벨로우", 3, target: "등", reps: 10),
+        build_default_exercise("플랭크", 4, target: "코어", work_seconds: 30, rest: 45)
       ]
+    end
+
+    def build_default_exercise(name, order, target:, reps: nil, work_seconds: nil, rest: 90)
+      db_exercise = find_exercise_by_name(name)
+      is_time_based = work_seconds.present? || time_based_exercise?(name)
+
+      {
+        order: order,
+        exercise_id: db_exercise&.id&.to_s || generate_fallback_id(order),
+        exercise_name: db_exercise&.display_name || name,
+        exercise_name_english: db_exercise&.english_name,
+        target_muscle: db_exercise&.muscle_group || target,
+        sets: 3,
+        reps: is_time_based ? nil : reps,
+        work_seconds: is_time_based ? (work_seconds || 30) : nil,
+        rest_seconds: rest,
+        rest_type: "time_based"
+      }
+    end
+
+    def find_exercise_by_name(name)
+      return nil if name.blank?
+      return nil unless defined?(Exercise)
+
+      # 정확한 이름 매칭
+      exercise = Exercise.find_by(name: name)
+      return exercise if exercise
+
+      # display_name으로 매칭
+      exercise = Exercise.find_by(display_name: name)
+      return exercise if exercise
+
+      # 유사 이름 매칭 (ILIKE)
+      Exercise.where("name ILIKE ? OR display_name ILIKE ?", "%#{name}%", "%#{name}%").first
+    rescue StandardError => e
+      Rails.logger.warn("Exercise lookup failed for '#{name}': #{e.message}")
+      nil
+    end
+
+    # AI 응답에서 운동 정보를 추출하여 DB에 저장
+    def create_exercise_from_ai_response(ex_data)
+      exercise_name = ex_data["name"]
+      return nil if exercise_name.blank?
+
+      # 영문명 생성 (한글 → kebab-case + timestamp)
+      english_name = generate_english_name(exercise_name)
+
+      # 근육 그룹 매핑
+      muscle_mapping = {
+        "가슴" => "chest", "등" => "back", "어깨" => "shoulders",
+        "하체" => "legs", "팔" => "arms", "코어" => "core"
+      }
+      target = ex_data["target_muscle"] || "chest"
+      muscle_group = muscle_mapping[target] || target
+
+      # muscle_group이 유효하지 않으면 기본값 사용
+      valid_groups = %w[chest back legs shoulders arms core cardio]
+      muscle_group = "chest" unless valid_groups.include?(muscle_group)
+
+      Exercise.create!(
+        name: exercise_name,
+        english_name: english_name,
+        display_name: exercise_name,
+        muscle_group: muscle_group,
+        difficulty: 3,  # default intermediate
+        min_level: 1,   # accessible to all levels
+        equipment: [],
+        active: true,
+        ai_generated: true
+      )
+    rescue ActiveRecord::RecordInvalid => e
+      Rails.logger.warn("Failed to create exercise '#{exercise_name}': #{e.message}")
+      nil
+    end
+
+    # 한글 이름에서 영문 이름 생성 (unique를 위해 timestamp 포함)
+    def generate_english_name(korean_name)
+      # 간단한 방식: 특수문자 제거 + timestamp
+      base = korean_name.gsub(/[^a-zA-Z0-9가-힣\s]/, "").gsub(/\s+/, "-").downcase
+      "#{base}-#{Time.current.to_i}"
+    end
+
+    # 시간 기반 운동인지 판단 (운동 이름 기반)
+    def time_based_exercise?(name)
+      return false if name.blank?
+
+      time_based_keywords = %w[플랭크 홀드 월싯 wall-sit 데드행 버티기 스태틱 static isometric]
+      name_lower = name.downcase
+      time_based_keywords.any? { |keyword| name_lower.include?(keyword) }
+    end
+
+    def generate_fallback_id(idx)
+      "TEMP-#{idx}-#{SecureRandom.hex(4)}"
+    end
+
+    # Fetch YouTube video references directly from Exercise DB
+    # Uses pre-synced video_references from ExerciseKnowledgeSyncService
+    def fetch_video_references(exercise_name, exercise_id: nil)
+      return [] if exercise_name.blank? && exercise_id.blank?
+
+      # Find exercise by ID or name
+      exercise = if exercise_id.present?
+        Exercise.find_by(id: exercise_id)
+      else
+        find_exercise_by_name(exercise_name)
+      end
+
+      return [] unless exercise&.video_references&.any?
+
+      # Return top 3 video references with timestamp URLs
+      exercise.video_references.first(3).map do |ref|
+        url = ref["url"] || "https://www.youtube.com/watch?v=#{ref['video_id']}"
+        # Add timestamp to URL if available
+        if ref["timestamp_start"].present? && ref["timestamp_start"] > 0
+          url += "&t=#{ref['timestamp_start']}"
+        end
+
+        {
+          title: ref["title"] || ref["summary"]&.truncate(50) || "#{exercise_name} 가이드",
+          url: url,
+          summary: ref["summary"],
+          knowledge_type: ref["knowledge_type"]
+        }
+      end
+    rescue StandardError => e
+      Rails.logger.warn("Failed to fetch video references for '#{exercise_name}': #{e.message}")
+      []
     end
   end
 end

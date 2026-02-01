@@ -101,34 +101,65 @@ module AiTrainer
     end
 
     def save_routine_to_db(result)
+      # day_of_week can be string ("wednesday") or integer (3)
+      dow = result[:day_of_week]
+      day_num = dow.is_a?(Integer) ? dow : day_index(dow)
+      day_str = dow.is_a?(String) ? dow : day_name(dow)
+
+      # Handle nil values with defaults
+      level = Constants.tier_for_level(result[:user_level]) || "beginner"
+      workout_type = result[:training_type] || result[:fitness_factor_korean] || "일반 훈련"
+      duration = result[:estimated_duration_minutes] || 45
+
+      # Step 1: Create routine first and get DB ID immediately
       routine = @user.workout_routines.create!(
-        level: Constants.tier_for_level(result[:user_level]),
+        level: level,
         week_number: calculate_week_number,
-        day_number: result[:day_of_week],
-        workout_type: result[:training_type],
-        day_of_week: day_name(result[:day_of_week]),
-        estimated_duration: result[:estimated_duration_minutes],
+        day_number: day_num,
+        workout_type: workout_type,
+        day_of_week: day_str,
+        estimated_duration: duration,
         generated_at: Time.current
       )
 
-      result[:exercises].each do |ex|
-        routine.routine_exercises.create!(
-          exercise_name: ex[:exercise_name],
-          order_index: ex[:order],
-          sets: ex[:sets],
-          reps: ex[:reps],
-          target_muscle: ex[:target_muscle],
-          rest_duration_seconds: ex[:rest_seconds] || 60,
-          instructions: ex[:instructions],
-          weight_suggestion: ex[:weight_description]
-        )
+      # Set DB ID immediately after routine creation
+      Rails.logger.info("[RoutineService] Created routine with DB ID: #{routine.id} (AI ID was: #{result[:routine_id]})")
+      result[:routine_id] = routine.id.to_s
+      result[:db_routine] = routine
+
+      # Step 2: Add exercises (errors here won't lose the routine_id)
+      exercises = result[:exercises] || []
+      Rails.logger.info("[RoutineService] Adding #{exercises.length} exercises to routine #{routine.id}")
+
+      Rails.logger.info("[RoutineService] Exercise names from AI: #{exercises.map { |e| e[:exercise_name] }.join(', ')}")
+
+      exercises.each_with_index do |ex, idx|
+        begin
+          Rails.logger.info("[RoutineService] Adding exercise #{idx + 1}: #{ex[:exercise_name]}")
+
+          routine.routine_exercises.create!(
+            exercise_name: ex[:exercise_name] || "Unknown Exercise",
+            order_index: ex[:order] || idx,
+            sets: ex[:sets] || 3,
+            reps: ex[:reps],
+            target_muscle: ex[:target_muscle] || "other",
+            rest_duration_seconds: ex[:rest_seconds] || 60,
+            how_to: ex[:instructions],
+            weight_description: ex[:weight_description] || ex[:weight_guide]
+          )
+        rescue StandardError => ex_error
+          Rails.logger.error("[RoutineService] Failed to add exercise '#{ex[:exercise_name]}': #{ex_error.message}")
+          Rails.logger.error("[RoutineService] Exercise data: #{ex.inspect}")
+          # Continue with other exercises
+        end
       end
 
-      result[:routine_id] = routine.id
-      result[:db_routine] = routine
+      Rails.logger.info("[RoutineService] Finished adding exercises. Total in DB: #{routine.routine_exercises.reload.count}")
+
       result
     rescue StandardError => e
-      Rails.logger.warn("Failed to save routine to DB: #{e.message}")
+      Rails.logger.error("[RoutineService] Failed to create routine: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
+      # Return result with original AI ID if routine creation fails completely
       result
     end
 
@@ -138,7 +169,11 @@ module AiTrainer
     end
 
     def day_name(day)
-      %w[sunday monday tuesday wednesday thursday friday saturday][day]
+      %w[sunday monday tuesday wednesday thursday friday saturday][day.to_i]
+    end
+
+    def day_index(day_str)
+      %w[sunday monday tuesday wednesday thursday friday saturday].index(day_str.to_s.downcase) || 0
     end
   end
 end
