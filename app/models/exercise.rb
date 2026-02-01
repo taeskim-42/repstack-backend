@@ -86,7 +86,25 @@ class Exercise < ApplicationRecord
       difficulty: difficulty,
       equipment: equipment,
       form_tips: form_tips,
-      rom_options: rom_options
-    }
+      rom_options: rom_options,
+      video_references: video_references.presence
+    }.compact
+  end
+
+  # Video references from RAG knowledge
+  # Format: [{ video_id: "abc123", title: "...", timestamp_start: 0, url: "..." }, ...]
+  def add_video_reference(video_id:, title:, url:, timestamp_start: nil, chunk_id: nil)
+    ref = { video_id: video_id, title: title, url: url }
+    ref[:timestamp_start] = timestamp_start if timestamp_start
+    ref[:chunk_id] = chunk_id if chunk_id
+
+    # Avoid duplicates
+    unless video_references.any? { |r| r["video_id"] == video_id }
+      self.video_references = video_references + [ref]
+    end
+  end
+
+  def video_urls
+    video_references.map { |r| r["url"] }.compact
   end
 end
