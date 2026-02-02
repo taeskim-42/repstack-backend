@@ -904,8 +904,8 @@ class ChatService
   def wants_today_routine?
     return false if message.blank?
     
-    # Only trigger if user completed onboarding
-    profile = user.user_profile
+    # Reload profile to get fresh data (fix stale association)
+    profile = UserProfile.find_by(user_id: user.id)
     Rails.logger.info("[wants_today_routine?] user_id=#{user.id}, onboarding_completed_at=#{profile&.onboarding_completed_at}")
     return false unless profile&.onboarding_completed_at.present?
     
