@@ -1894,15 +1894,17 @@ class AdminController < ApplicationController
 
   def get_or_create_test_user(level = 5, user_type: "existing")
     if user_type == "new"
-      # 신규 유저: 레벨 1, 루틴/기록 없음
+      # 신규 유저: 레벨 1, form_onboarding 완료 but AI onboarding 미완료
       email = "test_new@repstack.io"
       name = "신규 테스트 유저"
       target_level = 1
+      onboarding_complete = false
     else
-      # 기존 유저: 선택한 레벨
+      # 기존 유저: 선택한 레벨, 온보딩 완료 상태
       email = "test@repstack.io"
       name = "기존 테스트 유저"
       target_level = level
+      onboarding_complete = true
     end
 
     user = User.find_or_create_by!(email: email) do |u|
@@ -1911,7 +1913,21 @@ class AdminController < ApplicationController
     end
 
     user.user_profile ||= user.create_user_profile!
-    user.user_profile.update!(numeric_level: target_level) if user.user_profile.numeric_level != target_level
+    
+    # Update profile
+    profile_updates = { numeric_level: target_level }
+    
+    if onboarding_complete
+      # 기존 유저: 온보딩 완료 상태로 설정
+      profile_updates[:onboarding_completed_at] = Time.current unless user.user_profile.onboarding_completed_at
+      profile_updates[:form_onboarding_completed_at] = Time.current unless user.user_profile.form_onboarding_completed_at
+    else
+      # 신규 유저: form_onboarding만 완료, AI onboarding 미완료
+      profile_updates[:form_onboarding_completed_at] = Time.current unless user.user_profile.form_onboarding_completed_at
+      profile_updates[:onboarding_completed_at] = nil  # AI 상담 필요
+    end
+    
+    user.user_profile.update!(profile_updates)
 
     token = JsonWebToken.encode(user_id: user.id)
     [user, token]
