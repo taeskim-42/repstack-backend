@@ -62,8 +62,26 @@ class AdminController < ApplicationController
 
     user.workout_routines.destroy_all
     user.workout_sessions.destroy_all
+    
     new_level = user_type == "new" ? 1 : (params[:level]&.to_i || 5)
-    user.user_profile&.update(numeric_level: new_level)
+    
+    # Update profile with proper onboarding state
+    profile_updates = { 
+      numeric_level: new_level,
+      fitness_factors: {}  # Clear assessment state
+    }
+    
+    if user_type == "new"
+      # 신규 유저: form만 완료, AI 상담 필요
+      profile_updates[:form_onboarding_completed_at] = Time.current
+      profile_updates[:onboarding_completed_at] = nil
+    else
+      # 기존 유저: 온보딩 완료 상태
+      profile_updates[:form_onboarding_completed_at] = Time.current
+      profile_updates[:onboarding_completed_at] = Time.current
+    end
+    
+    user.user_profile&.update!(profile_updates)
 
     render json: { success: true, message: "Test user reset", user_type: user_type }
   end
