@@ -11,6 +11,34 @@ class AdminController < ApplicationController
     render html: chat_html.html_safe, layout: false
   end
 
+  # GET /admin/test_users - List available test users
+  def test_users_list
+    users = User.where("email LIKE ?", "testuser_%@repstack.test")
+                .includes(:user_profile, :workout_sessions)
+                .order(:id)
+                .limit(100)
+    
+    render json: {
+      count: users.size,
+      users: users.map do |u|
+        profile = u.user_profile
+        sessions = u.workout_sessions
+        yesterday = sessions.where(start_time: 1.day.ago.beginning_of_day..1.day.ago.end_of_day).first
+        
+        {
+          id: u.id,
+          email: u.email,
+          name: u.name,
+          level: profile&.numeric_level,
+          goal: profile&.fitness_goal,
+          total_sessions: sessions.count,
+          has_yesterday: yesterday.present?,
+          yesterday_focus: yesterday&.name
+        }
+      end
+    }
+  end
+
   # POST /admin/chat - Process chat message
   def chat_send
     message = params[:message].to_s  # Allow empty string for AI-first greeting
@@ -21,7 +49,15 @@ class AdminController < ApplicationController
     # - 기존 유저: Daily greeting (어제 운동 요약 + 컨디션 질문)
 
     level = params[:level]&.to_i || 5
-    user, token = get_or_create_test_user(level, user_type: user_type)
+    
+    # Support selecting specific test user by ID
+    if params[:test_user_id].present?
+      user = User.find_by(id: params[:test_user_id])
+      return render json: { error: "Test user not found" }, status: :not_found unless user
+      token = JsonWebToken.encode(user_id: user.id)
+    else
+      user, token = get_or_create_test_user(level, user_type: user_type)
+    end
 
     result = ChatService.process(
       user: user,
@@ -30,7 +66,7 @@ class AdminController < ApplicationController
       session_id: params[:session_id]
     )
 
-    render json: result.merge(jwt_token: token, user_type: user_type)
+    render json: result.merge(jwt_token: token, user_type: user_type, user_id: user.id, user_name: user.name)
   end
 
   # GET /admin/test_user_info

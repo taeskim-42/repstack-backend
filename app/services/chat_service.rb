@@ -22,6 +22,11 @@ class ChatService
       return handle_daily_greeting
     end
 
+    # 0.5. Condition response (after daily greeting)
+    if condition_response?
+      return handle_condition_response
+    end
+
     # 1. Welcome message for newly onboarded users
     if needs_welcome_message?
       return handle_welcome_message
@@ -720,36 +725,40 @@ class ChatService
   def needs_daily_greeting?
     # Only trigger on empty message or "start"/"시작"
     return false unless message.blank? || message == "시작" || message == "start"
-    
+
     # Must have completed onboarding
     profile = user.user_profile
     return false unless profile&.onboarding_completed_at
-    
+
     true
   end
 
   def handle_daily_greeting
     profile = user.user_profile
     today = Time.current.in_time_zone("Asia/Seoul").to_date
-    
+
     # Get recent workout history
     yesterday_session = get_workout_session(today - 1.day)
     last_week_same_day = get_workout_session(today - 7.days)
-    
+
+    # Summarize sessions for display
+    yesterday_summary = yesterday_session ? summarize_session(yesterday_session) : nil
+    last_week_summary = last_week_same_day ? summarize_session(last_week_same_day) : nil
+
     # Build greeting message
     greeting = build_daily_greeting(
       profile: profile,
-      yesterday: yesterday_session,
-      last_week: last_week_same_day,
+      yesterday: yesterday_summary,
+      last_week: last_week_summary,
       today: today
     )
-    
+
     success_response(
       message: greeting,
       intent: "DAILY_GREETING",
       data: {
-        yesterday_workout: yesterday_session ? summarize_session(yesterday_session) : nil,
-        last_week_workout: last_week_same_day ? summarize_session(last_week_same_day) : nil,
+        yesterday_workout: yesterday_summary,
+        last_week_workout: last_week_summary,
         suggestions: [
           "좋아! 오늘 운동 시작하자",
           "오늘은 좀 피곤해",
@@ -761,6 +770,7 @@ class ChatService
 
   def get_workout_session(date)
     user.workout_sessions
+        .includes(:workout_sets)
         .where(start_time: date.beginning_of_day..date.end_of_day)
         .order(start_time: :desc)
         .first
@@ -768,11 +778,11 @@ class ChatService
 
   def summarize_session(session)
     return nil unless session
-    
+
     # Get workout sets for this session
     sets = session.workout_sets.order(:created_at)
     exercises_by_name = sets.group_by(&:exercise_name)
-    
+
     {
       date: session.start_time.to_date.to_s,
       day_korean: session.name || "운동",
@@ -787,51 +797,56 @@ class ChatService
       end,
       total_volume: sets.sum { |s| (s.weight || 0).to_f * (s.reps || 0).to_i }.round(1),
       completed: session.status == "completed"
-    }
+    }.with_indifferent_access
   end
 
   def build_daily_greeting(profile:, yesterday:, last_week:, today:)
     name = user.name || "회원"
     day_names = %w[일 월 화 수 목 금 토]
     today_name = day_names[today.wday]
-    
+
     lines = []
     lines << "#{name}님, 안녕하세요! 💪"
     lines << ""
-    
+
     # Yesterday's workout summary
     if yesterday
+      Rails.logger.info("[DailyGreeting] Yesterday data: #{yesterday.inspect}")
+      day_name = yesterday[:day_korean] || yesterday["day_korean"] || "운동"
+      duration = yesterday[:duration_minutes] || yesterday["duration_minutes"]
       lines << "📊 **어제 운동 기록**"
-      lines << "- #{yesterday[:day_korean]} (#{yesterday[:duration_minutes] || '?'}분)"
-      yesterday[:exercises].first(3).each do |ex|
+      lines << "- #{day_name} (#{duration || '?'}분)"
+      exercises = yesterday[:exercises] || []
+      exercises.first(3).each do |ex|
         if ex[:best_set]
           lines << "  • #{ex[:name]}: #{ex[:best_set]['weight']}kg x #{ex[:best_set]['reps']}회"
         else
           lines << "  • #{ex[:name]}: #{ex[:sets]}세트"
         end
       end
-      if yesterday[:exercises].size > 3
-        lines << "  • ... 외 #{yesterday[:exercises].size - 3}개"
+      if exercises.size > 3
+        lines << "  • ... 외 #{exercises.size - 3}개"
       end
       lines << ""
     end
-    
+
     # Last week same day comparison
     if last_week
       lines << "📅 **지난주 #{today_name}요일**"
       lines << "- #{last_week[:day_korean]} 수행"
-      if last_week[:total_volume] > 0
-        lines << "- 총 볼륨: #{last_week[:total_volume].to_i}kg"
+      volume = last_week[:total_volume] || 0
+      if volume > 0
+        lines << "- 총 볼륨: #{volume.to_i}kg"
       end
       lines << ""
     end
-    
+
     # No recent workout
     if !yesterday && !last_week
       lines << "최근 운동 기록이 없네요. 오늘부터 다시 시작해볼까요? 🔥"
       lines << ""
     end
-    
+
     # Ask about today's condition
     lines << "---"
     lines << ""
@@ -840,7 +855,169 @@ class ChatService
     lines << "1️⃣ 컨디션 좋아! → 강도 높여서"
     lines << "2️⃣ 보통이야 → 평소처럼"
     lines << "3️⃣ 좀 피곤해 → 가볍게"
-    
+
+    lines.join("\n")
+  end
+
+  # ============================================
+  # Condition Response (After Daily Greeting)
+  # ============================================
+
+  CONDITION_PATTERNS = {
+    good: /좋|1|강도.*높|최고|컨디션.*좋|기분.*좋|상쾌|energized|good|great/i,
+    normal: /보통|2|평소|괜찮|그냥|normal|okay|ok/i,
+    tired: /피곤|3|가볍|힘들|지침|낮|tired|low|exhausted|쉬고/i
+  }.freeze
+
+  def condition_response?
+    return false if message.blank?
+
+    # Check if this looks like a condition response
+    normalized = message.strip.downcase
+    CONDITION_PATTERNS.values.any? { |pattern| normalized.match?(pattern) }
+  end
+
+  def handle_condition_response
+    condition = detect_condition
+    intensity = condition_to_intensity(condition)
+
+    # Store condition in session/profile for routine generation
+    store_today_condition(condition, intensity)
+
+    # Generate routine with adjusted intensity
+    generate_routine_with_condition(condition, intensity)
+  end
+
+  def detect_condition
+    normalized = message.strip.downcase
+
+    if normalized.match?(CONDITION_PATTERNS[:good])
+      :good
+    elsif normalized.match?(CONDITION_PATTERNS[:tired])
+      :tired
+    else
+      :normal
+    end
+  end
+
+  def condition_to_intensity(condition)
+    case condition
+    when :good then 1.1   # 110% - 강도 높여서
+    when :tired then 0.7  # 70% - 가볍게
+    else 1.0              # 100% - 평소처럼
+    end
+  end
+
+  def store_today_condition(condition, intensity)
+    profile = user.user_profile
+    return unless profile
+
+    today = Time.current.in_time_zone("Asia/Seoul").to_date.to_s
+
+    # Store in fitness_factors
+    factors = profile.fitness_factors || {}
+    factors["daily_conditions"] ||= {}
+    factors["daily_conditions"][today] = {
+      condition: condition.to_s,
+      intensity: intensity,
+      recorded_at: Time.current.iso8601
+    }
+
+    profile.update!(fitness_factors: factors)
+  end
+
+  def generate_routine_with_condition(condition, intensity)
+    condition_messages = {
+      good: "컨디션 좋으시네요! 💪 오늘은 **강도 110%**로 진행할게요!",
+      normal: "알겠어요! 오늘은 **평소 강도**로 진행할게요 👍",
+      tired: "피곤하시군요 😊 오늘은 **강도 70%**로 가볍게 진행할게요!"
+    }
+
+    intro = condition_messages[condition]
+
+    # Get today's suggested workout (based on split/schedule)
+    suggested_focus = suggest_today_focus
+
+    # Build routine generation request
+    routine_request = {
+      focus: suggested_focus[:focus],
+      intensity: intensity,
+      condition: condition,
+      duration_minutes: suggested_focus[:duration]
+    }
+
+    # Acknowledge condition and suggest workout
+    success_response(
+      message: "#{intro}\n\n오늘은 어떤 운동을 하고 싶으세요?\n\n🏋️ 추천 부위: **#{suggested_focus[:focus]}**\n⏱️ 예상 시간: #{suggested_focus[:duration]}분\n\n\"#{suggested_focus[:focus]} 운동 해줘\" 라고 말씀해주세요!",
+      intent: "CONDITION_ACKNOWLEDGED",
+      data: {
+        condition: condition.to_s,
+        intensity: intensity,
+        suggested_focus: suggested_focus[:focus],
+        suggestions: [
+          "#{suggested_focus[:focus]} 운동 해줘",
+          "가슴 운동 할래",
+          "하체 운동 해줘"
+        ]
+      }
+    )
+  end
+
+  def suggest_today_focus
+    today = Time.current.in_time_zone("Asia/Seoul")
+    day_of_week = today.wday  # 0=일, 1=월, ...
+
+    # Check user's recent workouts to suggest next focus
+    recent_sessions = user.workout_sessions
+                          .where("start_time > ?", 7.days.ago)
+                          .order(start_time: :desc)
+                          .limit(7)
+
+    recent_focuses = recent_sessions.map(&:name).compact
+
+    # Default 3-split rotation
+    default_split = {
+      1 => { focus: "가슴/삼두", duration: 60 },  # 월
+      2 => { focus: "등/이두", duration: 60 },    # 화
+      3 => { focus: "하체", duration: 60 },       # 수
+      4 => { focus: "어깨", duration: 50 },       # 목
+      5 => { focus: "가슴/등", duration: 60 },    # 금
+      6 => { focus: "하체/코어", duration: 50 },  # 토
+      0 => { focus: "휴식 또는 유산소", duration: 30 }  # 일
+    }
+
+    # If user did this focus recently, suggest alternative
+    suggested = default_split[day_of_week]
+
+    if recent_focuses.include?(suggested[:focus])
+      # Find least recently done
+      all_focuses = ["가슴", "등", "하체", "어깨", "팔"]
+      least_recent = all_focuses.find { |f| !recent_focuses.any? { |r| r.include?(f) } }
+      suggested = { focus: least_recent || "전신", duration: 60 }
+    end
+
+    suggested
+  end
+
+  def format_routine_for_display(routine)
+    return "루틴을 준비하지 못했어요." unless routine
+
+    lines = []
+    lines << "📋 **#{routine[:day_korean] || '오늘의 루틴'}**"
+    lines << "⏱️ 예상 시간: #{routine[:estimated_duration_minutes] || 60}분"
+    lines << ""
+
+    exercises = routine[:exercises] || []
+    exercises.each_with_index do |ex, i|
+      name = ex[:exercise_name] || ex["exercise_name"]
+      sets = ex[:sets] || ex["sets"]
+      reps = ex[:reps] || ex["reps"]
+      lines << "#{i + 1}. **#{name}** - #{sets}세트 x #{reps}회"
+    end
+
+    lines << ""
+    lines << "준비되면 '운동 시작'이라고 말씀해주세요! 🔥"
+
     lines.join("\n")
   end
 

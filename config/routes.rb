@@ -19,6 +19,7 @@ Rails.application.routes.draw do
     get "/chat", action: :chat_ui
     post "/chat", action: :chat_send
     get "/test_user_info", action: :test_user_info
+    get "/test_users", action: :test_users_list
     post "/reset_test_user", action: :reset_test_user
     post "/delete_test_routines", action: :delete_test_routines
     post "/normalize_exercises", action: :normalize_exercises
