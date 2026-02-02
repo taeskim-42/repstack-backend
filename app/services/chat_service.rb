@@ -906,13 +906,17 @@ class ChatService
     
     # Only trigger if user completed onboarding
     profile = user.user_profile
+    Rails.logger.info("[wants_today_routine?] user_id=#{user.id}, onboarding_completed_at=#{profile&.onboarding_completed_at}")
     return false unless profile&.onboarding_completed_at.present?
     
     # Check if no routines exist yet (just finished program creation)
-    has_no_routines = WorkoutRoutine.where(user_id: user.id).count == 0
-    return false unless has_no_routines
+    routine_count = WorkoutRoutine.where(user_id: user.id).count
+    Rails.logger.info("[wants_today_routine?] routine_count=#{routine_count}, message=#{message}")
+    return false unless routine_count == 0
     
-    message.strip.match?(ROUTINE_REQUEST_PATTERNS)
+    matches = message.strip.match?(ROUTINE_REQUEST_PATTERNS)
+    Rails.logger.info("[wants_today_routine?] pattern_match=#{matches}")
+    matches
   end
 
   def handle_show_today_routine
@@ -959,14 +963,17 @@ class ChatService
   end
   
   def save_routine_to_db(result)
+    today = Date.current
+    
     routine = WorkoutRoutine.create!(
       user_id: user.id,
-      name: result[:day_korean] || "오늘의 운동",
-      description: "AI 생성 루틴",
+      level: user.user_profile&.numeric_level || 1,
+      week_number: 1,  # First week of program
+      day_number: today.cwday,  # Day of week (1=Mon, 7=Sun)
+      workout_type: result[:workout_type] || "full_body",
+      day_of_week: result[:day_korean] || today.strftime("%A"),
       estimated_duration: result[:estimated_duration_minutes] || 45,
-      difficulty_level: user.user_profile&.numeric_level || 1,
-      routine_type: "daily",
-      is_active: true
+      generated_at: Time.current
     )
     
     result[:exercises].each_with_index do |ex, idx|
@@ -1679,9 +1686,12 @@ class ChatService
     result = AiTrainer::LevelAssessmentService.assess(user: user, message: message)
 
     if result[:success]
+      # Use TRAINING_PROGRAM intent when program is created (is_complete)
+      intent = result[:is_complete] ? "TRAINING_PROGRAM" : "CONSULTATION"
+      
       success_response(
         message: result[:message],
-        intent: "LEVEL_ASSESSMENT",
+        intent: intent,
         data: {
           is_complete: result[:is_complete],
           assessment: result[:assessment]
