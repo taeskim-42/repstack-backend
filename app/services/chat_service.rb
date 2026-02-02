@@ -17,6 +17,11 @@ class ChatService
   end
 
   def process
+    # 0. Daily greeting (AI first - for all users when entering chat)
+    if needs_daily_greeting?
+      return handle_daily_greeting
+    end
+
     # 1. Welcome message for newly onboarded users
     if needs_welcome_message?
       return handle_welcome_message
@@ -706,6 +711,137 @@ class ChatService
         session_id: result[:session_id]
       }
     )
+  end
+
+  # ============================================
+  # Daily Greeting (AI First - All Users)
+  # ============================================
+
+  def needs_daily_greeting?
+    # Only trigger on empty message or "start"/"시작"
+    return false unless message.blank? || message == "시작" || message == "start"
+    
+    # Must have completed onboarding
+    profile = user.user_profile
+    return false unless profile&.onboarding_completed_at
+    
+    true
+  end
+
+  def handle_daily_greeting
+    profile = user.user_profile
+    today = Time.current.in_time_zone("Asia/Seoul").to_date
+    
+    # Get recent workout history
+    yesterday_session = get_workout_session(today - 1.day)
+    last_week_same_day = get_workout_session(today - 7.days)
+    
+    # Build greeting message
+    greeting = build_daily_greeting(
+      profile: profile,
+      yesterday: yesterday_session,
+      last_week: last_week_same_day,
+      today: today
+    )
+    
+    success_response(
+      message: greeting,
+      intent: "DAILY_GREETING",
+      data: {
+        yesterday_workout: yesterday_session ? summarize_session(yesterday_session) : nil,
+        last_week_workout: last_week_same_day ? summarize_session(last_week_same_day) : nil,
+        suggestions: [
+          "좋아! 오늘 운동 시작하자",
+          "오늘은 좀 피곤해",
+          "컨디션 좋아! 강도 올려줘"
+        ]
+      }
+    )
+  end
+
+  def get_workout_session(date)
+    user.workout_sessions
+        .where(start_time: date.beginning_of_day..date.end_of_day)
+        .order(start_time: :desc)
+        .first
+  end
+
+  def summarize_session(session)
+    return nil unless session
+    
+    # Get workout sets for this session
+    sets = session.workout_sets.order(:created_at)
+    exercises_by_name = sets.group_by(&:exercise_name)
+    
+    {
+      date: session.start_time.to_date.to_s,
+      day_korean: session.name || "운동",
+      duration_minutes: session.total_duration ? (session.total_duration / 60) : nil,
+      exercises: exercises_by_name.map do |name, exercise_sets|
+        best = exercise_sets.max_by { |s| (s.weight || 0).to_f }
+        {
+          name: name,
+          sets: exercise_sets.size,
+          best_set: best ? { "weight" => best.weight, "reps" => best.reps } : nil
+        }
+      end,
+      total_volume: sets.sum { |s| (s.weight || 0).to_f * (s.reps || 0).to_i }.round(1),
+      completed: session.status == "completed"
+    }
+  end
+
+  def build_daily_greeting(profile:, yesterday:, last_week:, today:)
+    name = user.name || "회원"
+    day_names = %w[일 월 화 수 목 금 토]
+    today_name = day_names[today.wday]
+    
+    lines = []
+    lines << "#{name}님, 안녕하세요! 💪"
+    lines << ""
+    
+    # Yesterday's workout summary
+    if yesterday
+      lines << "📊 **어제 운동 기록**"
+      lines << "- #{yesterday[:day_korean]} (#{yesterday[:duration_minutes] || '?'}분)"
+      yesterday[:exercises].first(3).each do |ex|
+        if ex[:best_set]
+          lines << "  • #{ex[:name]}: #{ex[:best_set]['weight']}kg x #{ex[:best_set]['reps']}회"
+        else
+          lines << "  • #{ex[:name]}: #{ex[:sets]}세트"
+        end
+      end
+      if yesterday[:exercises].size > 3
+        lines << "  • ... 외 #{yesterday[:exercises].size - 3}개"
+      end
+      lines << ""
+    end
+    
+    # Last week same day comparison
+    if last_week
+      lines << "📅 **지난주 #{today_name}요일**"
+      lines << "- #{last_week[:day_korean]} 수행"
+      if last_week[:total_volume] > 0
+        lines << "- 총 볼륨: #{last_week[:total_volume].to_i}kg"
+      end
+      lines << ""
+    end
+    
+    # No recent workout
+    if !yesterday && !last_week
+      lines << "최근 운동 기록이 없네요. 오늘부터 다시 시작해볼까요? 🔥"
+      lines << ""
+    end
+    
+    # Ask about today's condition
+    lines << "---"
+    lines << ""
+    lines << "오늘 **컨디션**은 어떠세요?"
+    lines << ""
+    lines << "1️⃣ 컨디션 좋아! → 강도 높여서"
+    lines << "2️⃣ 보통이야 → 평소처럼"
+    lines << "3️⃣ 좀 피곤해 → 가볍게"
+    
+    lines.join("\n")
   end
 
   # ============================================

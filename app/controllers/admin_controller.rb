@@ -16,11 +16,9 @@ class AdminController < ApplicationController
     message = params[:message].to_s  # Allow empty string for AI-first greeting
     user_type = params[:user_type] || "existing"
     
-    # 신규 유저는 빈 메시지 허용 (AI 첫 인사 트리거)
-    # 기존 유저는 메시지 필수
-    if message.blank? && user_type != "new"
-      return render json: { error: "message required" }, status: :bad_request
-    end
+    # 빈 메시지 허용 (AI 첫 인사/daily greeting 트리거)
+    # - 신규 유저: AI 상담 시작
+    # - 기존 유저: Daily greeting (어제 운동 요약 + 컨디션 질문)
 
     level = params[:level]&.to_i || 5
     user, token = get_or_create_test_user(level, user_type: user_type)
@@ -2131,9 +2129,9 @@ class AdminController < ApplicationController
             </div>
           </div>
           <div class="panel-section">
-            <h3>💬 상담 시작</h3>
+            <h3>💬 채팅 시작</h3>
             <div class="btn-grid">
-              <button class="test-btn full" onclick="startConsultation()" style="background:#e94560;border-color:#e94560;">🚀 AI 상담 시작 (신규유저용)</button>
+              <button class="test-btn full" onclick="startChat()" style="background:#e94560;border-color:#e94560;">🚀 AI가 먼저 인사하기</button>
             </div>
           </div>
           <div class="panel-section">
@@ -2311,17 +2309,17 @@ class AdminController < ApplicationController
 
           function quickTest(message) { addMessage(message, 'user'); sendMessage(message); }
 
-          // AI가 먼저 인사하도록 빈 메시지 전송 (신규 유저 상담 시작용)
-          async function startConsultation() {
+          // AI가 먼저 인사하도록 빈 메시지 전송
+          // - 신규 유저: AI 상담 시작 (폼 정보 기반 인사)
+          // - 기존 유저: Daily greeting (어제 운동 요약 + 컨디션 질문)
+          async function startChat() {
             const token = getToken();
             if (!token) return;
-            if (userTypeSelect.value !== 'new') {
-              alert('신규 유저만 AI 상담 시작이 가능합니다. User Type을 신규 유저로 변경해주세요.');
-              return;
-            }
-            addSystemMessage('🚀 AI 상담 시작 중...');
+            const userType = userTypeSelect.value;
+            const label = userType === 'new' ? 'AI 상담' : 'Daily Greeting';
+            addSystemMessage('🚀 ' + label + ' 시작 중...');
             sendBtn.disabled = true;
-            const reqBody = { message: '', level: levelSelect.value, user_type: 'new', session_id: sessionId, routine_id: null };
+            const reqBody = { message: '', level: levelSelect.value, user_type: userType, session_id: sessionId, routine_id: null };
             document.getElementById('rawRequest').textContent = JSON.stringify(reqBody, null, 2);
             try {
               const res = await fetch('/admin/chat?admin_token=' + encodeURIComponent(token), {
