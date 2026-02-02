@@ -900,9 +900,8 @@ class ChatService
   
   def wants_today_routine?
     return false if message.blank?
-    return false if needs_level_assessment?
     
-    # Only trigger if user just completed onboarding (has profile but no routines yet)
+    # Only trigger if user completed onboarding
     profile = user.user_profile
     return false unless profile&.onboarding_completed_at.present?
     
@@ -1002,6 +1001,12 @@ class ChatService
 
   def feedback_response?
     return false if message.blank?
+    
+    # Skip during onboarding
+    return false if needs_level_assessment?
+    
+    # Must have completed onboarding
+    return false unless user.user_profile&.onboarding_completed_at.present?
     
     # Check if there was a recent workout completion (within last hour)
     recent_completed = user.user_profile&.fitness_factors&.dig("last_workout_completed_at")
