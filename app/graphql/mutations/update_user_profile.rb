@@ -27,9 +27,13 @@ module Mutations
 
         profile = user.user_profile || user.build_user_profile
 
-        # Mark onboarding as complete if not already set
         update_attrs = args.compact
-        update_attrs[:onboarding_completed_at] ||= Time.current if profile.onboarding_completed_at.nil?
+
+        # Mark form onboarding as complete (basic info collected)
+        # AI consultation (onboarding_completed_at) will be set separately by LevelAssessmentService
+        if profile.form_onboarding_completed_at.nil?
+          update_attrs[:form_onboarding_completed_at] = Time.current
+        end
 
         profile.update!(update_attrs)
 

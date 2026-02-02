@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_01_30_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_02_01_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -190,6 +190,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_01_30_000001) do
     t.integer "day_number", default: 1
     t.jsonb "fitness_factors", default: {}
     t.string "fitness_goal"
+    t.datetime "form_onboarding_completed_at"
     t.decimal "height", precision: 5, scale: 2
     t.datetime "last_level_test_at"
     t.datetime "level_assessed_at"

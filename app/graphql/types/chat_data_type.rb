@@ -29,5 +29,12 @@ module Types
     field :added_exercise, Types::RoutineExerciseType, null: true, description: "Added exercise (ADD_EXERCISE)"
     field :remaining_replacements, Integer, null: true, description: "Remaining exercise replacements today"
     field :remaining_regenerations, Integer, null: true, description: "Remaining routine regenerations today"
+    field :deleted_routine_id, ID, null: true, description: "Deleted routine ID (DELETE_ROUTINE)"
+
+    # Welcome/Long-term plan fields
+    field :is_first_chat, Boolean, null: true, description: "Whether this is the first chat after onboarding"
+    field :user_profile, GraphQL::Types::JSON, null: true, description: "User profile summary"
+    field :long_term_plan, Types::LongTermPlanType, null: true, description: "Long-term workout plan"
+    field :suggestions, [ String ], null: true, description: "Suggested follow-up messages"
   end
 end

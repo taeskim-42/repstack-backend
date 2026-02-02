@@ -16,7 +16,10 @@ module Types
     field :max_lifts, GraphQL::Types::JSON, null: true
     field :total_workouts_completed, Integer, null: true
     field :onboarding_completed_at, String, null: true
+    field :form_onboarding_completed_at, String, null: true
     field :level_assessed_at, String, null: true
+    field :needs_form_onboarding, Boolean, null: false
+    field :needs_ai_consultation, Boolean, null: false
     field :last_level_test_at, String, null: true
     field :created_at, String, null: false
     field :updated_at, String, null: false
@@ -33,6 +36,18 @@ module Types
 
     def onboarding_completed_at
       object.onboarding_completed_at&.iso8601
+    end
+
+    def form_onboarding_completed_at
+      object.form_onboarding_completed_at&.iso8601
+    end
+
+    def needs_form_onboarding
+      object.form_onboarding_completed_at.nil?
+    end
+
+    def needs_ai_consultation
+      object.form_onboarding_completed_at.present? && object.onboarding_completed_at.nil?
     end
 
     def level_assessed_at

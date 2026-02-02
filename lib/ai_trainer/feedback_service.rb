@@ -264,34 +264,39 @@ module AiTrainer
 
     def build_voice_prompt(text, routine_id)
       <<~PROMPT
-        You are an expert fitness coach. The user provides workout feedback via voice.
-        Analyze their feedback and provide insights for future workouts.
+        당신은 친근하고 전문적인 피트니스 트레이너입니다. 사용자가 운동 완료 후 피드백을 보냈습니다.
 
-        User's voice feedback (Korean or English):
+        사용자 피드백:
         "#{text}"
 
-        #{routine_id ? "Routine ID: #{routine_id}" : ""}
+        #{routine_id ? "루틴 ID: #{routine_id}" : ""}
 
-        Based on what the user said, determine:
-        1. Overall satisfaction (rating 1-5)
-        2. Feedback type (DIFFICULTY, SATISFACTION, PROGRESS, EXERCISE_SPECIFIC, GENERAL)
-        3. Key insights from their feedback
-        4. Adaptations for future workouts
-        5. Specific recommendations for the next workout
+        다음을 분석하세요:
+        1. 전반적인 만족도 (1-5점)
+        2. 피드백 유형 (DIFFICULTY, SATISFACTION, PROGRESS, EXERCISE_SPECIFIC, GENERAL)
+        3. 피드백에서 얻은 인사이트
+        4. 다음 운동에 적용할 조정사항
+        5. 다음 운동을 위한 구체적인 추천
 
-        Respond ONLY with valid JSON in this exact format:
+        **중요**: interpretation 필드에는 사용자에게 보여줄 **친근한 한국어 응답 메시지**를 작성하세요.
+        - 운동 완료를 축하하고
+        - 피드백에 공감하며
+        - 다음 루틴에 어떻게 반영할지 간단히 언급
+        - 2-3문장, 이모지 사용 OK
+
+        반드시 아래 JSON 형식으로만 응답하세요:
         ```json
         {
           "feedback": {
             "rating": 1-5,
             "feedbackType": "DIFFICULTY" or "SATISFACTION" or "PROGRESS" or "EXERCISE_SPECIFIC" or "GENERAL",
-            "summary": "Brief summary of the feedback",
+            "summary": "피드백 요약",
             "wouldRecommend": true or false
           },
-          "insights": ["insight1", "insight2"],
-          "adaptations": ["adaptation1", "adaptation2"],
-          "nextWorkoutRecommendations": ["recommendation1", "recommendation2"],
-          "interpretation": "Brief explanation of how you interpreted the feedback"
+          "insights": ["인사이트1", "인사이트2"],
+          "adaptations": ["다음 루틴 적용사항1", "다음 루틴 적용사항2"],
+          "nextWorkoutRecommendations": ["추천1", "추천2"],
+          "interpretation": "오늘 운동 수고하셨어요! 💪 [피드백에 맞는 친근한 응답]"
         }
         ```
       PROMPT
@@ -376,6 +381,16 @@ module AiTrainer
 
       insights << "피드백을 확인했습니다" if insights.empty?
 
+      # Generate friendly user response based on rating
+      interpretation = case rating
+      when 1..2
+        "오늘 운동 수고하셨어요! 💪 힘드셨군요. 다음 루틴은 조금 더 가볍게 조정해드릴게요. 푹 쉬세요! 🌙"
+      when 4..5
+        "오늘 운동 수고하셨어요! 💪 여유가 있으셨네요! 다음엔 더 도전적인 루틴으로 준비할게요. 화이팅! 🔥"
+      else
+        "오늘 운동 수고하셨어요! 💪 피드백 반영해서 다음 루틴을 더 좋게 만들어드릴게요!"
+      end
+
       {
         success: true,
         feedback: {
@@ -387,7 +402,7 @@ module AiTrainer
         insights: insights,
         adaptations: adaptations,
         next_workout_recommendations: [],
-        interpretation: "피드백을 분석했습니다."
+        interpretation: interpretation
       }
     end
   end

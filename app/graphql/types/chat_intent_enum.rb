@@ -11,10 +11,13 @@ module Types
     value "SUBMIT_FEEDBACK", "Submitting feedback (e.g., '런지가 힘들었어')"
     value "GENERAL_CHAT", "General conversation handled by AI"
     value "WELCOME", "Welcome message for newly onboarded users"
+    value "WELCOME_WITH_ROUTINE", "Welcome message with long-term plan and first routine"
     value "LEVEL_ASSESSMENT", "New user level assessment (onboarding)"
     value "PROMOTION_ELIGIBLE", "User is eligible for level promotion test"
     value "REPLACE_EXERCISE", "Exercise replaced in routine"
     value "ADD_EXERCISE", "Exercise added to routine"
     value "REGENERATE_ROUTINE", "Routine regenerated with new exercises"
+    value "DELETE_ROUTINE", "Routine deleted"
+    value "EXPLAIN_LONG_TERM_PLAN", "Long-term workout plan explanation"
   end
 end

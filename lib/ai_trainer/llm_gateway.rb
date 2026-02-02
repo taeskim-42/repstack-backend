@@ -350,7 +350,14 @@ module AiTrainer
       end
 
       def mock_assessment_response
-        "좋아요! 운동 경험이 어느 정도 되시나요?"
+        # Return JSON format so parse_response can handle it properly
+        {
+          message: "좋아요! 운동 경험이 어느 정도 되시나요?",
+          next_state: "asking_experience",
+          collected_data: {},
+          is_complete: false,
+          assessment: nil
+        }.to_json
       end
     end
   end

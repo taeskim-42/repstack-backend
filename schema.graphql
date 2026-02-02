@@ -3232,11 +3232,14 @@ type UserProfile {
   daysSinceStart: Int!
   fitnessFactors: JSON
   fitnessGoal: String
+  formOnboardingCompletedAt: String
   height: Float
   id: ID!
   lastLevelTestAt: String
   levelAssessedAt: String
   maxLifts: JSON
+  needsAiConsultation: Boolean!
+  needsFormOnboarding: Boolean!
   numericLevel: Int
   onboardingCompletedAt: String
   programStartDate: String
@@ -3317,6 +3320,16 @@ Reference to a YouTube video source
 """
 type VideoReference {
   """
+  Related FitnessKnowledgeChunk ID
+  """
+  chunkId: ID
+
+  """
+  Start timestamp in seconds
+  """
+  timestampStart: Int
+
+  """
   Video title
   """
   title: String
@@ -3325,6 +3338,11 @@ type VideoReference {
   YouTube video URL
   """
   url: String
+
+  """
+  YouTube video ID
+  """
+  videoId: String
 }
 
 """

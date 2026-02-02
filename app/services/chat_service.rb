@@ -111,18 +111,26 @@ class ChatService
 
       1. 루틴/운동 프로그램 요청 → **generate_routine** tool 필수
          예: "루틴 만들어줘", "오늘 운동 뭐해", "등운동 루틴", "광배근 루틴"
+         (컨디션 + 루틴 요청: "피곤한데 운동 뭐해" → generate_routine의 condition 파라미터 사용)
 
-      2. 운동 기록 요청 → **record_exercise** tool 필수
+      2. 컨디션만 언급 (루틴 요청 없이) → **check_condition** tool 필수
+         예: "피곤해", "오늘 컨디션 안좋아", "어깨가 아파", "잠을 못잤어", "굿", "최고", "컨디션 좋아"
+         ※ 루틴 요청 없이 상태만 말할 때 사용! 다음 루틴 생성 시 자동 반영됨
+
+      3. 운동 기록 요청 → **record_exercise** tool 필수
          예: "벤치프레스 60kg 8회", "스쿼트 10회 했어"
 
-      3. 운동 교체 요청 → **replace_exercise** tool 필수 (routineId가 있을 때)
+      4. 운동 교체 요청 → **replace_exercise** tool 필수 (routineId가 있을 때)
          예: "XX 말고 다른거", "XX 대신 다른 운동", "이거 힘들어", "XX 빼줘"
 
-      4. 운동 추가 요청 → **add_exercise** tool 필수 (routineId가 있을 때)
+      5. 운동 추가 요청 → **add_exercise** tool 필수 (routineId가 있을 때)
          예: "XX도 넣어줘", "팔운동 더 하고싶어"
 
-      5. 루틴 전체 재생성 → **regenerate_routine** tool 필수 (routineId가 있을 때)
+      6. 루틴 전체 재생성 → **regenerate_routine** tool 필수 (routineId가 있을 때)
          예: "다른 루틴으로", "전부 바꿔줘", "마음에 안들어"
+
+      7. 운동 계획/프로그램 설명 요청 → **explain_long_term_plan** tool 필수
+         예: "내 운동 계획 알려줘", "주간 스케줄", "어떻게 운동해야 해", "프로그램 설명해줘", "나 어떤 운동 하면 돼"
 
       ## 일반 대화만 tool 없이 답변
       - 운동 지식 질문, 폼 체크 설명, 일반 인사 등
@@ -155,6 +163,20 @@ class ChatService
         }
       },
       {
+        name: "check_condition",
+        description: "사용자의 컨디션을 파악하고 기록합니다. 사용자가 '피곤해', '컨디션 안좋아', '오늘 좀 힘들어', '잠을 못잤어', '어깨가 아파', '컨디션 좋아', '굿', '최고' 등 자신의 상태를 말할 때 사용합니다. 루틴 요청 없이 컨디션만 언급할 때 이 tool을 호출하세요.",
+        input_schema: {
+          type: "object",
+          properties: {
+            condition_text: {
+              type: "string",
+              description: "사용자가 말한 컨디션 상태 원문 (예: '피곤해', '어깨가 좀 아파', '굿')"
+            }
+          },
+          required: %w[condition_text]
+        }
+      },
+      {
         name: "record_exercise",
         description: "운동 기록을 저장합니다. 사용자가 '벤치프레스 60kg 8회', '스쿼트 10회 3세트 했어' 등 운동 수행 내용을 말할 때 사용합니다.",
         input_schema: {
@@ -178,6 +200,20 @@ class ChatService
             }
           },
           required: %w[exercise_name reps]
+        }
+      },
+      {
+        name: "explain_long_term_plan",
+        description: "사용자의 장기 운동 계획을 설명합니다. '내 운동 계획 알려줘', '주간 스케줄', '어떻게 운동해야 해', '프로그램 설명해줘' 등의 요청에 사용합니다.",
+        input_schema: {
+          type: "object",
+          properties: {
+            detail_level: {
+              type: "string",
+              description: "설명 수준 (brief: 간단히, detailed: 자세히)"
+            }
+          },
+          required: []
         }
       }
     ]
@@ -268,6 +304,8 @@ class ChatService
     case tool_name
     when "generate_routine"
       handle_generate_routine(input)
+    when "check_condition"
+      handle_check_condition(input)
     when "record_exercise"
       handle_record_exercise(input)
     when "replace_exercise"
@@ -278,6 +316,8 @@ class ChatService
       handle_regenerate_routine(input)
     when "delete_routine"
       handle_delete_routine(input)
+    when "explain_long_term_plan"
+      handle_explain_long_term_plan(input)
     else
       error_response("알 수 없는 작업입니다: #{tool_name}")
     end
@@ -288,8 +328,22 @@ class ChatService
   # ============================================
 
   def handle_generate_routine(input)
-    unless user.user_profile&.level.present?
-      return error_response("먼저 간단한 체력 테스트를 완료해주세요! 그래야 맞춤 루틴을 만들 수 있어요.")
+    profile = user.user_profile
+
+    # Check if user has completed onboarding (either method)
+    unless profile&.onboarding_completed_at.present? || profile&.numeric_level.present?
+      # Try to guide them through onboarding first
+      if AiTrainer::LevelAssessmentService.needs_assessment?(user)
+        return error_response("먼저 간단한 상담을 완료해주세요! 그래야 맞춤 루틴을 만들 수 있어요. 💬")
+      else
+        return error_response("프로필 설정이 완료되지 않았어요. 상담을 먼저 진행해주세요!")
+      end
+    end
+
+    # Ensure numeric_level is set (fallback to 1 if missing)
+    unless profile.numeric_level.present?
+      Rails.logger.warn("[ChatService] User #{user.id} has onboarding completed but no numeric_level, setting default")
+      profile.update!(numeric_level: 1, current_level: "beginner")
     end
 
     day_of_week = Time.current.wday
@@ -316,6 +370,42 @@ class ChatService
       message: format_routine_message(routine),
       intent: "GENERATE_ROUTINE",
       data: { routine: routine }
+    )
+  end
+
+  def handle_check_condition(input)
+    condition_text = input["condition_text"]
+    return error_response("컨디션 상태를 알려주세요.") if condition_text.blank?
+
+    # Use ConditionService to analyze and save condition
+    result = AiTrainer::ConditionService.analyze_from_voice(
+      user: user,
+      text: condition_text
+    )
+
+    unless result[:success]
+      return error_response(result[:error] || "컨디션 분석에 실패했어요.")
+    end
+
+    # Save condition log
+    condition = result[:condition]
+    save_condition_log_from_result(condition)
+
+    # Build response message
+    message = build_condition_response_message(condition, result)
+
+    success_response(
+      message: message,
+      intent: "CHECK_CONDITION",
+      data: {
+        condition: condition,
+        adaptations: result[:adaptations],
+        intensity_modifier: result[:intensity_modifier],
+        duration_modifier: result[:duration_modifier],
+        exercise_modifications: result[:exercise_modifications],
+        rest_recommendations: result[:rest_recommendations],
+        interpretation: result[:interpretation]
+      }
     )
   end
 
@@ -486,6 +576,117 @@ class ChatService
     )
   end
 
+  def handle_explain_long_term_plan(input)
+    profile = user.user_profile
+
+    unless profile&.onboarding_completed_at
+      return error_response("먼저 상담을 완료해주세요. 그래야 맞춤 운동 계획을 세울 수 있어요!")
+    end
+
+    # Get consultation data
+    consultation_data = profile.fitness_factors&.dig("collected_data") || {}
+
+    # Build long-term plan
+    long_term_plan = build_long_term_plan(profile, consultation_data)
+
+    detail_level = input["detail_level"] || "detailed"
+
+    # Generate AI explanation
+    prompt = <<~PROMPT
+      사용자의 장기 운동 계획을 #{detail_level == 'brief' ? '간단히' : '자세히'} 설명해주세요.
+
+      ## 사용자 정보
+      - 이름: #{user.name || '회원'}
+      - 레벨: #{profile.numeric_level || 1} (#{tier_korean(profile.tier || 'beginner')})
+      - 목표: #{profile.fitness_goal || '건강'}
+      - 운동 빈도: #{consultation_data['frequency'] || '주 3회'}
+      - 운동 환경: #{consultation_data['environment'] || '헬스장'}
+      - 부상/주의사항: #{consultation_data['injuries'] || '없음'}
+      - 집중 부위: #{consultation_data['focus_areas'] || '전체'}
+
+      ## 주간 스플릿
+      #{long_term_plan[:weekly_split]}
+
+      ## 훈련 전략
+      #{long_term_plan[:description]}
+
+      ## 점진적 과부하 전략
+      #{long_term_plan[:progression_strategy]}
+
+      ## 예상 타임라인
+      #{long_term_plan[:estimated_timeline]}
+
+      ## 응답 규칙
+      1. 사용자 정보 기반 맞춤 계획 설명
+      2. 주간 스케줄 구체적으로 안내 (요일별 운동 부위)
+      3. 목표 달성을 위한 전략 설명
+      4. 점진적 과부하 방법 안내
+      5. 예상 결과 시점 안내
+      6. 친근하고 격려하는 톤
+      7. 이모지 적절히 사용
+    PROMPT
+
+    response = AiTrainer::LlmGateway.chat(
+      prompt: prompt,
+      task: :explain_plan,
+      system: "당신은 친근하면서도 전문적인 피트니스 AI 트레이너입니다. 한국어로 응답하세요."
+    )
+
+    message = if response[:success]
+      response[:content]
+    else
+      format_long_term_plan_message(long_term_plan, profile)
+    end
+
+    success_response(
+      message: message,
+      intent: "EXPLAIN_LONG_TERM_PLAN",
+      data: {
+        long_term_plan: long_term_plan,
+        user_profile: {
+          level: profile.numeric_level || 1,
+          tier: profile.tier || "beginner",
+          goal: profile.fitness_goal
+        },
+        suggestions: [
+          "오늘 루틴 만들어줘",
+          "내일은 뭐 해야 해?",
+          "휴식일에는 뭐 하면 좋아?"
+        ]
+      }
+    )
+  end
+
+  def format_long_term_plan_message(long_term_plan, profile)
+    name = user.name || "회원"
+    goal = profile.fitness_goal || "건강"
+    tier = tier_korean(profile.tier || "beginner")
+
+    msg = "## 📋 #{name}님의 맞춤 운동 계획\n\n"
+    msg += "**🎯 목표:** #{goal}\n"
+    msg += "**💪 레벨:** #{tier}\n"
+    msg += "**📅 주간 스케줄:** #{long_term_plan[:weekly_split]}\n\n"
+
+    msg += "### 🗓️ 주간 운동 스케줄\n"
+    long_term_plan[:weekly_schedule]&.each do |day|
+      day_names = %w[일 월 화 수 목 금 토]
+      day_name = day_names[day[:day]] || "#{day[:day]}일"
+      msg += "- **#{day_name}요일:** #{day[:focus]}\n"
+    end
+
+    msg += "\n### 📈 훈련 전략\n"
+    msg += "#{long_term_plan[:description]}\n\n"
+
+    msg += "### 🔥 점진적 과부하\n"
+    msg += "#{long_term_plan[:progression_strategy]}\n\n"
+
+    msg += "### ⏰ 예상 결과\n"
+    msg += "#{long_term_plan[:estimated_timeline]}\n\n"
+
+    msg += "오늘 운동을 시작해볼까요? \"오늘 루틴 만들어줘\"라고 말씀해주세요! 💪"
+    msg
+  end
+
   # ============================================
   # General Chat with RAG
   # ============================================
@@ -530,8 +731,14 @@ class ChatService
     level = profile&.numeric_level || 1
     goal = profile&.fitness_goal || "건강"
 
+    # Get consultation data for personalized plan
+    consultation_data = profile&.fitness_factors&.dig("collected_data") || {}
+
+    # Build long-term plan explanation
+    long_term_plan = build_long_term_plan(profile, consultation_data)
+
     prompt = <<~PROMPT
-      새로 온보딩을 완료한 사용자에게 첫 인사를 해주세요.
+      새로 온보딩을 완료한 사용자에게 장기 운동 계획을 설명하고 첫 루틴을 제안해주세요.
 
       ## 사용자 정보
       - 이름: #{user.name || '회원'}
@@ -539,45 +746,313 @@ class ChatService
       - 목표: #{goal}
       - 키: #{profile&.height}cm
       - 체중: #{profile&.weight}kg
+      - 운동 빈도: #{consultation_data['frequency'] || '주 3회'}
+      - 운동 환경: #{consultation_data['environment'] || '헬스장'}
+      - 부상/주의사항: #{consultation_data['injuries'] || '없음'}
+      - 집중 부위: #{consultation_data['focus_areas'] || '전체'}
+
+      ## 장기 운동 계획
+      #{long_term_plan[:description]}
+
+      ## 주간 스플릿
+      #{long_term_plan[:weekly_split]}
 
       ## 응답 규칙
       1. 환영 인사 (이름 포함)
-      2. 프로필 정보 간단히 확인해줌
-      3. 첫 운동 루틴을 만들어볼지 제안
+      2. 상담 내용 바탕으로 맞춤 장기 계획 설명 (주간 스플릿, 목표 달성 전략)
+      3. "지금 바로 오늘의 루틴을 만들어드릴게요!" 라고 말하며 루틴 생성 예고
       4. 친근하고 격려하는 톤
-      5. 2-3문장으로 간결하게
+      5. 4-6문장 정도로 충분히 설명
       6. 이모지 적절히 사용
+      7. **마지막에 반드시** "잠시만요, 오늘의 맞춤 루틴을 준비할게요... 💪" 라고 끝내기
     PROMPT
 
     response = AiTrainer::LlmGateway.chat(
       prompt: prompt,
-      task: :welcome_message,
-      system: "당신은 친근한 피트니스 AI 트레이너입니다. 한국어로 응답하세요."
+      task: :welcome_with_plan,
+      system: "당신은 친근하면서도 전문적인 피트니스 AI 트레이너입니다. 한국어로 응답하세요."
     )
 
     welcome_text = if response[:success]
       response[:content]
     else
-      default_welcome_message(profile)
+      default_welcome_with_plan(profile, long_term_plan)
     end
 
-    success_response(
-      message: welcome_text,
-      intent: "WELCOME",
-      data: {
-        is_first_chat: true,
-        user_profile: {
-          level: level,
-          tier: tier,
-          goal: goal
-        },
-        suggestions: [
-          "오늘 루틴 만들어줘",
-          "내 레벨에 맞는 운동 추천해줘",
-          "운동 어떻게 시작하면 좋을까?"
+    # Auto-generate first routine
+    first_routine = generate_first_routine
+
+    if first_routine && first_routine[:exercises].present?
+      # Combine welcome message with routine
+      routine_message = format_first_routine_message(first_routine)
+      full_message = "#{welcome_text}\n\n---\n\n#{routine_message}"
+
+      success_response(
+        message: full_message,
+        intent: "WELCOME_WITH_ROUTINE",
+        data: {
+          is_first_chat: true,
+          user_profile: {
+            level: level,
+            tier: tier,
+            goal: goal
+          },
+          long_term_plan: long_term_plan,
+          routine: first_routine,
+          suggestions: [
+            "운동 시작할게!",
+            "이 운동 대신 다른 거 추천해줘",
+            "운동 순서 바꿔도 될까?"
+          ]
+        }
+      )
+    else
+      # Fallback: just welcome message with suggestion
+      success_response(
+        message: welcome_text,
+        intent: "WELCOME",
+        data: {
+          is_first_chat: true,
+          user_profile: {
+            level: level,
+            tier: tier,
+            goal: goal
+          },
+          long_term_plan: long_term_plan,
+          suggestions: [
+            "오늘 루틴 만들어줘",
+            "내 레벨에 맞는 운동 추천해줘",
+            "운동 어떻게 시작하면 좋을까?"
+          ]
+        }
+      )
+    end
+  end
+
+  def build_long_term_plan(profile, consultation_data)
+    tier = profile&.tier || "beginner"
+    goal = profile&.fitness_goal || "건강"
+    frequency = consultation_data["frequency"] || "주 3회"
+    focus_areas = consultation_data["focus_areas"]
+
+    # Parse frequency
+    freq_match = frequency.match(/(\d+)/)
+    days_per_week = freq_match ? freq_match[1].to_i : 3
+    days_per_week = [[days_per_week, 2].max, 6].min  # Clamp between 2-6
+
+    # Build weekly split based on frequency and level
+    weekly_split = build_weekly_split(tier, days_per_week, focus_areas)
+
+    # Build plan description
+    description = build_plan_description(tier, goal, days_per_week)
+
+    {
+      tier: tier,
+      goal: goal,
+      days_per_week: days_per_week,
+      weekly_split: weekly_split[:description],
+      weekly_schedule: weekly_split[:schedule],
+      description: description,
+      progression_strategy: build_progression_strategy(tier),
+      estimated_timeline: estimate_goal_timeline(tier, goal)
+    }
+  end
+
+  def build_weekly_split(tier, days_per_week, focus_areas)
+    case tier
+    when "beginner"
+      # 초급: 전신 운동
+      if days_per_week <= 3
+        {
+          description: "전신 운동 (주 #{days_per_week}회)",
+          schedule: (1..days_per_week).map { |d| { day: d, focus: "전신", muscles: %w[legs chest back shoulders core] } }
+        }
+      else
+        {
+          description: "상하체 분할 (주 #{days_per_week}회)",
+          schedule: (1..days_per_week).map { |d| d.odd? ? { day: d, focus: "상체", muscles: %w[chest back shoulders arms] } : { day: d, focus: "하체", muscles: %w[legs core] } }
+        }
+      end
+    when "intermediate"
+      # 중급: 상하체 분할 또는 PPL
+      if days_per_week <= 4
+        {
+          description: "상하체 분할 (주 #{days_per_week}회)",
+          schedule: [
+            { day: 1, focus: "상체", muscles: %w[chest back shoulders arms] },
+            { day: 2, focus: "하체", muscles: %w[legs core] },
+            { day: 3, focus: "상체", muscles: %w[chest back shoulders arms] },
+            { day: 4, focus: "하체", muscles: %w[legs core] }
+          ].first(days_per_week)
+        }
+      else
+        {
+          description: "PPL 분할 (주 #{days_per_week}회)",
+          schedule: [
+            { day: 1, focus: "밀기 (Push)", muscles: %w[chest shoulders triceps] },
+            { day: 2, focus: "당기기 (Pull)", muscles: %w[back biceps] },
+            { day: 3, focus: "하체 (Legs)", muscles: %w[legs core] },
+            { day: 4, focus: "밀기 (Push)", muscles: %w[chest shoulders triceps] },
+            { day: 5, focus: "당기기 (Pull)", muscles: %w[back biceps] },
+            { day: 6, focus: "하체 (Legs)", muscles: %w[legs core] }
+          ].first(days_per_week)
+        }
+      end
+    when "advanced"
+      # 고급: PPL 또는 4-5분할
+      if days_per_week >= 5
+        {
+          description: "5분할 (주 #{days_per_week}회)",
+          schedule: [
+            { day: 1, focus: "가슴", muscles: %w[chest] },
+            { day: 2, focus: "등", muscles: %w[back] },
+            { day: 3, focus: "어깨", muscles: %w[shoulders] },
+            { day: 4, focus: "하체", muscles: %w[legs] },
+            { day: 5, focus: "팔", muscles: %w[biceps triceps] },
+            { day: 6, focus: "약점 보완", muscles: focus_areas&.split(",")&.map(&:strip) || %w[core] }
+          ].first(days_per_week)
+        }
+      else
+        {
+          description: "PPL 분할 (주 #{days_per_week}회)",
+          schedule: [
+            { day: 1, focus: "밀기 (Push)", muscles: %w[chest shoulders triceps] },
+            { day: 2, focus: "당기기 (Pull)", muscles: %w[back biceps] },
+            { day: 3, focus: "하체 (Legs)", muscles: %w[legs core] },
+            { day: 4, focus: "밀기 (Push)", muscles: %w[chest shoulders triceps] }
+          ].first(days_per_week)
+        }
+      end
+    else
+      {
+        description: "전신 운동 (주 3회)",
+        schedule: [
+          { day: 1, focus: "전신", muscles: %w[legs chest back shoulders core] },
+          { day: 2, focus: "전신", muscles: %w[legs chest back shoulders core] },
+          { day: 3, focus: "전신", muscles: %w[legs chest back shoulders core] }
         ]
       }
+    end
+  end
+
+  def build_plan_description(tier, goal, days_per_week)
+    goal_strategies = {
+      "근비대" => "근육량 증가를 위해 중량을 점진적으로 늘리고, 8-12회 반복에 집중합니다.",
+      "다이어트" => "체지방 감소를 위해 서킷 트레이닝과 고반복 운동을 병행합니다.",
+      "체력 향상" => "전반적인 체력 증진을 위해 복합 운동과 유산소를 균형있게 배치합니다.",
+      "건강" => "건강 유지를 위해 모든 근육군을 균형있게 훈련합니다.",
+      "strength" => "근력 향상을 위해 무거운 무게로 낮은 반복수(3-6회)에 집중합니다."
+    }
+
+    tier_approaches = {
+      "beginner" => "기본 동작을 완벽히 익히는 것이 우선입니다. 가벼운 무게로 자세를 잡고, 2-3개월 후 무게를 늘려갑니다.",
+      "intermediate" => "이제 점진적 과부하가 핵심입니다. 매주 조금씩 무게나 반복 수를 늘려가세요.",
+      "advanced" => "주기화 훈련으로 근력과 근비대를 번갈아 집중합니다. 디로드 주간도 중요합니다."
+    }
+
+    strategy = goal_strategies[goal] || goal_strategies["건강"]
+    approach = tier_approaches[tier] || tier_approaches["beginner"]
+
+    "#{strategy} #{approach}"
+  end
+
+  def build_progression_strategy(tier)
+    case tier
+    when "beginner"
+      "처음 4-6주: 동작 학습 기간 → 이후 매주 2.5% 또는 1-2회 증가"
+    when "intermediate"
+      "주당 2.5-5% 무게 증가, 4주마다 디로드 주간 포함"
+    when "advanced"
+      "3주 증가 + 1주 디로드 사이클, 비선형 주기화 적용"
+    else
+      "매주 조금씩 무게 또는 반복 수를 늘려가세요"
+    end
+  end
+
+  def estimate_goal_timeline(tier, goal)
+    base_weeks = case goal
+    when "근비대" then 12
+    when "다이어트" then 8
+    when "체력 향상" then 6
+    when "건강" then "지속적"
+    else 8
+    end
+
+    tier_modifier = case tier
+    when "beginner" then 1.5
+    when "intermediate" then 1.0
+    when "advanced" then 0.8
+    else 1.0
+    end
+
+    if base_weeks.is_a?(Integer)
+      adjusted = (base_weeks * tier_modifier).round
+      "약 #{adjusted}주 후 눈에 띄는 변화 기대"
+    else
+      "꾸준히 운동하면 건강 유지 가능"
+    end
+  end
+
+  def generate_first_routine
+    day_of_week = Time.current.wday
+    day_of_week = day_of_week == 0 ? 7 : day_of_week
+    day_of_week = [day_of_week, 5].min  # Cap at Friday for first routine
+
+    AiTrainer.generate_routine(
+      user: user,
+      day_of_week: day_of_week,
+      condition_inputs: { energy_level: 4, notes: "첫 운동 - 적응 기간" },  # Slightly easier for first workout
+      goal: user.user_profile&.fitness_goal
     )
+  rescue StandardError => e
+    Rails.logger.error("[ChatService] Failed to generate first routine: #{e.message}")
+    nil
+  end
+
+  def format_first_routine_message(routine)
+    msg = "## 🎯 오늘의 첫 루틴이 준비됐어요!\n\n"
+    msg += "📋 **#{routine[:day_korean] || routine['day_korean']}** - #{routine[:fitness_factor_korean] || routine['fitness_factor_korean'] || '맞춤 훈련'}\n"
+    msg += "⏱️ 예상 시간: #{routine[:estimated_duration_minutes] || routine['estimated_duration_minutes'] || 45}분\n\n"
+
+    exercises = routine[:exercises] || routine["exercises"] || []
+    msg += "**운동 목록:**\n"
+    exercises.each_with_index do |ex, idx|
+      name = ex[:exercise_name] || ex["exercise_name"]
+      sets = ex[:sets] || ex["sets"]
+      reps = ex[:reps] || ex["reps"]
+      work_seconds = ex[:work_seconds] || ex["work_seconds"]
+
+      if work_seconds.present?
+        msg += "#{idx + 1}. #{name} - #{sets}세트 x #{work_seconds}초\n"
+      else
+        msg += "#{idx + 1}. #{name} - #{sets}세트 x #{reps}회\n"
+      end
+    end
+
+    # Add coach message if available
+    if routine[:notes].present? && routine[:notes].any?
+      msg += "\n💡 **코치 팁:** #{routine[:notes].first}"
+    end
+
+    msg += "\n\n준비되면 \"운동 시작\"이라고 말씀해주세요! 함께 해볼까요? 💪"
+    msg
+  end
+
+  def default_welcome_with_plan(profile, long_term_plan)
+    name = user.name || "회원"
+    goal = profile&.fitness_goal || "건강"
+    tier = profile&.tier || "beginner"
+
+    tier_name = tier_korean(tier)
+    weekly_split = long_term_plan[:weekly_split]
+
+    "#{name}님, 환영합니다! 🎉\n\n" \
+    "상담 내용을 바탕으로 #{name}님만의 운동 계획을 세웠어요.\n\n" \
+    "📌 **목표:** #{goal}\n" \
+    "📌 **레벨:** #{tier_name}\n" \
+    "📌 **주간 스케줄:** #{weekly_split}\n\n" \
+    "#{long_term_plan[:description]}\n\n" \
+    "잠시만요, 오늘의 맞춤 루틴을 준비할게요... 💪"
   end
 
   def default_welcome_message(profile)
@@ -790,6 +1265,86 @@ class ChatService
 
     # 문자열 그대로 notes에 담아서 전달
     { notes: condition_str }
+  end
+
+  # Save condition log from check_condition result
+  def save_condition_log_from_result(condition)
+    return unless condition
+
+    user.condition_logs.create!(
+      date: Date.current,
+      energy_level: condition[:energy_level] || 3,
+      stress_level: condition[:stress_level] || 3,
+      sleep_quality: condition[:sleep_quality] || 3,
+      motivation: condition[:motivation] || 3,
+      soreness: condition[:soreness] || {},
+      available_time: condition[:available_time] || 60,
+      notes: "Chat에서 입력"
+    )
+  rescue ActiveRecord::RecordInvalid => e
+    Rails.logger.warn("ChatService: Failed to save condition log: #{e.message}")
+  end
+
+  # Build user-friendly response message for condition check
+  def build_condition_response_message(condition, result)
+    energy = condition[:energy_level] || 3
+    stress = condition[:stress_level] || 3
+    motivation = condition[:motivation] || 3
+
+    # Determine overall condition status
+    avg_score = (energy + (6 - stress) + motivation) / 3.0
+
+    status_emoji, status_text = if avg_score >= 4
+      [ "💪", "좋은 컨디션" ]
+    elsif avg_score >= 3
+      [ "👍", "괜찮은 컨디션" ]
+    elsif avg_score >= 2
+      [ "😊", "조금 피곤한 컨디션" ]
+    else
+      [ "🌙", "휴식이 필요한 컨디션" ]
+    end
+
+    msg = "#{status_emoji} 오늘 #{status_text}이시네요! 컨디션을 기록했어요.\n\n"
+
+    # Add interpretation if available
+    if result[:interpretation].present?
+      msg += "#{result[:interpretation]}\n\n"
+    end
+
+    # Add adaptations as suggestions
+    if result[:adaptations].present? && result[:adaptations].any?
+      msg += "📝 **운동 시 참고하세요:**\n"
+      result[:adaptations].first(3).each do |adaptation|
+        msg += "• #{adaptation}\n"
+      end
+      msg += "\n"
+    end
+
+    # Add suggestions based on condition
+    suggestions = build_condition_suggestions(condition, result)
+    if suggestions.any?
+      msg += "오늘 어떤 운동을 해볼까요? 루틴이 필요하면 말씀해주세요!"
+    end
+
+    msg
+  end
+
+  def build_condition_suggestions(condition, result)
+    suggestions = []
+    energy = condition[:energy_level] || 3
+    intensity = result[:intensity_modifier] || 1.0
+
+    if energy <= 2 || intensity < 0.8
+      suggestions << "가벼운 루틴 만들어줘"
+      suggestions << "스트레칭만 할래"
+    elsif energy >= 4
+      suggestions << "오늘 루틴 만들어줘"
+      suggestions << "강하게 운동하고 싶어"
+    else
+      suggestions << "오늘 루틴 만들어줘"
+    end
+
+    suggestions
   end
 
   def success_response(message:, intent:, data:)
