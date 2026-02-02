@@ -450,81 +450,82 @@ module AiTrainer
       else
         # ============================================
         # PRIORITY 1: Extract experience level (years)
+        # Always try to extract, overwrite if we find a match
         # ============================================
-        if new_collected["experience"].blank? || new_collected["experience_years"].blank?
-          # Match patterns like "2년", "2년 넘게", "3년째", "6개월"
-          year_match = user_message.match(/(\d+)\s*년\s*(넘|이상|째|정도)?/)
-          month_match = user_message.match(/(\d+)\s*개월/)
-          
-          if year_match
-            years = year_match[1].to_i
-            new_collected["experience_years"] = "#{years}년 이상"
-            # Auto-determine experience level
-            if years >= 2
-              new_collected["experience"] = "advanced"
-            elsif years >= 1
-              new_collected["experience"] = "intermediate"
-            else
-              new_collected["experience"] = "beginner"
-            end
-          elsif month_match
-            months = month_match[1].to_i
-            new_collected["experience_years"] = "#{months}개월"
-            if months >= 6
-              new_collected["experience"] = "intermediate"
-            else
-              new_collected["experience"] = "beginner"
-            end
+        # Match patterns like "2년", "2년 넘게", "3년째", "6개월", "해온지 2년"
+        year_match = user_message.match(/(\d+)\s*년/)
+        month_match = user_message.match(/(\d+)\s*개월/)
+        
+        if year_match
+          years = year_match[1].to_i
+          new_collected["experience_years"] = "#{years}년 이상"
+          # Auto-determine experience level
+          if years >= 2
+            new_collected["experience"] = "advanced"
+          elsif years >= 1
+            new_collected["experience"] = "intermediate"
+          else
+            new_collected["experience"] = "beginner"
           end
+          Rails.logger.info("[LevelAssessmentService] Extracted experience: #{years}년 -> #{new_collected['experience']}")
+        elsif month_match
+          months = month_match[1].to_i
+          new_collected["experience_years"] = "#{months}개월"
+          if months >= 6
+            new_collected["experience"] = "intermediate"
+          else
+            new_collected["experience"] = "beginner"
+          end
+          Rails.logger.info("[LevelAssessmentService] Extracted experience: #{months}개월 -> #{new_collected['experience']}")
         end
 
         # ============================================
         # PRIORITY 2: Extract frequency (days per week + duration)
+        # Always try to extract if we find a pattern
         # ============================================
-        if new_collected["frequency"].blank?
-          freq_match = user_message.match(/주\s*(\d+)\s*회|(\d+)\s*회/)
-          # More flexible time patterns: "1시간 반", "1시간", "90분", "30분"
-          time_match = user_message.match(/(\d+)\s*시간\s*(반)?|(\d+)\s*분/)
-          
-          freq_parts = []
-          if freq_match
-            freq_parts << "주 #{freq_match[1] || freq_match[2]}회"
-          end
-          if time_match
-            if time_match[1] # hours
-              hours = time_match[1]
-              if time_match[2] # "반" (half)
-                freq_parts << "#{hours}시간 30분"
-              else
-                freq_parts << "#{hours}시간"
-              end
-            elsif time_match[3] # minutes only
-              freq_parts << "#{time_match[3]}분"
+        freq_match = user_message.match(/주\s*(\d+)\s*회|(\d+)\s*회/)
+        # More flexible time patterns: "1시간 반", "1시간", "90분", "30분"
+        time_match = user_message.match(/(\d+)\s*시간\s*(반)?|(\d+)\s*분/)
+        
+        freq_parts = []
+        if freq_match
+          freq_parts << "주 #{freq_match[1] || freq_match[2]}회"
+        end
+        if time_match
+          if time_match[1] # hours
+            hours = time_match[1]
+            if time_match[2] # "반" (half)
+              freq_parts << "#{hours}시간 30분"
+            else
+              freq_parts << "#{hours}시간"
             end
+          elsif time_match[3] # minutes only
+            freq_parts << "#{time_match[3]}분"
           end
-          
-          if freq_parts.any?
-            new_collected["frequency"] = freq_parts.join(", ")
-          end
+        end
+        
+        if freq_parts.any?
+          new_collected["frequency"] = freq_parts.join(", ")
+          Rails.logger.info("[LevelAssessmentService] Extracted frequency: #{new_collected['frequency']}")
         end
 
         # ============================================
         # PRIORITY 3: Extract goals
+        # Always try to extract if we find a keyword
         # ============================================
-        if new_collected["goals"].blank?
-          goal_keywords = {
-            "근비대" => ["근비대", "근육", "벌크", "bulk", "머슬", "muscle", "키우"],
-            "다이어트" => ["다이어트", "살빼", "체중감량", "fat", "컷팅", "cut"],
-            "체력" => ["체력", "지구력", "스태미나", "stamina"],
-            "건강" => ["건강", "유지", "health"],
-            "strength" => ["근력", "힘", "strength", "스트렝스", "파워"]
-          }
-          
-          goal_keywords.each do |goal, keywords|
-            if keywords.any? { |kw| msg.include?(kw) }
-              new_collected["goals"] = goal
-              break
-            end
+        goal_keywords = {
+          "근비대" => ["근비대", "근육 키우", "벌크", "bulk", "머슬", "muscle", "사이즈"],
+          "다이어트" => ["다이어트", "살빼", "체중감량", "fat", "컷팅", "cut", "체지방"],
+          "체력" => ["체력", "지구력", "스태미나", "stamina"],
+          "건강" => ["건강", "유지", "health"],
+          "strength" => ["근력", "힘", "strength", "스트렝스", "파워", "강해"]
+        }
+        
+        goal_keywords.each do |goal, keywords|
+          if keywords.any? { |kw| msg.include?(kw) }
+            new_collected["goals"] = goal
+            Rails.logger.info("[LevelAssessmentService] Extracted goal: #{goal}")
+            break
           end
         end
 
