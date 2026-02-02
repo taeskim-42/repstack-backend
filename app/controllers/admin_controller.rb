@@ -13,10 +13,15 @@ class AdminController < ApplicationController
 
   # POST /admin/chat - Process chat message
   def chat_send
-    message = params[:message]
-    return render json: { error: "message required" }, status: :bad_request if message.blank?
-
+    message = params[:message].to_s  # Allow empty string for AI-first greeting
     user_type = params[:user_type] || "existing"
+    
+    # 신규 유저는 빈 메시지 허용 (AI 첫 인사 트리거)
+    # 기존 유저는 메시지 필수
+    if message.blank? && user_type != "new"
+      return render json: { error: "message required" }, status: :bad_request
+    end
+
     level = params[:level]&.to_i || 5
     user, token = get_or_create_test_user(level, user_type: user_type)
 
@@ -2126,6 +2131,12 @@ class AdminController < ApplicationController
             </div>
           </div>
           <div class="panel-section">
+            <h3>💬 상담 시작</h3>
+            <div class="btn-grid">
+              <button class="test-btn full" onclick="startConsultation()" style="background:#e94560;border-color:#e94560;">🚀 AI 상담 시작 (신규유저용)</button>
+            </div>
+          </div>
+          <div class="panel-section">
             <h3>🚀 빠른 테스트</h3>
             <div class="btn-grid">
               <button class="test-btn" onclick="quickTest('등 운동 루틴 만들어줘')">등 루틴</button>
@@ -2264,9 +2275,9 @@ class AdminController < ApplicationController
             return html;
           }
 
-          async function sendMessage(customMessage = null) {
-            const message = customMessage || input.value.trim();
-            if (!message) return;
+          async function sendMessage(customMessage = null, allowEmpty = false) {
+            const message = customMessage !== null ? customMessage : input.value.trim();
+            if (!message && !allowEmpty) return;
             const token = getToken();
             if (!token) return;
             if (!customMessage) { addMessage(message, 'user'); input.value = ''; }
@@ -2299,6 +2310,39 @@ class AdminController < ApplicationController
           }
 
           function quickTest(message) { addMessage(message, 'user'); sendMessage(message); }
+
+          // AI가 먼저 인사하도록 빈 메시지 전송 (신규 유저 상담 시작용)
+          async function startConsultation() {
+            const token = getToken();
+            if (!token) return;
+            if (userTypeSelect.value !== 'new') {
+              alert('신규 유저만 AI 상담 시작이 가능합니다. User Type을 신규 유저로 변경해주세요.');
+              return;
+            }
+            addSystemMessage('🚀 AI 상담 시작 중...');
+            sendBtn.disabled = true;
+            const reqBody = { message: '', level: levelSelect.value, user_type: 'new', session_id: sessionId, routine_id: null };
+            document.getElementById('rawRequest').textContent = JSON.stringify(reqBody, null, 2);
+            try {
+              const res = await fetch('/admin/chat?admin_token=' + encodeURIComponent(token), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(reqBody)
+              });
+              const data = await res.json();
+              document.getElementById('rawResponse').textContent = JSON.stringify(data, null, 2);
+              document.getElementById('rawResponse').className = data.success ? '' : 'error';
+              if (data.success) {
+                addMessage(data.message || '(응답 없음)', 'bot', { intent: data.intent });
+              } else {
+                addMessage('Error: ' + (data.error || 'Unknown'), 'error');
+              }
+              refreshUserInfo();
+            } catch (e) {
+              addMessage('Network Error: ' + e.message, 'error');
+            }
+            sendBtn.disabled = false;
+          }
 
           async function refreshUserInfo() {
             const token = getToken();
