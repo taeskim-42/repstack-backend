@@ -17,6 +17,9 @@ class ChatService
   end
 
   def process
+    # Reload user to get fresh profile data
+    user.reload
+    
     # 0. Daily greeting (AI first - for all users when entering chat)
     if needs_daily_greeting?
       return handle_daily_greeting
