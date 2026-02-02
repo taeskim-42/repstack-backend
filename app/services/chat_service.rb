@@ -871,6 +871,9 @@ class ChatService
 
   def condition_response?
     return false if message.blank?
+    
+    # Skip condition check during onboarding (level assessment)
+    return false if needs_level_assessment?
 
     # Check if this looks like a condition response
     normalized = message.strip.downcase

@@ -88,6 +88,20 @@ module AiTrainer
       if result[:is_complete]
         update_profile_with_assessment(result[:assessment])
         complete_analytics(analytics, result[:collected_data], "user_ready")
+        
+        # Auto-generate weekly routine after consultation complete
+        routine_result = generate_initial_routine(result[:collected_data])
+        
+        # Build completion message with today's routine
+        completion_message = build_completion_message_with_routine(result[:message], routine_result)
+        
+        return {
+          success: true,
+          message: completion_message,
+          is_complete: true,
+          assessment: result[:assessment],
+          routine: routine_result[:routine]
+        }
       else
         save_assessment_state(result[:next_state], result[:collected_data])
         update_analytics(analytics, message, result)
@@ -852,6 +866,79 @@ module AiTrainer
           "initial_level_source" => "ai_consultation"  # Track that this is from consultation, not fitness test
         )
       )
+    end
+
+    # Generate initial weekly routine after consultation complete
+    def generate_initial_routine(collected_data)
+      Rails.logger.info("[LevelAssessmentService] Generating initial routine for user #{user.id}")
+      
+      # Extract frequency from collected data (e.g., "주 4회, 1시간")
+      frequency_str = collected_data["frequency"] || "주 3회"
+      days_per_week = extract_days_per_week(frequency_str)
+      
+      # Use DynamicRoutineGenerator for today's routine
+      generator = DynamicRoutineGenerator.new(user: user)
+      result = generator.generate
+      
+      # DynamicRoutineGenerator returns flat structure with :exercises, not :routine wrapper
+      if result[:success] && result[:exercises].present?
+        Rails.logger.info("[LevelAssessmentService] Initial routine generated: #{result[:routine_id]}")
+        # Wrap in routine format for consistency
+        routine_data = {
+          id: result[:routine_id],
+          name: result[:day_korean] || "오늘의 운동",
+          exercises: result[:exercises],
+          estimated_duration_minutes: result[:estimated_duration_minutes] || 60
+        }
+        { success: true, routine: routine_data, days_per_week: days_per_week }
+      else
+        Rails.logger.warn("[LevelAssessmentService] Failed to generate initial routine: #{result[:error]}")
+        { success: false, error: result[:error] }
+      end
+    rescue => e
+      Rails.logger.error("[LevelAssessmentService] Error generating initial routine: #{e.message}")
+      { success: false, error: e.message }
+    end
+
+    def extract_days_per_week(frequency_str)
+      match = frequency_str.to_s.match(/(\d+)\s*회/)
+      match ? match[1].to_i : 3
+    end
+
+    def build_completion_message_with_routine(base_message, routine_result)
+      lines = []
+      lines << "🎉 상담이 완료되었습니다!"
+      lines << ""
+      
+      if routine_result[:success] && routine_result[:routine]
+        routine = routine_result[:routine]
+        lines << "오늘의 첫 루틴을 준비했어요! 💪"
+        lines << ""
+        lines << "📋 **#{routine[:name] || '오늘의 운동'}**"
+        lines << "⏱️ 예상 시간: #{routine[:estimated_duration_minutes] || 60}분"
+        lines << ""
+        lines << "**운동 목록:**"
+        
+        exercises = routine[:exercises] || []
+        exercises.first(5).each do |ex|
+          name = ex[:exercise_name] || ex["exercise_name"] || ex[:name] || ex["name"]
+          sets = ex[:sets] || ex["sets"] || 3
+          reps = ex[:reps] || ex["reps"] || 10
+          lines << "• #{name} #{sets}세트 x #{reps}회"
+        end
+        
+        if exercises.size > 5
+          lines << "• ... 외 #{exercises.size - 5}개"
+        end
+        
+        lines << ""
+        lines << "운동 시작할 준비가 되면 알려주세요! 🔥"
+      else
+        lines << "루틴 생성 중 문제가 발생했어요."
+        lines << "\"오늘 운동 루틴 만들어줘\"라고 말씀해주세요!"
+      end
+      
+      lines.join("\n")
     end
 
     def mock_response(user_message = nil)
