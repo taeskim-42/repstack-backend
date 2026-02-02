@@ -49,6 +49,14 @@ module AiTrainer
       # Get current assessment state from profile
       current_state = get_assessment_state
 
+      # ============================================
+      # FIRST GREETING: When user enters chat mode after form onboarding
+      # AI should greet first with personalized message based on form data
+      # ============================================
+      if current_state == STATES[:initial] && (message.blank? || message == "start" || message == "시작")
+        return handle_first_greeting(analytics)
+      end
+
       # Check if API is configured - if not, use fallback mock_response
       unless LlmGateway.configured?(task: :level_assessment)
         Rails.logger.info("[LevelAssessmentService] Using mock response (API not configured)")
@@ -102,7 +110,102 @@ module AiTrainer
 
     attr_reader :user, :profile
 
+    # Handle first greeting when user enters chat after form onboarding
+    # AI proactively greets user with personalized message based on form data
+    def handle_first_greeting(analytics)
+      form_data = extract_form_data
+      greeting = build_personalized_greeting(form_data)
+
+      # Determine next state based on what's already known
+      next_state = determine_next_state(form_data)
+
+      # Save state with form data as initial collected data
+      save_assessment_state(next_state, form_data)
+
+      # Update analytics
+      update_analytics(analytics, "", {
+        message: greeting,
+        collected_data: form_data
+      })
+
+      {
+        success: true,
+        message: greeting,
+        is_complete: false,
+        assessment: nil
+      }
+    end
+
+    # Build personalized greeting based on form data
+    def build_personalized_greeting(form_data)
+      name = user.name || "회원"
+      goal = form_data["goals"] || profile.fitness_goal
+      experience = form_data["experience"]
+      
+      greeting_parts = []
+      greeting_parts << "#{name}님, 안녕하세요! 💪"
+      
+      # Acknowledge what we already know
+      known_info = []
+      known_info << "**#{goal}** 목표" if goal.present?
+      known_info << "**#{translate_experience(experience)}** 수준" if experience.present?
+      known_info << "키 **#{form_data['height']}cm**" if form_data["height"].present?
+      known_info << "체중 **#{form_data['weight']}kg**" if form_data["weight"].present?
+      
+      if known_info.any?
+        greeting_parts << ""
+        greeting_parts << "입력해주신 정보를 확인했어요:"
+        greeting_parts << known_info.map { |info| "- #{info}" }.join("\n")
+      end
+      
+      # Explain what we need for better routine
+      greeting_parts << ""
+      greeting_parts << "더 정확한 맞춤 루틴을 위해 몇 가지만 더 여쭤볼게요! 😊"
+      
+      # Ask the first question based on what's missing
+      missing_questions = determine_missing_questions(form_data)
+      if missing_questions.any?
+        greeting_parts << ""
+        greeting_parts << missing_questions.first
+      end
+      
+      greeting_parts.join("\n")
+    end
+
+    # Determine what questions to ask based on missing data
+    def determine_missing_questions(form_data)
+      questions = []
+      
+      if form_data["frequency"].blank?
+        questions << "우선, **주에 몇 번, 한 번에 몇 시간** 정도 운동하실 수 있으세요?"
+      end
+      
+      if form_data["environment"].blank?
+        questions << "운동 환경은 어떻게 되세요? (헬스장/홈트/기구 유무)"
+      end
+      
+      if form_data["injuries"].blank?
+        questions << "혹시 부상이나 피해야 할 동작이 있으신가요?"
+      end
+      
+      questions
+    end
+
+    # Determine next state based on what's already known
+    def determine_next_state(form_data)
+      if form_data["frequency"].blank?
+        STATES[:asking_frequency]
+      elsif form_data["goals"].blank?
+        STATES[:asking_goals]
+      elsif form_data["experience"].blank?
+        STATES[:asking_experience]
+      else
+        "asking_environment"
+      end
+    end
+
     # Handle initial greeting using form_data directly (no LLM call needed)
+    # Legacy method - kept for compatibility
     def handle_initial_greeting(analytics, message)
       form_data = extract_form_data
       greeting = build_initial_greeting(form_data)

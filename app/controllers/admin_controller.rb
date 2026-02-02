@@ -2207,19 +2207,24 @@ class AdminController < ApplicationController
           function formatRoutineCard(routine) {
             if (!routine) return '';
             let html = '<div class="routine-card">';
-            html += '<h4>📋 ' + (routine.dayKorean || '루틴') + '</h4>';
-            if (routine.estimatedDurationMinutes) html += '<div>⏱️ ' + routine.estimatedDurationMinutes + '분</div>';
+            html += '<h4>📋 ' + (routine.day_korean || routine.dayKorean || '루틴') + '</h4>';
+            const duration = routine.estimated_duration_minutes || routine.estimatedDurationMinutes;
+            if (duration) html += '<div>⏱️ ' + duration + '분</div>';
             if (routine.exercises && routine.exercises.length > 0) {
               routine.exercises.forEach((ex, i) => {
+                const name = ex.exercise_name || ex.exerciseName || '운동';
+                const sets = ex.sets || '?';
+                const reps = ex.reps || '?';
                 html += '<div class="exercise-item">';
-                html += '<strong>' + (i+1) + '. ' + ex.exerciseName + '</strong>';
-                if (ex.sets || ex.reps) html += ' - ' + (ex.sets || '?') + '세트 x ' + (ex.reps || '?') + '회';
+                html += '<strong>' + (i+1) + '. ' + name + '</strong>';
+                html += ' - ' + sets + '세트 x ' + reps + '회';
                 html += '</div>';
               });
             }
-            if (routine.routineId) {
-              html += '<div style="margin-top:8px;font-size:11px;color:#888;">ID: ' + routine.routineId + '</div>';
-              currentRoutineId = routine.routineId;
+            const routineId = routine.routine_id || routine.routineId;
+            if (routineId) {
+              html += '<div style="margin-top:8px;font-size:11px;color:#888;">ID: ' + routineId + '</div>';
+              currentRoutineId = routineId;
             }
             html += '</div>';
             return html;
