@@ -906,39 +906,69 @@ module AiTrainer
     end
 
     def build_completion_message_with_routine(base_message, routine_result)
-      lines = []
-      lines << "🎉 상담이 완료되었습니다!"
-      lines << ""
+      collected = get_collected_data
+      days_per_week = routine_result[:days_per_week] || 4
+      goal = collected["goals"] || profile.fitness_goal || "근력 향상"
+      experience = collected["experience"] || "beginner"
       
-      if routine_result[:success] && routine_result[:routine]
-        routine = routine_result[:routine]
-        lines << "오늘의 첫 루틴을 준비했어요! 💪"
-        lines << ""
-        lines << "📋 **#{routine[:name] || '오늘의 운동'}**"
-        lines << "⏱️ 예상 시간: #{routine[:estimated_duration_minutes] || 60}분"
-        lines << ""
-        lines << "**운동 목록:**"
-        
-        exercises = routine[:exercises] || []
-        exercises.first(5).each do |ex|
-          name = ex[:exercise_name] || ex["exercise_name"] || ex[:name] || ex["name"]
-          sets = ex[:sets] || ex["sets"] || 3
-          reps = ex[:reps] || ex["reps"] || 10
-          lines << "• #{name} #{sets}세트 x #{reps}회"
-        end
-        
-        if exercises.size > 5
-          lines << "• ... 외 #{exercises.size - 5}개"
-        end
-        
-        lines << ""
-        lines << "운동 시작할 준비가 되면 알려주세요! 🔥"
-      else
-        lines << "루틴 생성 중 문제가 발생했어요."
-        lines << "\"오늘 운동 루틴 만들어줘\"라고 말씀해주세요!"
-      end
+      # Build 12-week program description
+      program_info = build_program_description(goal, experience, days_per_week)
+      
+      lines = []
+      lines << "🎉 **12주 운동 프로그램**을 생성했습니다!"
+      lines << ""
+      lines << "📋 **프로그램 특징**"
+      lines << "• 목표: #{program_info[:goal_korean]}"
+      lines << "• 주 #{days_per_week}회 운동 (#{program_info[:split_type]})"
+      lines << "• 레벨: #{program_info[:level_korean]} → 점진적 강도 증가"
+      lines << ""
+      lines << "📅 **12주 진행 계획**"
+      lines << "• 1-4주: 적응기 - 기본 동작 습득, 폼 교정"
+      lines << "• 5-8주: 성장기 - 중량/볼륨 증가"  
+      lines << "• 9-12주: 강화기 - 고강도 훈련, 개인 기록 도전"
+      lines << ""
+      lines << "매주 운동 후 피드백을 받아 **AI가 다음 주 루틴을 최적화**해드려요! 💪"
+      lines << ""
+      lines << "---"
+      lines << ""
+      lines << "오늘의 첫 운동을 시작할까요? 🔥"
+      lines << ""
+      lines << "1️⃣ 네, 오늘 운동 루틴 보여줘"
+      lines << "2️⃣ 프로그램 자세히 설명해줘"
+      lines << "3️⃣ 나중에 할게"
       
       lines.join("\n")
+    end
+    
+    def build_program_description(goal, experience, days_per_week)
+      goal_korean = case goal.to_s.downcase
+        when /근비대|muscle|hypertrophy/ then "근비대 (근육량 증가)"
+        when /strength|근력/ then "근력 향상"
+        when /다이어트|fat|loss|체중/ then "체지방 감소"
+        when /체력|endurance|지구력/ then "체력/지구력 향상"
+        else "균형잡힌 체력 향상"
+      end
+      
+      level_korean = case experience.to_s.downcase
+        when /beginner|초보/ then "입문자"
+        when /intermediate|중급/ then "중급자"
+        when /advanced|고급/ then "고급자"
+        else "입문자"
+      end
+      
+      split_type = case days_per_week
+        when 1..2 then "전신 운동"
+        when 3 then "3분할 (상체/하체/전신)"
+        when 4 then "상/하체 2분할"
+        when 5..6 then "푸시/풀/레그 분할"
+        else "전신 운동"
+      end
+      
+      {
+        goal_korean: goal_korean,
+        level_korean: level_korean,
+        split_type: split_type
+      }
     end
 
     def mock_response(user_message = nil)

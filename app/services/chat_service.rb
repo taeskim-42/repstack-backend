@@ -27,6 +27,21 @@ class ChatService
       return handle_condition_response
     end
 
+    # 0.6. "Show today's routine" response (after program creation)
+    if wants_today_routine?
+      return handle_show_today_routine
+    end
+
+    # 0.7. "Workout finished" - ask for feedback
+    if workout_finished?
+      return handle_workout_finished
+    end
+
+    # 0.8. Feedback response (after workout)
+    if feedback_response?
+      return handle_feedback_response
+    end
+
     # 1. Welcome message for newly onboarded users
     if needs_welcome_message?
       return handle_welcome_message
@@ -878,6 +893,266 @@ class ChatService
     # Check if this looks like a condition response
     normalized = message.strip.downcase
     CONDITION_PATTERNS.values.any? { |pattern| normalized.match?(pattern) }
+  end
+
+  # Check if user wants to see today's routine (after program creation)
+  ROUTINE_REQUEST_PATTERNS = /네|1|오늘.*루틴|루틴.*보여|운동.*시작|시작.*할게/i.freeze
+  
+  def wants_today_routine?
+    return false if message.blank?
+    return false if needs_level_assessment?
+    
+    # Only trigger if user just completed onboarding (has profile but no routines yet)
+    profile = user.user_profile
+    return false unless profile&.onboarding_completed_at.present?
+    
+    # Check if no routines exist yet (just finished program creation)
+    has_no_routines = WorkoutRoutine.where(user_id: user.id).count == 0
+    return false unless has_no_routines
+    
+    message.strip.match?(ROUTINE_REQUEST_PATTERNS)
+  end
+
+  def handle_show_today_routine
+    # Generate today's routine
+    generator = AiTrainer::DynamicRoutineGenerator.new(user: user)
+    result = generator.generate
+    
+    if result[:success] && result[:exercises].present?
+      # Save to database
+      routine = save_routine_to_db(result)
+      
+      # Format response
+      lines = []
+      lines << "오늘의 운동 루틴이에요! 💪"
+      lines << ""
+      lines << "📋 **#{result[:day_korean] || '오늘의 운동'}**"
+      lines << "⏱️ 예상 시간: #{result[:estimated_duration_minutes] || 45}분"
+      lines << ""
+      lines << "**운동 목록:**"
+      
+      result[:exercises].each_with_index do |ex, idx|
+        name = ex[:exercise_name] || ex["exercise_name"] || ex[:name] || ex["name"]
+        sets = ex[:sets] || ex["sets"] || 3
+        reps = ex[:reps] || ex["reps"] || 10
+        lines << "#{idx + 1}. **#{name}** - #{sets}세트 x #{reps}회"
+      end
+      
+      lines << ""
+      lines << "운동을 마치면 **\"운동 끝났어\"** 라고 말씀해주세요!"
+      lines << "피드백을 받아 다음 루틴을 최적화해드릴게요 📈"
+      
+      success_response(
+        message: lines.join("\n"),
+        intent: "GENERATE_ROUTINE",
+        data: {
+          routine_id: routine&.id,
+          routine: result,
+          suggestions: ["운동 시작!", "운동 하나 교체해줘", "나중에 할게"]
+        }
+      )
+    else
+      error_response("루틴 생성 중 문제가 발생했어요. 다시 시도해주세요.")
+    end
+  end
+  
+  def save_routine_to_db(result)
+    routine = WorkoutRoutine.create!(
+      user_id: user.id,
+      name: result[:day_korean] || "오늘의 운동",
+      description: "AI 생성 루틴",
+      estimated_duration: result[:estimated_duration_minutes] || 45,
+      difficulty_level: user.user_profile&.numeric_level || 1,
+      routine_type: "daily",
+      is_active: true
+    )
+    
+    result[:exercises].each_with_index do |ex, idx|
+      RoutineExercise.create!(
+        workout_routine_id: routine.id,
+        exercise_id: ex[:exercise_id] || ex["exercise_id"],
+        exercise_name: ex[:exercise_name] || ex["exercise_name"] || ex[:name] || ex["name"],
+        sets: ex[:sets] || ex["sets"] || 3,
+        reps: ex[:reps] || ex["reps"] || 10,
+        order_index: idx + 1
+      )
+    end
+    
+    routine
+  rescue => e
+    Rails.logger.error("Failed to save routine: #{e.message}")
+    nil
+  end
+
+  # Check if user says workout is finished
+  WORKOUT_FINISHED_PATTERNS = /운동.*끝|끝났|완료|다.*했|finished|done|complete/i.freeze
+  
+  def workout_finished?
+    return false if message.blank?
+    message.strip.match?(WORKOUT_FINISHED_PATTERNS)
+  end
+
+  # Check if this is feedback response
+  FEEDBACK_PATTERNS = {
+    just_right: /적당|1|괜찮|좋았|비슷/i,
+    too_easy: /쉬|2|올려|더.*강|증가/i,
+    too_hard: /힘들|3|어려|낮춰|줄여|hard/i,
+    specific: /4|특정|어려웠|힘들었|통증/i
+  }.freeze
+
+  def feedback_response?
+    return false if message.blank?
+    
+    # Check if there was a recent workout completion (within last hour)
+    recent_completed = user.user_profile&.fitness_factors&.dig("last_workout_completed_at")
+    return false unless recent_completed.present?
+    
+    completed_time = Time.parse(recent_completed) rescue nil
+    return false unless completed_time && completed_time > 1.hour.ago
+    
+    FEEDBACK_PATTERNS.values.any? { |pattern| message.match?(pattern) }
+  end
+
+  def handle_feedback_response
+    feedback_type = detect_feedback_type
+    
+    # Store feedback
+    store_workout_feedback(feedback_type)
+    
+    # Generate response based on feedback
+    responses = {
+      just_right: {
+        message: "좋아요! 👍 현재 강도가 딱 맞는 것 같네요.\n\n다음 운동에도 비슷한 강도로 진행할게요. 꾸준히 하시면 2주 후에는 자연스럽게 강도를 올릴 수 있을 거예요! 💪",
+        adjustment: 0
+      },
+      too_easy: {
+        message: "알겠어요! 💪 다음 운동부터 **강도를 10% 올릴게요**.\n\n세트 수나 중량을 조금씩 늘려서 더 도전적인 루틴을 만들어드릴게요!",
+        adjustment: 0.1
+      },
+      too_hard: {
+        message: "알겠어요! 😊 다음 운동은 **강도를 낮춰서** 진행할게요.\n\n무리하지 않는 게 중요해요. 폼을 잘 유지하면서 점진적으로 늘려가요!",
+        adjustment: -0.1
+      },
+      specific: {
+        message: "어떤 운동이 어려우셨나요? 🤔\n\n말씀해주시면 다음에 대체 운동을 추천하거나, 그 운동의 팁을 알려드릴게요!",
+        adjustment: 0
+      }
+    }
+    
+    response = responses[feedback_type]
+    
+    lines = []
+    lines << response[:message]
+    lines << ""
+    lines << "---"
+    lines << ""
+    lines << "내일 또 운동하러 오세요! 채팅창에 들어오시면 오늘의 루틴을 준비해드릴게요 🔥"
+    
+    success_response(
+      message: lines.join("\n"),
+      intent: "FEEDBACK_RECEIVED",
+      data: {
+        feedback_type: feedback_type.to_s,
+        intensity_adjustment: response[:adjustment],
+        suggestions: ["내일 운동 미리보기", "이번 주 기록 보기", "프로그램 진행 상황"]
+      }
+    )
+  end
+
+  def detect_feedback_type
+    normalized = message.strip
+    
+    if normalized.match?(FEEDBACK_PATTERNS[:just_right])
+      :just_right
+    elsif normalized.match?(FEEDBACK_PATTERNS[:too_easy])
+      :too_easy
+    elsif normalized.match?(FEEDBACK_PATTERNS[:too_hard])
+      :too_hard
+    else
+      :specific
+    end
+  end
+
+  def store_workout_feedback(feedback_type)
+    profile = user.user_profile
+    return unless profile
+    
+    factors = profile.fitness_factors || {}
+    
+    # Store feedback history
+    feedbacks = factors["workout_feedbacks"] || []
+    feedbacks << {
+      date: Date.current.to_s,
+      type: feedback_type.to_s,
+      recorded_at: Time.current.iso8601
+    }
+    
+    # Keep last 30 feedbacks
+    feedbacks = feedbacks.last(30)
+    
+    # Calculate running intensity adjustment
+    adjustment = factors["intensity_adjustment"] || 0.0
+    case feedback_type
+    when :too_easy
+      adjustment = [adjustment + 0.05, 0.3].min  # Max +30%
+    when :too_hard
+      adjustment = [adjustment - 0.05, -0.3].max  # Max -30%
+    end
+    
+    factors["workout_feedbacks"] = feedbacks
+    factors["intensity_adjustment"] = adjustment
+    factors["last_feedback_at"] = Time.current.iso8601
+    
+    profile.update!(fitness_factors: factors)
+  end
+
+  def handle_workout_finished
+    # Get today's routine
+    today_routine = WorkoutRoutine.where(user_id: user.id)
+                                   .where("created_at > ?", Time.current.beginning_of_day)
+                                   .order(created_at: :desc)
+                                   .first
+    
+    # Mark workout as completed for feedback tracking
+    mark_workout_completed
+    
+    lines = []
+    lines << "수고하셨어요! 🎉 오늘 운동 완료!"
+    lines << ""
+    
+    if today_routine
+      lines << "📊 **오늘의 운동 기록**"
+      lines << "• #{today_routine.name}"
+      lines << "• 예상 시간: #{today_routine.estimated_duration}분"
+      lines << ""
+    end
+    
+    lines << "💬 **피드백을 남겨주세요!**"
+    lines << ""
+    lines << "오늘 운동 어떠셨어요? 아래 중 선택하거나 자유롭게 말씀해주세요:"
+    lines << ""
+    lines << "1️⃣ 적당했어 - 다음에도 비슷하게"
+    lines << "2️⃣ 좀 쉬웠어 - 강도 올려줘"
+    lines << "3️⃣ 힘들었어 - 강도 낮춰줘"
+    lines << "4️⃣ 특정 운동이 어려웠어 (어떤 운동?)"
+    
+    success_response(
+      message: lines.join("\n"),
+      intent: "WORKOUT_COMPLETED",
+      data: {
+        routine_id: today_routine&.id,
+        suggestions: ["적당했어", "좀 쉬웠어", "힘들었어", "스쿼트가 어려웠어"]
+      }
+    )
+  end
+
+  def mark_workout_completed
+    profile = user.user_profile
+    return unless profile
+    
+    factors = profile.fitness_factors || {}
+    factors["last_workout_completed_at"] = Time.current.iso8601
+    profile.update!(fitness_factors: factors)
   end
 
   def handle_condition_response
