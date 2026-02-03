@@ -2,6 +2,7 @@
 
 require_relative "constants"
 require_relative "llm_gateway"
+require_relative "program_generator"
 
 module AiTrainer
   # Handles initial user level assessment through conversational AI
@@ -86,21 +87,25 @@ module AiTrainer
 
       # Update profile if assessment is complete
       if result[:is_complete]
+        # IMPORTANT: Save collected_data to DB BEFORE generating program
+        # ProgramGenerator reads from DB, so data must be saved first!
+        save_assessment_state(STATES[:completed], result[:collected_data])
+
         update_profile_with_assessment(result[:assessment])
         complete_analytics(analytics, result[:collected_data], "user_ready")
-        
-        # Auto-generate weekly routine after consultation complete
-        routine_result = generate_initial_routine(result[:collected_data])
-        
-        # Build completion message with today's routine
-        completion_message = build_completion_message_with_routine(result[:message], routine_result)
-        
+
+        # Auto-generate long-term training program after consultation complete
+        program_result = generate_initial_routine(result[:collected_data])
+
+        # Build completion message with program info
+        completion_message = build_completion_message_with_routine(result[:message], program_result)
+
         return {
           success: true,
           message: completion_message,
           is_complete: true,
           assessment: result[:assessment],
-          routine: routine_result[:routine]
+          program: program_result[:program]  # TrainingProgram model instance
         }
       else
         save_assessment_state(result[:next_state], result[:collected_data])
@@ -413,14 +418,14 @@ module AiTrainer
 
           # Merge: form_data < existing collected < LLM response (preserving non-blank values)
           new_collected = form_data.merge(collected.except("conversation_history")) { |_k, old, new_val| old.presence || new_val }
-          # Now merge LLM's data, only if our existing value is blank
+          # Now merge LLM's data, overwriting blank values
           llm_collected.each do |key, value|
             new_collected[key] = value if new_collected[key].blank? && value.present?
           end
 
-          # Aggressive fallback: extract key info from user message ALWAYS (not just when LLM missed it)
-          # This ensures user answers are captured even if LLM doesn't parse them correctly
-          new_collected = extract_info_from_message(user_message, new_collected, history)
+          # Trust Claude's response - no code-based fallback parsing needed
+          # Claude already analyzed the user message and extracted collected_data in JSON
+          Rails.logger.info("[LevelAssessmentService] LLM collected_data: #{llm_collected.inspect}")
 
           # Check if user explicitly wants to complete and get routine
           is_complete = data["is_complete"] || false
@@ -432,15 +437,18 @@ module AiTrainer
           end
 
           # ============================================
-          # AUTO-COMPLETE: If core info collected, complete immediately
-          # Core info = experience + frequency + goals
+          # AUTO-COMPLETE: Only if ALL essential info collected
+          # Essential = experience + frequency + goals + environment + injuries
+          # This ensures more thorough consultation before generating routine
           # ============================================
-          has_core_info = new_collected["experience"].present? && 
-                          new_collected["frequency"].present? && 
-                          new_collected["goals"].present?
-          
-          if has_core_info && !is_complete
-            Rails.logger.info("[LevelAssessmentService] Core info collected! Auto-completing. experience=#{new_collected['experience']}, frequency=#{new_collected['frequency']}, goals=#{new_collected['goals']}")
+          has_all_essential = new_collected["experience"].present? &&
+                              new_collected["frequency"].present? &&
+                              new_collected["goals"].present? &&
+                              new_collected["environment"].present? &&
+                              new_collected["injuries"].present?
+
+          if has_all_essential && !is_complete
+            Rails.logger.info("[LevelAssessmentService] All essential info collected! Auto-completing.")
             is_complete = true
             data["message"] = build_auto_complete_message(new_collected)
           end
@@ -453,8 +461,8 @@ module AiTrainer
               "fitness_goal" => new_collected["goals"],
               "summary" => build_consultation_summary(new_collected)
             }
-            # Only override message if user explicitly requested
-            if user_requested_routine && !has_core_info
+            # Only override message if user explicitly requested routine
+            if user_requested_routine
               data["message"] = "좋아요! 상담 내용을 바탕으로 딱 맞는 루틴을 만들어드릴게요! 💪"
             end
           end
@@ -479,16 +487,33 @@ module AiTrainer
             assessment: assessment
           }
         else
-          # Fallback: treat as plain text response
+          # Fallback: treat as plain text response (Claude returned text instead of JSON)
+          # DO NOT parse user message with code - just preserve existing data
+          Rails.logger.warn("[LevelAssessmentService] LLM returned plain text, not JSON. Preserving existing data.")
           collected = get_collected_data
           form_data = extract_form_data
+          history = collected["conversation_history"] || []
+
+          # Preserve existing collected data (no code parsing!)
           new_collected = form_data.merge(collected.except("conversation_history"))
-          new_collected = extract_info_from_message(user_message, new_collected, collected["conversation_history"] || [])
-          
+
           is_complete = user_wants_routine?(user_message)
+
+          # AUTO-COMPLETE: Check if all essential info is collected
+          has_all_essential = new_collected["experience"].present? &&
+                              new_collected["frequency"].present? &&
+                              new_collected["goals"].present? &&
+                              new_collected["environment"].present? &&
+                              new_collected["injuries"].present?
+
+          if has_all_essential && !is_complete
+            Rails.logger.info("[LevelAssessmentService] Fallback: All essential info collected! Auto-completing.")
+            is_complete = true
+          end
+
           assessment = nil
           final_message = content
-          
+
           if is_complete
             experience_level = new_collected["experience"] || "intermediate"
             assessment = {
@@ -499,7 +524,13 @@ module AiTrainer
             }
             final_message = "좋아요! 상담 내용을 바탕으로 딱 맞는 루틴을 만들어드릴게요! 💪"
           end
-          
+
+          # IMPORTANT: Preserve conversation history!
+          new_history = history.dup
+          new_history << { "role" => "user", "content" => user_message } if user_message.present?
+          new_history << { "role" => "assistant", "content" => final_message } if final_message.present?
+          new_collected["conversation_history"] = new_history
+
           {
             message: final_message,
             next_state: is_complete ? STATES[:completed] : STATES[:asking_experience],
@@ -508,16 +539,33 @@ module AiTrainer
             assessment: assessment
           }
         end
-      rescue JSON::ParserError
+      rescue JSON::ParserError => e
+        # DO NOT parse user message with code - just preserve existing data
+        Rails.logger.warn("[LevelAssessmentService] JSON parse error: #{e.message}. Preserving existing data.")
         collected = get_collected_data
         form_data = extract_form_data
+        history = collected["conversation_history"] || []
+
+        # Preserve existing collected data (no code parsing!)
         new_collected = form_data.merge(collected.except("conversation_history"))
-        new_collected = extract_info_from_message(user_message, new_collected, collected["conversation_history"] || [])
-        
+
         is_complete = user_wants_routine?(user_message)
+
+        # AUTO-COMPLETE: Check if all essential info is collected
+        has_all_essential = new_collected["experience"].present? &&
+                            new_collected["frequency"].present? &&
+                            new_collected["goals"].present? &&
+                            new_collected["environment"].present? &&
+                            new_collected["injuries"].present?
+
+        if has_all_essential && !is_complete
+          Rails.logger.info("[LevelAssessmentService] JSON parse error path: All essential info collected! Auto-completing.")
+          is_complete = true
+        end
+
         assessment = nil
         final_message = content
-        
+
         if is_complete
           experience_level = new_collected["experience"] || "intermediate"
           assessment = {
@@ -528,7 +576,13 @@ module AiTrainer
           }
           final_message = "좋아요! 상담 내용을 바탕으로 딱 맞는 루틴을 만들어드릴게요! 💪"
         end
-        
+
+        # IMPORTANT: Preserve conversation history!
+        new_history = history.dup
+        new_history << { "role" => "user", "content" => user_message } if user_message.present?
+        new_history << { "role" => "assistant", "content" => final_message } if final_message.present?
+        new_collected["conversation_history"] = new_history
+
         {
           message: final_message,
           next_state: is_complete ? STATES[:completed] : STATES[:asking_experience],
@@ -537,217 +591,6 @@ module AiTrainer
           assessment: assessment
         }
       end
-    end
-
-    # Extract information from user message - aggressive fallback parsing
-    def extract_info_from_message(user_message, collected, history)
-      return collected if user_message.blank?
-
-      msg = user_message.downcase
-      new_collected = collected.dup
-
-      # Get last assistant message to understand context
-      last_assistant_msg = (history.select { |h| h["role"] == "assistant" }.last || {})["content"].to_s.downcase
-
-      # Check if user said "없음" or similar - route to correct field based on context
-      none_keywords = %w[없음 없어 없어요 없습니다 딱히 따로 특별히 상관없 아무거나]
-      is_none_answer = none_keywords.any? { |kw| msg.include?(kw) } && msg.length < 20
-
-      if is_none_answer
-        # Determine which question was being asked based on last assistant message
-        if last_assistant_msg.include?("집중") || last_assistant_msg.include?("부위") || last_assistant_msg.include?("키우고") || last_assistant_msg.include?("발달")
-          new_collected["focus_areas"] ||= "전체 균형"
-        elsif last_assistant_msg.include?("부상") || last_assistant_msg.include?("통증") || last_assistant_msg.include?("아픈")
-          new_collected["injuries"] ||= "없음"
-        elsif last_assistant_msg.include?("좋아하") || last_assistant_msg.include?("싫어") || last_assistant_msg.include?("선호") || last_assistant_msg.include?("피하")
-          new_collected["preferences"] ||= "특별히 없음"
-        elsif last_assistant_msg.include?("환경") || last_assistant_msg.include?("헬스장") || last_assistant_msg.include?("홈트") || last_assistant_msg.include?("어디서")
-          new_collected["environment"] ||= "특별히 없음"
-        end
-      else
-        # ============================================
-        # PRIORITY 1: Extract experience level (years)
-        # Always try to extract, overwrite if we find a match
-        # ============================================
-        # Match patterns like "2년", "2년 넘게", "3년째", "6개월", "해온지 2년"
-        year_match = user_message.match(/(\d+)\s*년/)
-        month_match = user_message.match(/(\d+)\s*개월/)
-        
-        if year_match
-          years = year_match[1].to_i
-          new_collected["experience_years"] = "#{years}년 이상"
-          # Auto-determine experience level
-          if years >= 2
-            new_collected["experience"] = "advanced"
-          elsif years >= 1
-            new_collected["experience"] = "intermediate"
-          else
-            new_collected["experience"] = "beginner"
-          end
-          Rails.logger.info("[LevelAssessmentService] Extracted experience: #{years}년 -> #{new_collected['experience']}")
-        elsif month_match
-          months = month_match[1].to_i
-          new_collected["experience_years"] = "#{months}개월"
-          if months >= 6
-            new_collected["experience"] = "intermediate"
-          else
-            new_collected["experience"] = "beginner"
-          end
-          Rails.logger.info("[LevelAssessmentService] Extracted experience: #{months}개월 -> #{new_collected['experience']}")
-        end
-
-        # ============================================
-        # PRIORITY 2: Extract frequency (days per week + duration)
-        # Always try to extract if we find a pattern
-        # ============================================
-        freq_match = user_message.match(/주\s*(\d+)\s*회|(\d+)\s*회/)
-        # More flexible time patterns: "1시간 반", "1시간", "90분", "30분"
-        time_match = user_message.match(/(\d+)\s*시간\s*(반)?|(\d+)\s*분/)
-        
-        freq_parts = []
-        if freq_match
-          freq_parts << "주 #{freq_match[1] || freq_match[2]}회"
-        end
-        if time_match
-          if time_match[1] # hours
-            hours = time_match[1]
-            if time_match[2] # "반" (half)
-              freq_parts << "#{hours}시간 30분"
-            else
-              freq_parts << "#{hours}시간"
-            end
-          elsif time_match[3] # minutes only
-            freq_parts << "#{time_match[3]}분"
-          end
-        end
-        
-        if freq_parts.any?
-          new_collected["frequency"] = freq_parts.join(", ")
-          Rails.logger.info("[LevelAssessmentService] Extracted frequency: #{new_collected['frequency']}")
-        end
-
-        # ============================================
-        # PRIORITY 3: Extract goals
-        # Always try to extract if we find a keyword
-        # ============================================
-        goal_keywords = {
-          "근비대" => ["근비대", "근육 키우", "벌크", "bulk", "머슬", "muscle", "사이즈"],
-          "다이어트" => ["다이어트", "살빼", "체중감량", "fat", "컷팅", "cut", "체지방"],
-          "체력" => ["체력", "지구력", "스태미나", "stamina"],
-          "건강" => ["건강", "유지", "health"],
-          "strength" => ["근력", "힘", "strength", "스트렝스", "파워", "강해"]
-        }
-        
-        goal_keywords.each do |goal, keywords|
-          if keywords.any? { |kw| msg.include?(kw) }
-            new_collected["goals"] = goal
-            Rails.logger.info("[LevelAssessmentService] Extracted goal: #{goal}")
-            break
-          end
-        end
-
-        # ============================================
-        # Extract environment
-        # ============================================
-        if new_collected["environment"].blank?
-          if msg.include?("헬스장") || msg.include?("gym") || msg.include?("짐") || msg.include?("피트니스") || msg.include?("풀 장비")
-            new_collected["environment"] = "헬스장 (풀 장비)"
-          elsif msg.include?("홈트") || msg.include?("집에서") || msg.include?("home") || msg.include?("집이")
-            new_collected["environment"] = "홈트레이닝"
-          elsif last_assistant_msg.include?("환경") || last_assistant_msg.include?("헬스장") || last_assistant_msg.include?("홈트") || last_assistant_msg.include?("어디서")
-            if msg.length < 50 && !is_none_answer
-              new_collected["environment"] = user_message.strip
-            end
-          end
-        end
-
-        # ============================================
-        # Extract injuries/pain
-        # ============================================
-        if new_collected["injuries"].blank?
-          no_injury_patterns = ["부상은 없", "부상 없", "다친 곳 없", "통증 없", "아픈 곳 없", "괜찮아", "부상 없고", "없고"]
-          if no_injury_patterns.any? { |p| msg.include?(p) }
-            new_collected["injuries"] = "없음"
-          elsif last_assistant_msg.include?("부상") || last_assistant_msg.include?("통증") || last_assistant_msg.include?("아픈")
-            injury_keywords = %w[부상 파열 통증 아픔 인대 디스크 허리 무릎 어깨 손목 팔꿈치]
-            if injury_keywords.any? { |kw| msg.include?(kw) }
-              new_collected["injuries"] = user_message.strip
-            elsif msg.length < 30
-              new_collected["injuries"] = user_message.strip
-            end
-          end
-        end
-
-        # ============================================
-        # Extract preferences (likes/dislikes)
-        # ============================================
-        if new_collected["preferences"].blank?
-          # Check for specific exercise mentions with "좋아해" or similar
-          exercise_names = %w[풀업 턱걸이 벤치 스쿼트 데드 데드리프트 로우 프레스 컬 레이즈 런지 플랭크]
-          liked = exercise_names.select { |ex| msg.include?(ex) && (msg.include?("좋아") || msg.include?("선호")) }
-          disliked = exercise_names.select { |ex| msg.include?(ex) && (msg.include?("싫어") || msg.include?("피") || msg.include?("안")) }
-          
-          if liked.any? || disliked.any?
-            pref_parts = []
-            pref_parts << "선호: #{liked.join(', ')}" if liked.any?
-            pref_parts << "비선호: #{disliked.join(', ')}" if disliked.any?
-            new_collected["preferences"] = pref_parts.join(" / ")
-          elsif msg.include?("좋아") && exercise_names.any? { |ex| msg.include?(ex) }
-            # Just mentioned liking something
-            new_collected["preferences"] = user_message.strip
-          end
-        end
-
-        # ============================================
-        # Extract schedule/time preference
-        # ============================================
-        if new_collected["schedule"].blank?
-          if msg.include?("아침") || msg.include?("새벽") || msg.include?("오전")
-            new_collected["schedule"] = "아침"
-          elsif msg.include?("저녁") || msg.include?("퇴근") || msg.include?("밤")
-            new_collected["schedule"] = "저녁"
-          elsif msg.include?("점심") || msg.include?("낮")
-            new_collected["schedule"] = "점심"
-          elsif last_assistant_msg.include?("시간") || last_assistant_msg.include?("언제") || last_assistant_msg.include?("요일")
-            if msg.length < 50
-              new_collected["schedule"] = user_message.strip
-            end
-          end
-        end
-
-        # ============================================
-        # Extract focus areas (body parts)
-        # ============================================
-        if new_collected["focus_areas"].blank?
-          body_parts = %w[어깨 가슴 등 팔 하체 다리 복근 코어 전신 상체 삼두 이두 엉덩이 힙 광배]
-          matched = body_parts.select { |part| msg.include?(part) }
-          if matched.any?
-            new_collected["focus_areas"] = matched.join(", ")
-          elsif last_assistant_msg.include?("부위") || last_assistant_msg.include?("집중") || last_assistant_msg.include?("키우") || last_assistant_msg.include?("발달")
-            if msg.length < 50
-              new_collected["focus_areas"] = user_message.strip
-            end
-          end
-        end
-
-        # ============================================
-        # Extract lifestyle info
-        # ============================================
-        if new_collected["lifestyle"].blank?
-          if msg.include?("앉아") || msg.include?("사무") || msg.include?("데스크") || msg.include?("컴퓨터") || msg.include?("회사")
-            new_collected["lifestyle"] = "사무직/앉아있는 시간 많음"
-          elsif msg.include?("서서") || msg.include?("활동적") || msg.include?("움직") || msg.include?("육체")
-            new_collected["lifestyle"] = "활동적인 직업"
-          elsif msg.include?("학생")
-            new_collected["lifestyle"] = "학생"
-          end
-        end
-      end
-
-      # Log what was extracted for debugging
-      Rails.logger.info("[LevelAssessmentService] Extracted from message '#{user_message}': experience=#{new_collected['experience']}, frequency=#{new_collected['frequency']}, goals=#{new_collected['goals']}, environment=#{new_collected['environment']}, injuries=#{new_collected['injuries']}, preferences=#{new_collected['preferences']}")
-
-      new_collected
     end
 
     # Extract data that was already collected during form onboarding
@@ -868,66 +711,100 @@ module AiTrainer
       )
     end
 
-    # Generate initial weekly routine after consultation complete
+    # Generate long-term training program after consultation complete
+    # Uses RAG + LLM to create personalized multi-week program
     def generate_initial_routine(collected_data)
-      Rails.logger.info("[LevelAssessmentService] Generating initial routine for user #{user.id}")
-      
-      # Extract frequency from collected data (e.g., "주 4회, 1시간")
-      frequency_str = collected_data["frequency"] || "주 3회"
-      days_per_week = extract_days_per_week(frequency_str)
-      
-      # Use DynamicRoutineGenerator for today's routine
-      generator = DynamicRoutineGenerator.new(user: user)
-      result = generator.generate
-      
-      # DynamicRoutineGenerator returns flat structure with :exercises, not :routine wrapper
-      if result[:success] && result[:exercises].present?
-        Rails.logger.info("[LevelAssessmentService] Initial routine generated: #{result[:routine_id]}")
-        # Wrap in routine format for consistency
-        routine_data = {
-          id: result[:routine_id],
-          name: result[:day_korean] || "오늘의 운동",
-          exercises: result[:exercises],
-          estimated_duration_minutes: result[:estimated_duration_minutes] || 60
+      Rails.logger.info("[LevelAssessmentService] Generating training program for user #{user.id}")
+
+      # Generate long-term program using ProgramGenerator
+      # ProgramGenerator reads collected_data from DB and passes to LLM
+      program_result = ProgramGenerator.generate(user: user)
+
+      if program_result[:success] && program_result[:program].present?
+        program = program_result[:program]
+        Rails.logger.info("[LevelAssessmentService] Training program generated: #{program.id} (#{program.name})")
+
+        {
+          success: true,
+          program: program,
+          coach_message: program_result[:coach_message]
         }
-        { success: true, routine: routine_data, days_per_week: days_per_week }
       else
-        Rails.logger.warn("[LevelAssessmentService] Failed to generate initial routine: #{result[:error]}")
-        { success: false, error: result[:error] }
+        Rails.logger.warn("[LevelAssessmentService] Failed to generate program: #{program_result[:error]}")
+        { success: false, error: program_result[:error] }
       end
     rescue => e
-      Rails.logger.error("[LevelAssessmentService] Error generating initial routine: #{e.message}")
+      Rails.logger.error("[LevelAssessmentService] Error generating training program: #{e.message}")
       { success: false, error: e.message }
     end
 
-    def extract_days_per_week(frequency_str)
-      match = frequency_str.to_s.match(/(\d+)\s*회/)
-      match ? match[1].to_i : 3
-    end
-
-    def build_completion_message_with_routine(base_message, routine_result)
+    def build_completion_message_with_routine(base_message, program_result)
       collected = get_collected_data
-      days_per_week = routine_result[:days_per_week] || 4
       goal = collected["goals"] || profile.fitness_goal || "근력 향상"
       experience = collected["experience"] || "beginner"
-      
-      # Build 12-week program description
-      program_info = build_program_description(goal, experience, days_per_week)
-      
+      frequency = collected["frequency"] || "주 3회"  # 사용자가 말한 그대로 표시
+
+      # Get program details if available
+      program = program_result[:program]
+      coach_message = program_result[:coach_message]
+
       lines = []
-      lines << "🎉 **12주 운동 프로그램**을 생성했습니다!"
-      lines << ""
-      lines << "📋 **프로그램 특징**"
-      lines << "• 목표: #{program_info[:goal_korean]}"
-      lines << "• 주 #{days_per_week}회 운동 (#{program_info[:split_type]})"
-      lines << "• 레벨: #{program_info[:level_korean]} → 점진적 강도 증가"
-      lines << ""
-      lines << "📅 **12주 진행 계획**"
-      lines << "• 1-4주: 적응기 - 기본 동작 습득, 폼 교정"
-      lines << "• 5-8주: 성장기 - 중량/볼륨 증가"  
-      lines << "• 9-12주: 강화기 - 고강도 훈련, 개인 기록 도전"
-      lines << ""
-      lines << "매주 운동 후 피드백을 받아 **AI가 다음 주 루틴을 최적화**해드려요! 💪"
+
+      if program.present?
+        # Count actual workout days from split_schedule (exclude rest days)
+        workout_days = program.split_schedule&.count { |_, info|
+          focus = info["focus"] || info[:focus]
+          focus.present? && focus != "휴식"
+        } || 0
+
+        # Use actual program data
+        lines << "🎉 **#{program.name}**을 생성했습니다!"
+        lines << ""
+        lines << "📋 **프로그램 개요**"
+        lines << "• 목표: #{program.goal || goal}"
+        lines << "• 총 기간: #{program.total_weeks}주"
+        lines << "• 주 #{workout_days > 0 ? workout_days : frequency}회 운동"
+        lines << "• 주기화: #{periodization_korean(program.periodization_type)}"
+        lines << ""
+
+        # Display weekly plan phases
+        if program.weekly_plan.present?
+          lines << "📅 **주차별 계획**"
+          program.weekly_plan.each do |week_range, info|
+            phase = info["phase"] || info[:phase]
+            theme = info["theme"] || info[:theme]
+            lines << "• #{week_range}주: #{phase} - #{theme}"
+          end
+          lines << ""
+        end
+
+        # Display split schedule summary
+        if program.split_schedule.present?
+          lines << "🗓️ **운동 분할**"
+          split_summary = build_split_summary(program.split_schedule)
+          lines << split_summary
+          lines << ""
+        end
+
+        # Coach message
+        if coach_message.present?
+          lines << "💬 #{coach_message}"
+          lines << ""
+        end
+      else
+        # Fallback to static description
+        program_info = build_program_description(goal, experience, days_per_week)
+
+        lines << "🎉 **맞춤 운동 프로그램**을 생성했습니다!"
+        lines << ""
+        lines << "📋 **프로그램 특징**"
+        lines << "• 목표: #{program_info[:goal_korean]}"
+        lines << "• 주 #{days_per_week}회 운동 (#{program_info[:split_type]})"
+        lines << "• 레벨: #{program_info[:level_korean]} → 점진적 강도 증가"
+        lines << ""
+      end
+
+      lines << "매일 컨디션과 피드백을 반영해서 **AI가 최적의 루틴을 생성**해드려요! 💪"
       lines << ""
       lines << "---"
       lines << ""
@@ -936,8 +813,31 @@ module AiTrainer
       lines << "1️⃣ 네, 오늘 운동 루틴 보여줘"
       lines << "2️⃣ 프로그램 자세히 설명해줘"
       lines << "3️⃣ 나중에 할게"
-      
+
       lines.join("\n")
+    end
+
+    def periodization_korean(periodization_type)
+      case periodization_type.to_s.downcase
+      when "linear" then "선형 주기화 (점진적 증가)"
+      when "undulating" then "비선형 주기화 (물결형)"
+      when "block" then "블록 주기화"
+      else "점진적 과부하"
+      end
+    end
+
+    def build_split_summary(split_schedule)
+      day_names = { "1" => "월", "2" => "화", "3" => "수", "4" => "목", "5" => "금", "6" => "토", "7" => "일" }
+      summary_parts = []
+
+      split_schedule.each do |day_num, info|
+        day_name = day_names[day_num.to_s] || day_num
+        focus = info["focus"] || info[:focus]
+        next if focus.blank? || focus == "휴식"
+        summary_parts << "#{day_name}: #{focus}"
+      end
+
+      summary_parts.any? ? summary_parts.join(" / ") : "전신 운동"
     end
     
     def build_program_description(goal, experience, days_per_week)

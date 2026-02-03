@@ -93,36 +93,269 @@ class AdminController < ApplicationController
 
   # POST /admin/reset_test_user
   def reset_test_user
+    user_type = params[:user_type] || "existing_with_data"
+    email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
+    user = User.find_by(email: email)
+
+    return render json: { error: "Test user not found" }, status: :not_found unless user
+
+    # Clear existing data
+    user.workout_routines.destroy_all
+    user.workout_sessions.destroy_all
+    user.training_programs.destroy_all if user.respond_to?(:training_programs)
+
+    new_level = user_type == "new" ? 1 : (params[:level]&.to_i || 5)
+
+    # Update profile with proper onboarding state
+    profile_updates = {
+      numeric_level: new_level,
+      fitness_factors: {}
+    }
+
+    case user_type
+    when "new"
+      # 신규 유저: form만 완료, AI 상담 필요
+      profile_updates[:form_onboarding_completed_at] = Time.current
+      profile_updates[:onboarding_completed_at] = nil
+    when "existing_with_data", "existing_without_data"
+      # 기존 유저: 온보딩 완료 상태
+      profile_updates[:form_onboarding_completed_at] = Time.current
+      profile_updates[:onboarding_completed_at] = Time.current
+
+      # Create TrainingProgram for existing users
+      create_test_training_program(user, new_level)
+
+      # Create workout data for existing_with_data
+      if user_type == "existing_with_data"
+        create_test_workout_data(user, new_level)
+      end
+    end
+
+    user.user_profile&.update!(profile_updates)
+
+    render json: {
+      success: true,
+      message: "Test user reset",
+      user_type: user_type,
+      has_program: user.training_programs.exists?,
+      has_workout_data: user.workout_routines.exists?
+    }
+  end
+
+  # DELETE /admin/delete_user_data - Delete all data for a user by email
+  def delete_user_data
+    email = params[:email]
+    return render json: { error: "Email required" }, status: :bad_request unless email.present?
+
+    user = User.find_by(email: email)
+    return render json: { error: "User not found: #{email}" }, status: :not_found unless user
+
+    deleted_counts = {}
+
+    # Delete related data (order matters due to FK constraints)
+    deleted_counts[:onboarding_analytics] = OnboardingAnalytics.where(user_id: user.id).delete_all
+    deleted_counts[:chat_messages] = ChatMessage.where(user_id: user.id).delete_all
+    deleted_counts[:condition_logs] = user.condition_logs.delete_all if user.respond_to?(:condition_logs)
+    deleted_counts[:workout_feedbacks] = user.workout_feedbacks.delete_all if user.respond_to?(:workout_feedbacks)
+    deleted_counts[:workout_records] = user.workout_records.delete_all if user.respond_to?(:workout_records)
+    deleted_counts[:level_test_verifications] = user.level_test_verifications.delete_all if user.respond_to?(:level_test_verifications)
+    deleted_counts[:fitness_test_submissions] = user.fitness_test_submissions.delete_all if user.respond_to?(:fitness_test_submissions)
+    deleted_counts[:workout_sets] = WorkoutSet.joins(:workout_session).where(workout_sessions: { user_id: user.id }).delete_all
+    deleted_counts[:routine_exercises] = RoutineExercise.joins(:workout_routine).where(workout_routines: { user_id: user.id }).delete_all
+    deleted_counts[:workout_sessions] = user.workout_sessions.delete_all
+    deleted_counts[:workout_routines] = user.workout_routines.delete_all
+    deleted_counts[:training_programs] = user.training_programs.delete_all if user.respond_to?(:training_programs)
+    deleted_counts[:user_profile] = user.user_profile&.destroy ? 1 : 0
+    deleted_counts[:user] = user.destroy ? 1 : 0
+
+    render json: {
+      success: true,
+      message: "User and all related data deleted",
+      email: email,
+      deleted_counts: deleted_counts
+    }
+  rescue StandardError => e
+    render json: { error: e.message }, status: :internal_server_error
+  end
+
+  def create_test_training_program(user, level)
+    # Determine periodization based on level
+    periodization = level <= 3 ? "linear" : "undulating"
+    total_weeks = level <= 3 ? 8 : 12
+
+    TrainingProgram.create!(
+      user: user,
+      name: "#{total_weeks}주 근비대 프로그램",
+      status: "active",
+      total_weeks: total_weeks,
+      current_week: rand(1..4),
+      goal: "근비대",
+      periodization_type: periodization,
+      weekly_plan: {
+        "1-3" => { "phase" => "적응기", "volume_modifier" => 0.8 },
+        "4-8" => { "phase" => "성장기", "volume_modifier" => 1.0 },
+        "9-11" => { "phase" => "강화기", "volume_modifier" => 1.1 },
+        "12" => { "phase" => "디로드", "volume_modifier" => 0.6 }
+      },
+      split_schedule: {
+        "1" => { "focus" => "가슴/삼두", "muscles" => ["chest", "triceps"] },
+        "2" => { "focus" => "등/이두", "muscles" => ["back", "biceps"] },
+        "3" => { "focus" => "하체", "muscles" => ["legs", "glutes"] },
+        "4" => { "focus" => "어깨/복근", "muscles" => ["shoulders", "core"] },
+        "5" => { "focus" => "휴식", "muscles" => [] },
+        "6" => { "focus" => "상체", "muscles" => ["chest", "back", "shoulders"] },
+        "7" => { "focus" => "휴식", "muscles" => [] }
+      },
+      started_at: (rand(1..3)).weeks.ago
+    )
+  end
+
+  def create_test_workout_data(user, level)
+    exercises_pool = [
+      { name: "벤치프레스", muscle: "chest", weight: 60 },
+      { name: "인클라인 덤벨프레스", muscle: "chest", weight: 20 },
+      { name: "케이블 크로스오버", muscle: "chest", weight: 15 },
+      { name: "렛풀다운", muscle: "back", weight: 50 },
+      { name: "바벨로우", muscle: "back", weight: 50 },
+      { name: "덤벨 숄더프레스", muscle: "shoulders", weight: 16 },
+      { name: "레터럴레이즈", muscle: "shoulders", weight: 8 },
+      { name: "스쿼트", muscle: "legs", weight: 80 },
+      { name: "레그프레스", muscle: "legs", weight: 120 },
+      { name: "바벨컬", muscle: "biceps", weight: 25 },
+      { name: "트라이셉 푸시다운", muscle: "triceps", weight: 20 }
+    ]
+
+    # Create past routines AND workout sessions
+    [1, 2, 4].each do |days_ago|
+      target_date = Date.current - days_ago.days
+      workout_types = ["upper", "lower", "push", "pull"]
+
+      # Create WorkoutRoutine (AI plan)
+      routine = WorkoutRoutine.create!(
+        user: user,
+        level: user.user_profile&.tier || "intermediate",
+        week_number: 2,
+        day_number: target_date.cwday,
+        workout_type: workout_types.sample,
+        day_of_week: target_date.strftime("%A"),
+        estimated_duration: [45, 60, 75].sample,
+        is_completed: true,
+        completed_at: (days_ago.days.ago + 1.hour),
+        generated_at: days_ago.days.ago,
+        created_at: days_ago.days.ago
+      )
+
+      # Add exercises to routine
+      selected = exercises_pool.sample(rand(4..6))
+      selected.each_with_index do |ex, idx|
+        RoutineExercise.create!(
+          workout_routine: routine,
+          exercise_name: ex[:name],
+          target_muscle: ex[:muscle],
+          sets: rand(3..4),
+          reps: rand(8..12),
+          order_index: idx
+        )
+      end
+
+      # Create WorkoutSession (actual workout record)
+      session_start = days_ago.days.ago.change(hour: 18, min: 0)
+      session_end = session_start + rand(45..75).minutes
+
+      session = WorkoutSession.create!(
+        user: user,
+        name: routine.day_of_week + " 운동",
+        start_time: session_start,
+        end_time: session_end,
+        notes: "테스트 운동 세션",
+        created_at: session_start
+      )
+
+      # Add workout sets to session
+      selected.each do |ex|
+        sets_count = rand(3..4)
+        sets_count.times do
+          WorkoutSet.create!(
+            workout_session: session,
+            exercise_name: ex[:name],
+            weight: ex[:weight] + rand(-5..10),
+            reps: rand(8..12),
+            created_at: session_start + rand(5..50).minutes
+          )
+        end
+      end
+    end
+
+    # Create workout feedback
+    if user.respond_to?(:workout_feedbacks)
+      WorkoutFeedback.create!(
+        user: user,
+        feedback_type: ["just_right", "too_easy", "too_hard"].sample,
+        feedback_text: "적당했어요",
+        recorded_at: 1.day.ago
+      ) rescue nil
+    end
+  end
+
+  # POST /admin/random_form_complete - Set random form completion state for testing AI consultation
+  def random_form_complete
     user_type = params[:user_type] || "existing"
     email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
     user = User.find_by(email: email)
 
     return render json: { error: "Test user not found" }, status: :not_found unless user
 
+    # Clear existing data
     user.workout_routines.destroy_all
     user.workout_sessions.destroy_all
-    
-    new_level = user_type == "new" ? 1 : (params[:level]&.to_i || 5)
-    
-    # Update profile with proper onboarding state
-    profile_updates = { 
-      numeric_level: new_level,
-      fitness_factors: {}  # Clear assessment state
-    }
-    
-    if user_type == "new"
-      # 신규 유저: form만 완료, AI 상담 필요
-      profile_updates[:form_onboarding_completed_at] = Time.current
-      profile_updates[:onboarding_completed_at] = nil
-    else
-      # 기존 유저: 온보딩 완료 상태
-      profile_updates[:form_onboarding_completed_at] = Time.current
-      profile_updates[:onboarding_completed_at] = Time.current
-    end
-    
-    user.user_profile&.update!(profile_updates)
 
-    render json: { success: true, message: "Test user reset", user_type: user_type }
+    # Random values
+    experience_levels = %w[beginner intermediate advanced]
+    fitness_goals = ["근비대", "다이어트", "체력 향상", "건강 유지"]
+
+    random_experience = experience_levels.sample
+    random_goal = fitness_goals.sample
+    random_height = rand(155..190)
+    random_weight = rand(50..95)
+
+    # Set numeric level based on experience
+    numeric_level = case random_experience
+      when "beginner" then rand(1..2)
+      when "intermediate" then rand(3..5)
+      when "advanced" then rand(6..8)
+      else 1
+    end
+
+    # Update profile - form completed but AI consultation NOT completed
+    profile = user.user_profile || user.create_user_profile!
+    profile.update!(
+      current_level: random_experience,
+      numeric_level: numeric_level,
+      fitness_goal: random_goal,
+      height: random_height,
+      weight: random_weight,
+      form_onboarding_completed_at: Time.current,
+      onboarding_completed_at: nil,  # AI consultation not done yet
+      fitness_factors: {}  # Clear any previous assessment state
+    )
+
+    # Generate AI greeting (AI starts the conversation)
+    ai_result = AiTrainer::LevelAssessmentService.assess(user: user, message: "")
+    ai_greeting = ai_result[:success] ? ai_result[:message] : "안녕하세요! 맞춤 운동 프로그램을 만들어드릴게요. 💪"
+
+    render json: {
+      success: true,
+      message: "Random form complete state set",
+      user_type: user_type,
+      profile: {
+        experience_level: random_experience,
+        numeric_level: numeric_level,
+        fitness_goal: random_goal,
+        height: random_height,
+        weight: random_weight
+      },
+      ai_greeting: ai_greeting
+    }
   end
 
   # POST /admin/delete_test_routines
@@ -1949,7 +2182,7 @@ class AdminController < ApplicationController
     end
   end
 
-  def get_or_create_test_user(level = 5, user_type: "existing")
+  def get_or_create_test_user(level = 5, user_type: "existing_with_data")
     if user_type == "new"
       # 신규 유저: 레벨 1, form_onboarding 완료 but AI onboarding 미완료
       email = "test_new@repstack.io"
@@ -1980,8 +2213,9 @@ class AdminController < ApplicationController
       profile_updates[:form_onboarding_completed_at] = Time.current unless user.user_profile.form_onboarding_completed_at
     else
       # 신규 유저: form_onboarding만 완료, AI onboarding 미완료
+      # 단, 이미 상담 완료된 경우 리셋하지 않음
       profile_updates[:form_onboarding_completed_at] = Time.current unless user.user_profile.form_onboarding_completed_at
-      profile_updates[:onboarding_completed_at] = nil  # AI 상담 필요
+      # onboarding_completed_at은 이미 완료된 경우 유지
     end
     
     user.user_profile.update!(profile_updates)
@@ -2102,6 +2336,25 @@ class AdminController < ApplicationController
           .message.user { background: #e94560; align-self: flex-end; border-bottom-right-radius: 4px; }
           .message.bot { background: #1a2744; align-self: flex-start; border-bottom-left-radius: 4px; border: 1px solid #0f3460; }
           .message.system { background: #2a2a4a; align-self: center; font-size: 12px; color: #888; }
+          .loading-indicator {
+            color: #aaa;
+            font-style: italic;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+          }
+          .loading-indicator .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid #444;
+            border-top: 2px solid #e94560;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+          }
+          .loading-indicator .dots::after { content: ''; animation: dots 1.5s infinite; }
+          @keyframes dots { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+          @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+          .loading-indicator.generating { color: #e94560; font-weight: 500; }
           .message.error { background: #4a1a1a; border: 1px solid #ff4444; align-self: center; }
           .message .intent-badge { display: inline-block; background: #e94560; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 10px; margin-bottom: 8px; }
           .message .routine-card { margin-top: 12px; padding: 12px; background: #0f3460; border-radius: 8px; font-size: 13px; }
@@ -2136,7 +2389,8 @@ class AdminController < ApplicationController
               <label>User Type</label>
               <select id="userType">
                 <option value="new">🆕 신규 유저 (Lv.1, 기록없음)</option>
-                <option value="existing" selected>👤 기존 유저 (레벨 선택)</option>
+                <option value="existing_with_data" selected>👤 기존 유저 (운동 데이터 O)</option>
+                <option value="existing_without_data">👤 기존 유저 (운동 데이터 X)</option>
               </select>
             </div>
             <div class="form-group" id="levelGroup">
@@ -2162,6 +2416,7 @@ class AdminController < ApplicationController
             </div>
             <div style="margin-top: 12px;">
               <button class="test-btn full" onclick="resetUser()">🔄 유저 리셋</button>
+              <button class="test-btn full" style="margin-top: 8px; background:#2a6a4a; border-color:#3a8a5a;" onclick="setRandomFormComplete()">🎲 랜덤 폼 완료 상태</button>
             </div>
           </div>
           <div class="panel-section">
@@ -2196,6 +2451,16 @@ class AdminController < ApplicationController
               <button class="test-btn" onclick="quickTest('이거 말고 다른 운동')">운동 교체</button>
               <button class="test-btn" onclick="quickTest('운동 하나 더 추가해줘')">운동 추가</button>
               <button class="test-btn full" onclick="quickTest('루틴 다시 만들어줘')">루틴 재생성</button>
+            </div>
+          </div>
+          <div class="panel-section">
+            <h3>✅ 운동 완료 & 피드백</h3>
+            <div class="btn-grid">
+              <button class="test-btn full" onclick="quickTest('운동 끝났어')" style="background:#28a745;border-color:#28a745;">💪 운동 완료!</button>
+              <button class="test-btn" onclick="quickTest('오늘 운동 좋았어, 적당했어')">😊 좋았어</button>
+              <button class="test-btn" onclick="quickTest('오늘 운동 힘들었어, 너무 빡셌어')">😓 힘들었어</button>
+              <button class="test-btn" onclick="quickTest('오늘 운동 쉬웠어, 좀 더 할 수 있었어')">😎 쉬웠어</button>
+              <button class="test-btn" onclick="quickTest('어깨가 좀 아팠어')">🤕 통증 있었어</button>
             </div>
           </div>
           <div class="panel-section">
@@ -2241,6 +2506,7 @@ class AdminController < ApplicationController
           const tokenInput = document.getElementById('token');
           let sessionId = 'admin_' + Date.now();
           let currentRoutineId = null;
+          let testUserId = null;  // Will be set from test_user_info response
 
           tokenInput.value = localStorage.getItem('admin_token') || new URLSearchParams(window.location.search).get('admin_token') || '';
           tokenInput.addEventListener('change', () => localStorage.setItem('admin_token', tokenInput.value));
@@ -2316,7 +2582,17 @@ class AdminController < ApplicationController
             if (!token) return;
             if (!customMessage) { addMessage(message, 'user'); input.value = ''; }
             sendBtn.disabled = true;
-            const reqBody = { message, level: levelSelect.value, user_type: userTypeSelect.value, session_id: sessionId, routine_id: currentRoutineId };
+
+            // Show loading indicator
+            const loadingId = 'loading-' + Date.now();
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = loadingId;
+            loadingDiv.className = 'message bot';
+            loadingDiv.innerHTML = '<div class="loading-indicator generating"><span class="spinner"></span>AI가 응답을 생성하고 있어요<span class="dots"></span></div>';
+            chat.appendChild(loadingDiv);
+            chat.scrollTop = chat.scrollHeight;
+
+            const reqBody = { message, level: levelSelect.value, user_type: userTypeSelect.value, session_id: sessionId, routine_id: currentRoutineId, test_user_id: testUserId };
             document.getElementById('rawRequest').textContent = JSON.stringify(reqBody, null, 2);
             try {
               const res = await fetch('/admin/chat?admin_token=' + encodeURIComponent(token), {
@@ -2325,6 +2601,10 @@ class AdminController < ApplicationController
                 body: JSON.stringify(reqBody)
               });
               const data = await res.json();
+
+              // Remove loading indicator
+              document.getElementById(loadingId)?.remove();
+
               document.getElementById('rawResponse').textContent = JSON.stringify(data, null, 2);
               document.getElementById('rawResponse').className = data.success ? '' : 'error';
               if (data.success) {
@@ -2335,6 +2615,8 @@ class AdminController < ApplicationController
               }
               refreshUserInfo();
             } catch (e) {
+              // Remove loading indicator on error
+              document.getElementById(loadingId)?.remove();
               addMessage('Network Error: ' + e.message, 'error');
               document.getElementById('rawResponse').textContent = e.message;
               document.getElementById('rawResponse').className = 'error';
@@ -2353,8 +2635,17 @@ class AdminController < ApplicationController
             if (!token) return;
             const userType = userTypeSelect.value;
             const label = userType === 'new' ? 'AI 상담' : 'Daily Greeting';
-            addSystemMessage('🚀 ' + label + ' 시작 중...');
             sendBtn.disabled = true;
+
+            // Show loading indicator
+            const loadingId = 'loading-start-' + Date.now();
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = loadingId;
+            loadingDiv.className = 'message bot';
+            loadingDiv.innerHTML = '<div class="loading-indicator generating"><span class="spinner"></span>' + label + ' 준비 중<span class="dots"></span></div>';
+            chat.appendChild(loadingDiv);
+            chat.scrollTop = chat.scrollHeight;
+
             const reqBody = { message: '', level: levelSelect.value, user_type: userType, session_id: sessionId, routine_id: null };
             document.getElementById('rawRequest').textContent = JSON.stringify(reqBody, null, 2);
             try {
@@ -2364,6 +2655,10 @@ class AdminController < ApplicationController
                 body: JSON.stringify(reqBody)
               });
               const data = await res.json();
+
+              // Remove loading indicator
+              document.getElementById(loadingId)?.remove();
+
               document.getElementById('rawResponse').textContent = JSON.stringify(data, null, 2);
               document.getElementById('rawResponse').className = data.success ? '' : 'error';
               if (data.success) {
@@ -2373,6 +2668,7 @@ class AdminController < ApplicationController
               }
               refreshUserInfo();
             } catch (e) {
+              document.getElementById(loadingId)?.remove();
               addMessage('Network Error: ' + e.message, 'error');
             }
             sendBtn.disabled = false;
@@ -2395,15 +2691,64 @@ class AdminController < ApplicationController
             const token = getToken();
             if (!token) return;
             const userType = userTypeSelect.value;
-            const label = userType === 'new' ? '신규' : '기존';
+            const level = levelSelect.value;
+            const labels = {
+              'new': '신규',
+              'existing_with_data': '기존(데이터O)',
+              'existing_without_data': '기존(데이터X)'
+            };
+            const label = labels[userType] || '기존';
             if (!confirm(label + ' 테스트 유저를 리셋하시겠습니까?')) return;
             try {
-              const res = await fetch('/admin/reset_test_user?admin_token=' + encodeURIComponent(token) + '&user_type=' + userType, { method: 'POST' });
-              addSystemMessage('✅ ' + label + ' 유저 리셋 완료');
+              const res = await fetch('/admin/reset_test_user?admin_token=' + encodeURIComponent(token) + '&user_type=' + userType + '&level=' + level, { method: 'POST' });
+              const data = await res.json();
+              addSystemMessage('✅ ' + label + ' 유저 리셋 완료 (프로그램: ' + (data.has_program ? 'O' : 'X') + ', 운동기록: ' + (data.has_workout_data ? 'O' : 'X') + ')');
               currentRoutineId = null;
               sessionId = 'admin_' + Date.now();
               refreshUserInfo();
             } catch (e) { addMessage('Reset Error: ' + e.message, 'error'); }
+          }
+
+          async function setRandomFormComplete() {
+            const token = getToken();
+            if (!token) return;
+            const userType = userTypeSelect.value;
+
+            // Show loading indicator
+            const loadingId = 'loading-form-' + Date.now();
+            const loadingDiv = document.createElement('div');
+            loadingDiv.id = loadingId;
+            loadingDiv.className = 'message bot';
+            loadingDiv.innerHTML = '<div class="loading-indicator generating"><span class="spinner"></span>랜덤 프로필 생성 중<span class="dots"></span></div>';
+            chat.appendChild(loadingDiv);
+            chat.scrollTop = chat.scrollHeight;
+
+            try {
+              const res = await fetch('/admin/random_form_complete?admin_token=' + encodeURIComponent(token) + '&user_type=' + userType, { method: 'POST' });
+              const data = await res.json();
+
+              // Remove loading indicator
+              document.getElementById(loadingId)?.remove();
+
+              if (data.success) {
+                addSystemMessage('🎲 랜덤 폼 완료 상태 설정!');
+                addSystemMessage('  - 경험: ' + data.profile.experience_level);
+                addSystemMessage('  - 목표: ' + data.profile.fitness_goal);
+                addSystemMessage('  - 키/체중: ' + data.profile.height + 'cm / ' + data.profile.weight + 'kg');
+                sessionId = 'admin_' + Date.now();
+                currentRoutineId = null;
+                refreshUserInfo();
+                // Display AI greeting (AI starts the conversation)
+                if (data.ai_greeting) {
+                  addMessage(data.ai_greeting, 'assistant');
+                }
+              } else {
+                addMessage('Error: ' + (data.error || 'Unknown'), 'error');
+              }
+            } catch (e) {
+              document.getElementById(loadingId)?.remove();
+              addMessage('Error: ' + e.message, 'error');
+            }
           }
 
           async function deleteRoutines() {

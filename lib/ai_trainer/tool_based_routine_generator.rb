@@ -186,7 +186,7 @@ module AiTrainer
       profile = @user.user_profile
       tier = level_to_tier(@level)
 
-      {
+      context = {
         user: {
           level: @level,
           tier: tier,
@@ -204,6 +204,33 @@ module AiTrainer
         condition_text: extract_condition_text,
         goal: @goal,
         variables: VARIABLE_GUIDELINES[tier]
+      }
+
+      # Add training program context if user has active program
+      program = @user.active_training_program
+      if program.present?
+        context[:program] = build_program_context(program)
+      end
+
+      context
+    end
+
+    # Build context from TrainingProgram for LLM
+    def build_program_context(program)
+      today_schedule = program.today_focus(@day_of_week)
+
+      {
+        name: program.name,
+        total_weeks: program.total_weeks,
+        current_week: program.current_week,
+        progress: "#{program.current_week}/#{program.total_weeks}주 (#{program.progress_percentage}%)",
+        phase: program.current_phase,
+        theme: program.current_theme,
+        volume_modifier: program.current_volume_modifier,
+        is_deload: program.deload_week?,
+        periodization: program.periodization_type,
+        today_focus: today_schedule&.dig("focus"),
+        today_muscles: today_schedule&.dig("muscles") || []
       }
     end
 
@@ -339,15 +366,41 @@ module AiTrainer
     # Single tool that returns all data needed for routine generation
     def get_routine_data
       tier = level_to_tier(@level)
-      variables = VARIABLE_GUIDELINES[tier]
+      variables = VARIABLE_GUIDELINES[tier].dup
       split = SPLIT_PROGRAMS[tier]
       today_schedule = split[:schedule][@day_of_week] || split[:schedule][1]
+
+      # Check if user has active training program
+      program = @user.active_training_program
+      program_context = nil
+
+      if program.present?
+        program_context = build_program_context(program)
+
+        # Override today_schedule with program's split_schedule if available
+        program_today = program.today_focus(@day_of_week)
+        if program_today.present? && program_today["muscles"].present?
+          today_schedule = {
+            focus: program_today["focus"],
+            muscles: program_today["muscles"]
+          }
+        end
+
+        # Apply volume modifier from program phase
+        volume_mod = program.current_volume_modifier
+        if volume_mod != 1.0
+          # Adjust total_sets based on volume modifier
+          original_min = variables[:total_sets].min
+          original_max = variables[:total_sets].max
+          variables[:total_sets] = ((original_min * volume_mod).round)..((original_max * volume_mod).round)
+        end
+      end
 
       # If user has a specific goal, extract muscles from it (overrides schedule)
       goal_muscles = extract_muscles_from_goal(@goal) if @goal.present?
       Rails.logger.info("[ToolBasedRoutineGenerator] Goal: #{@goal.inspect}, extracted muscles: #{goal_muscles.inspect}")
 
-      # Use goal muscles if specified, otherwise use schedule
+      # Use goal muscles if specified, otherwise use schedule (from program or default)
       target_muscles = if goal_muscles.present?
         Rails.logger.info("[ToolBasedRoutineGenerator] Using GOAL-based muscles: #{goal_muscles}")
         goal_muscles
@@ -382,7 +435,7 @@ module AiTrainer
         today_schedule[:focus]
       end
 
-      {
+      result = {
         user_level: @level,
         tier: tier,
         tier_korean: tier_korean(tier),
@@ -399,12 +452,30 @@ module AiTrainer
           rpe_range: "#{variables[:rpe_range].min}-#{variables[:rpe_range].max}",
           rest_seconds: "#{variables[:rest_seconds].min}-#{variables[:rest_seconds].max}",
           tempo: variables[:tempo],
-          exercises_count: "#{variables[:exercises_count].min}-#{variables[:exercises_count].max}"
+          exercises_count: "#{variables[:exercises_count].min}-#{variables[:exercises_count].max}",
+          total_sets: "#{variables[:total_sets].min}-#{variables[:total_sets].max}"
         },
         exercises: exercises_by_muscle,
         recent_workouts: recent_history,
         instructions: build_instructions(focus_text, target_muscles, goal_muscles.present?)
       }
+
+      # Add program context if available
+      if program_context.present?
+        result[:program_context] = {
+          name: program_context[:name],
+          current_week: program_context[:current_week],
+          total_weeks: program_context[:total_weeks],
+          phase: program_context[:phase],
+          theme: program_context[:theme],
+          volume_modifier: program_context[:volume_modifier],
+          is_deload: program_context[:is_deload]
+        }
+        result[:instructions] += " 현재 #{program_context[:phase]} 페이즈 (볼륨 #{(program_context[:volume_modifier] * 100).round}%)입니다."
+        result[:instructions] += " 디로드 주간이므로 볼륨과 강도를 낮추세요." if program_context[:is_deload]
+      end
+
+      result
     end
 
     # Extract muscle groups from user's goal text
@@ -810,6 +881,23 @@ module AiTrainer
         - 운동 시간: #{context[:user][:duration_minutes]}분
       CONTEXT
 
+      # Add training program context if available
+      if context[:program].present?
+        program = context[:program]
+        parts << <<~PROGRAM
+          ## 📋 장기 프로그램 정보
+          - 프로그램: #{program[:name]}
+          - 진행 상황: #{program[:progress]}
+          - 현재 페이즈: #{program[:phase]} (#{program[:theme]})
+          - 볼륨 조절: #{(program[:volume_modifier] * 100).round}% #{program[:is_deload] ? "(디로드 주간 - 회복 우선)" : ""}
+          - 오늘 포커스: #{program[:today_focus] || "전신"}
+          #{program[:today_muscles].any? ? "- 타겟 근육: #{program[:today_muscles].join(', ')}" : ""}
+
+          ⚠️ 중요: 위 프로그램 페이즈와 볼륨 조절값을 반드시 반영하세요!
+          #{program[:is_deload] ? "🔵 디로드 주간입니다. 볼륨과 강도를 낮추고 회복에 집중하세요." : ""}
+        PROGRAM
+      end
+
       if context[:goal].present?
         parts << <<~GOAL
           ## 🎯 오늘의 목표
@@ -830,11 +918,10 @@ module AiTrainer
         ## 요청
         위 정보를 바탕으로 오늘의 맞춤 운동 루틴을 설계해주세요.
 
-        1. 먼저 get_training_variables로 이 사용자에게 맞는 훈련 변인 가이드라인을 확인하세요
-        2. search_exercises로 목표에 맞는 운동들을 검색하세요
-        3. 필요하면 get_program_pattern으로 프로그램 철학을 참고하세요
-        4. 운동 팁이 필요하면 get_rag_knowledge로 검색하세요
-        5. 수집한 정보를 바탕으로 창의적인 루틴을 JSON으로 생성하세요
+        1. 먼저 get_routine_data로 운동과 훈련 변인을 확인하세요
+        2. 프로그램 페이즈(적응기/성장기/강화기/디로드)에 맞게 볼륨/강도를 조절하세요
+        3. 오늘 포커스 근육을 중심으로 루틴을 구성하세요
+        4. 수집한 정보를 바탕으로 창의적인 루틴을 JSON으로 생성하세요
       REQUEST
 
       parts.join("\n")

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_02_01_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_02_02_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -181,6 +181,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_01_000000) do
     t.bigint "workout_routine_id", null: false
     t.index ["exercise_name", "target_muscle"], name: "index_routine_exercises_on_exercise_name_and_target_muscle"
     t.index ["workout_routine_id", "order_index"], name: "index_routine_exercises_on_workout_routine_id_and_order_index"
+  end
+
+  create_table "training_programs", force: :cascade do |t|
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.integer "current_week", default: 1
+    t.jsonb "generation_context", default: {}
+    t.string "goal"
+    t.string "name", null: false
+    t.string "periodization_type"
+    t.jsonb "split_schedule", default: {}
+    t.datetime "started_at"
+    t.string "status", default: "active"
+    t.integer "total_weeks"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.jsonb "weekly_plan", default: {}
+    t.index ["user_id", "status"], name: "index_training_programs_on_user_id_and_status"
+    t.index ["user_id"], name: "index_training_programs_on_user_id"
   end
 
   create_table "user_profiles", force: :cascade do |t|
@@ -360,6 +379,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_01_000000) do
   add_foreign_key "level_test_verifications", "users"
   add_foreign_key "onboarding_analytics", "users"
   add_foreign_key "routine_exercises", "workout_routines"
+  add_foreign_key "training_programs", "users"
   add_foreign_key "user_profiles", "users"
   add_foreign_key "workout_feedbacks", "users"
   add_foreign_key "workout_records", "users"

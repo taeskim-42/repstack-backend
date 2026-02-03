@@ -83,6 +83,14 @@ module AiTrainer
         model: "claude-haiku-4-5-20251001",
         max_tokens: 512,
         temperature: 0.5
+      },
+
+      # Long-term program generation (needs good reasoning)
+      program_generation: {
+        provider: :anthropic,
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        temperature: 0.7
       }
     }.freeze
 

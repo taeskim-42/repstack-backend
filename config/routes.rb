@@ -57,6 +57,8 @@ Rails.application.routes.draw do
     post "/toggle_channel", action: :toggle_channel
     post "/stop_transcript_extraction", action: :stop_transcript_extraction
     get "/worker_status", action: :worker_status
+    post "/random_form_complete", action: :random_form_complete
+    delete "/delete_user_data", action: :delete_user_data
   end
 
   # Defines the root path route ("/")

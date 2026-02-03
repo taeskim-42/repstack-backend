@@ -51,5 +51,8 @@ module Types
 
     # AI Trainer
     field :get_trainer_greeting, resolver: Queries::GetTrainerGreeting
+
+    # Training Program
+    field :my_training_program, resolver: Queries::MyTrainingProgram
   end
 end

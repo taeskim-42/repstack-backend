@@ -13,11 +13,17 @@ module Types
     value "WELCOME", "Welcome message for newly onboarded users"
     value "WELCOME_WITH_ROUTINE", "Welcome message with long-term plan and first routine"
     value "LEVEL_ASSESSMENT", "New user level assessment (onboarding)"
+    value "CONSULTATION", "AI consultation for new users (form completed, AI chat in progress)"
+    value "TRAINING_PROGRAM", "Training program created after AI consultation complete"
+    value "DAILY_GREETING", "Daily greeting for returning users"
     value "PROMOTION_ELIGIBLE", "User is eligible for level promotion test"
     value "REPLACE_EXERCISE", "Exercise replaced in routine"
     value "ADD_EXERCISE", "Exercise added to routine"
     value "REGENERATE_ROUTINE", "Routine regenerated with new exercises"
     value "DELETE_ROUTINE", "Routine deleted"
     value "EXPLAIN_LONG_TERM_PLAN", "Long-term workout plan explanation"
+    value "CONDITION_AND_ROUTINE", "Condition checked and routine generated together"
+    value "WORKOUT_COMPLETED", "Workout session completed"
+    value "FEEDBACK_RECEIVED", "Feedback received and processed"
   end
 end

@@ -25,24 +25,10 @@ class ChatService
       return handle_daily_greeting
     end
 
-    # 0.5. Condition response (after daily greeting)
-    if condition_response?
-      return handle_condition_response
-    end
-
-    # 0.6. "Show today's routine" response (after program creation)
+    # 0.5. "Show today's routine" response (after program creation) - MUST be before condition_response
+    # Because "네", "1" can match both patterns, but if no routines exist, this takes priority
     if wants_today_routine?
       return handle_show_today_routine
-    end
-
-    # 0.7. "Workout finished" - ask for feedback
-    if workout_finished?
-      return handle_workout_finished
-    end
-
-    # 0.8. Feedback response (after workout)
-    if feedback_response?
-      return handle_feedback_response
     end
 
     # 1. Welcome message for newly onboarded users
@@ -68,17 +54,59 @@ class ChatService
   attr_reader :user, :message, :routine_id, :session_id
 
   # ============================================
+  # Semantic Response Cache (Vector Similarity)
+  # ============================================
+
+  def get_cached_response
+    return nil if message.blank? || message.length < 10
+
+    # Try to find semantically similar cached response
+    cached = ChatResponseCache.find_similar(message)
+    return cached.answer if cached
+
+    nil
+  rescue => e
+    Rails.logger.error("[ChatService] Cache lookup error: #{e.message}")
+    nil
+  end
+
+  def cache_response(answer)
+    return if answer.blank? || message.blank? || message.length < 10
+
+    # Cache in background to not block response
+    Thread.new do
+      ChatResponseCache.cache_response(question: message, answer: answer)
+    rescue => e
+      Rails.logger.error("[ChatService] Cache save error: #{e.message}")
+    end
+  end
+
+  # ============================================
   # Tool Use Processing
   # ============================================
 
   def process_with_tools
+    # Check cache first (skip LLM if cached)
+    cached_answer = get_cached_response
+    if cached_answer
+      return success_response(
+        message: cached_answer,
+        intent: "CACHED_RESPONSE",
+        data: { cached: true }
+      )
+    end
+
     Rails.logger.info("[ChatService] Processing message: #{message}")
     Rails.logger.info("[ChatService] Available tools: #{available_tools.map { |t| t[:name] }.join(', ')}")
+
+    # Build conversation history for context
+    conversation_messages = build_conversation_history
 
     response = AiTrainer::LlmGateway.chat(
       prompt: build_user_prompt,
       task: :general_chat,
       system: system_prompt,
+      messages: conversation_messages,
       tools: available_tools
     )
 
@@ -123,6 +151,15 @@ class ChatService
     today = Time.current.in_time_zone("Asia/Seoul")
     day_names = %w[일 월 화 수 목 금 토]
 
+    # Check if user has today's routine (for feedback vs condition distinction)
+    has_today_routine = WorkoutRoutine.where(user_id: user.id)
+                                       .where("created_at >= ?", Time.current.beginning_of_day)
+                                       .exists?
+
+    # Check if workout was recently completed
+    workout_completed = user.user_profile&.fitness_factors&.dig("last_workout_completed_at").present? &&
+                        Time.parse(user.user_profile.fitness_factors["last_workout_completed_at"]) > Time.current.beginning_of_day rescue false
+
     <<~SYSTEM
       당신은 전문 피트니스 AI 트레이너입니다.
 
@@ -133,6 +170,11 @@ class ChatService
       ## 사용자 정보
       - 레벨: #{level} (#{tier_korean(tier)})
       - 이름: #{user.name || '회원'}
+      - 오늘 루틴 있음: #{has_today_routine ? '예' : '아니오'}
+      - 오늘 운동 완료: #{workout_completed ? '예' : '아니오'}
+
+      ## 대화 맥락
+      #{conversation_context_summary}
 
       ## 중요: Tool 사용 규칙
       다음 요청에는 **반드시** 해당 tool을 호출하세요. 텍스트로 직접 답변하지 마세요:
@@ -142,8 +184,8 @@ class ChatService
          (컨디션 + 루틴 요청: "피곤한데 운동 뭐해" → generate_routine의 condition 파라미터 사용)
 
       2. 컨디션만 언급 (루틴 요청 없이) → **check_condition** tool 필수
-         예: "피곤해", "오늘 컨디션 안좋아", "어깨가 아파", "잠을 못잤어", "굿", "최고", "컨디션 좋아"
-         ※ 루틴 요청 없이 상태만 말할 때 사용! 다음 루틴 생성 시 자동 반영됨
+         예: "피곤해", "오늘 컨디션 안좋아", "어깨가 아파"
+         ※ 오늘 루틴이 없거나, 운동 시작 전 상태를 말할 때만 사용
 
       3. 운동 기록 요청 → **record_exercise** tool 필수
          예: "벤치프레스 60kg 8회", "스쿼트 10회 했어"
@@ -159,6 +201,19 @@ class ChatService
 
       7. 운동 계획/프로그램 설명 요청 → **explain_long_term_plan** tool 필수
          예: "내 운동 계획 알려줘", "주간 스케줄", "어떻게 운동해야 해", "프로그램 설명해줘", "나 어떤 운동 하면 돼"
+
+      8. 운동 완료 선언 → **complete_workout** tool 필수
+         예: "운동 끝났어", "완료", "다 했어", "끝", "오늘 운동 끝", "done", "finished"
+
+      9. 운동 피드백 제출 → **submit_feedback** tool 필수
+         예: "적당했어", "힘들었어", "스쿼트가 어려웠어"
+         ※ feedback_type: just_right(적당/긍정), too_easy(쉬움), too_hard(힘듦), specific(특정 운동)
+         ※ 판단 기준: 오늘 루틴 있음 + 운동 완료됨 상태에서 짧은 반응은 피드백으로 처리
+
+      ## Tool 선택 판단 기준
+      - **오늘 루틴 있음 + 운동 완료됨** 상태에서 짧은 반응 → submit_feedback (피드백)
+      - **오늘 루틴 없음** 또는 **운동 시작 전** 컨디션 언급 → check_condition (컨디션)
+      - 대화 맥락을 보고 사용자의 의도를 파악하세요
 
       ## 일반 대화만 tool 없이 답변
       - 운동 지식 질문, 폼 체크 설명, 일반 인사 등
@@ -242,6 +297,39 @@ class ChatService
             }
           },
           required: []
+        }
+      },
+      {
+        name: "complete_workout",
+        description: "사용자가 오늘 운동을 완료했음을 기록합니다. '운동 끝났어', '완료', '다 했어', '끝', 'done', '오늘 운동 끝' 등의 요청에 사용합니다.",
+        input_schema: {
+          type: "object",
+          properties: {
+            notes: {
+              type: "string",
+              description: "운동에 대한 메모나 코멘트 (선택)"
+            }
+          },
+          required: []
+        }
+      },
+      {
+        name: "submit_feedback",
+        description: "운동 완료 후 피드백을 제출합니다. '적당했어', '좀 쉬웠어', '힘들었어', '강도 올려줘', '강도 낮춰줘', '좋았어', '스쿼트가 어려웠어' 등의 피드백에 사용합니다.",
+        input_schema: {
+          type: "object",
+          properties: {
+            feedback_text: {
+              type: "string",
+              description: "사용자가 말한 피드백 원문 (예: '적당했어', '힘들었어', '스쿼트가 어려웠어')"
+            },
+            feedback_type: {
+              type: "string",
+              enum: %w[just_right too_easy too_hard specific],
+              description: "피드백 유형: just_right(적당), too_easy(쉬움), too_hard(힘듦), specific(특정 운동 언급)"
+            }
+          },
+          required: %w[feedback_text feedback_type]
         }
       }
     ]
@@ -346,6 +434,10 @@ class ChatService
       handle_delete_routine(input)
     when "explain_long_term_plan"
       handle_explain_long_term_plan(input)
+    when "complete_workout"
+      handle_complete_workout(input)
+    when "submit_feedback"
+      handle_submit_feedback(input)
     else
       error_response("알 수 없는 작업입니다: #{tool_name}")
     end
@@ -374,6 +466,11 @@ class ChatService
       profile.update!(numeric_level: 1, current_level: "beginner")
     end
 
+    # Ensure user has a training program (create if missing)
+    Rails.logger.info("[ChatService] Calling ensure_training_program for user #{user.id}")
+    program = ensure_training_program
+    Rails.logger.info("[ChatService] Training program result: #{program&.id} - #{program&.name}")
+
     day_of_week = Time.current.wday
     day_of_week = day_of_week == 0 ? 7 : day_of_week
 
@@ -394,11 +491,45 @@ class ChatService
       return error_response(routine[:error] || "루틴 생성에 실패했어요.")
     end
 
+    # Add program context to response if available
+    program_info = if program
+      {
+        name: program.name,
+        current_week: program.current_week,
+        total_weeks: program.total_weeks,
+        phase: program.current_phase,
+        volume_modifier: program.current_volume_modifier
+      }
+    end
+
     success_response(
-      message: format_routine_message(routine),
+      message: format_routine_message(routine, program_info),
       intent: "GENERATE_ROUTINE",
-      data: { routine: routine }
+      data: { routine: routine, program: program_info }
     )
+  end
+
+  # Ensure user has a training program, create one if missing
+  def ensure_training_program
+    # Check if user already has an active program
+    existing = user.active_training_program
+    return existing if existing
+
+    Rails.logger.info("[ChatService] User #{user.id} has no training program, generating one...")
+
+    # Generate program using ProgramGenerator
+    result = AiTrainer::ProgramGenerator.generate(user: user)
+
+    if result[:success] && result[:program]
+      Rails.logger.info("[ChatService] Created training program: #{result[:program].id} (#{result[:program].name})")
+      result[:program]
+    else
+      Rails.logger.warn("[ChatService] Failed to generate training program: #{result[:error]}")
+      nil
+    end
+  rescue StandardError => e
+    Rails.logger.error("[ChatService] Error creating training program: #{e.message}")
+    nil
   end
 
   def handle_check_condition(input)
@@ -419,22 +550,68 @@ class ChatService
     condition = result[:condition]
     save_condition_log_from_result(condition)
 
-    # Build response message
-    message = build_condition_response_message(condition, result)
+    # Check if user already has today's routine
+    today_routine = WorkoutRoutine.where(user_id: user.id)
+                                   .where("created_at >= ?", Time.current.beginning_of_day)
+                                   .first
+
+    if today_routine
+      # Already has today's routine - just acknowledge condition
+      message = build_condition_response_message(condition, result)
+      message += "\n\n오늘 루틴이 이미 있어요! 컨디션을 반영해서 진행해주세요 💪"
+
+      return success_response(
+        message: message,
+        intent: "CHECK_CONDITION",
+        data: {
+          condition: condition,
+          intensity_modifier: result[:intensity_modifier],
+          existing_routine_id: today_routine.id
+        }
+      )
+    end
+
+    # No today's routine - generate one with condition
+    routine_result = AiTrainer.generate_routine(
+      user: user,
+      day_of_week: Time.current.wday == 0 ? 7 : Time.current.wday,
+      condition_inputs: { text: condition_text, analyzed: condition },
+      recent_feedbacks: user.workout_feedbacks.order(created_at: :desc).limit(5)
+    )
+
+    if routine_result.is_a?(Hash) && routine_result[:success] == false
+      # Routine generation failed - just return condition response
+      message = build_condition_response_message(condition, result)
+      return success_response(
+        message: message,
+        intent: "CHECK_CONDITION",
+        data: { condition: condition }
+      )
+    end
+
+    # Build combined response: condition + routine
+    condition_msg = build_condition_acknowledgment(condition)
+    routine_msg = format_routine_for_display(routine_result)
 
     success_response(
-      message: message,
-      intent: "CHECK_CONDITION",
+      message: "#{condition_msg}\n\n#{routine_msg}",
+      intent: "CONDITION_AND_ROUTINE",
       data: {
         condition: condition,
-        adaptations: result[:adaptations],
         intensity_modifier: result[:intensity_modifier],
-        duration_modifier: result[:duration_modifier],
-        exercise_modifications: result[:exercise_modifications],
-        rest_recommendations: result[:rest_recommendations],
-        interpretation: result[:interpretation]
+        routine: routine_result
       }
     )
+  end
+
+  def build_condition_acknowledgment(condition)
+    messages = {
+      "good" => "컨디션 좋으시네요! 💪 오늘 강도 높여서 진행할게요!",
+      "normal" => "알겠어요! 👍 평소 강도로 진행할게요.",
+      "tired" => "피곤하시군요 😊 오늘은 가볍게 진행할게요!",
+      "injured" => "아프신 부위가 있군요 🤕 해당 부위는 피해서 진행할게요."
+    }
+    messages[condition.to_s] || "컨디션 확인했어요! 👍"
   end
 
   def handle_record_exercise(input)
@@ -474,6 +651,7 @@ class ChatService
   def handle_replace_exercise(input)
     routine = current_routine
     return error_response("수정할 루틴을 찾을 수 없어요.") unless routine
+    return error_response("이미 지난 루틴은 수정할 수 없어요.") unless routine_editable?(routine)
 
     rate_check = RoutineRateLimiter.check_and_increment!(user: user, action: :exercise_replacement)
     return error_response(rate_check[:error]) unless rate_check[:allowed]
@@ -512,7 +690,7 @@ class ChatService
   def handle_add_exercise(input)
     routine = current_routine
     return error_response("운동을 추가할 루틴을 찾을 수 없어요.") unless routine
-    return error_response("완료된 루틴에는 운동을 추가할 수 없어요.") if routine.is_completed
+    return error_response("이미 지난 루틴은 수정할 수 없어요.") unless routine_editable?(routine)
 
     final_order = (routine.routine_exercises.maximum(:order_index) || -1) + 1
     # Normalize exercise name to Korean
@@ -540,6 +718,7 @@ class ChatService
   def handle_regenerate_routine(input)
     routine = current_routine
     return error_response("수정할 루틴을 찾을 수 없어요.") unless routine
+    return error_response("이미 지난 루틴은 수정할 수 없어요.") unless routine_editable?(routine)
 
     rate_check = RoutineRateLimiter.check_and_increment!(user: user, action: :routine_regeneration)
     return error_response(rate_check[:error]) unless rate_check[:allowed]
@@ -585,13 +764,10 @@ class ChatService
   def handle_delete_routine(input)
     routine = current_routine
     return error_response("삭제할 루틴을 찾을 수 없어요.") unless routine
+    return error_response("이미 지난 루틴은 삭제할 수 없어요.") unless routine_editable?(routine)
 
     unless input["confirm"] == true
       return error_response("삭제를 확인해주세요.")
-    end
-
-    if routine.is_completed?
-      return error_response("완료된 루틴은 삭제할 수 없어요. 운동 기록이 사라질 수 있거든요!")
     end
 
     routine_id = routine.id
@@ -725,6 +901,10 @@ class ChatService
       message: message,
       session_id: session_id
     )
+
+    # Cache the response for future identical questions
+    answer = result[:message] || "무엇을 도와드릴까요?"
+    cache_response(answer)
 
     success_response(
       message: result[:message] || "무엇을 도와드릴까요?",
@@ -877,98 +1057,104 @@ class ChatService
     lines.join("\n")
   end
 
-  # ============================================
-  # Condition Response (After Daily Greeting)
-  # ============================================
-
-  CONDITION_PATTERNS = {
-    good: /좋|1|강도.*높|최고|컨디션.*좋|기분.*좋|상쾌|energized|good|great/i,
-    normal: /보통|2|평소|괜찮|그냥|normal|okay|ok/i,
-    tired: /피곤|3|가볍|힘들|지침|낮|tired|low|exhausted|쉬고/i
-  }.freeze
-
-  def condition_response?
-    return false if message.blank?
-    
-    # Skip condition check during onboarding (level assessment)
-    return false if needs_level_assessment?
-
-    # Check if this looks like a condition response
-    normalized = message.strip.downcase
-    CONDITION_PATTERNS.values.any? { |pattern| normalized.match?(pattern) }
-  end
-
-  # Check if user wants to see today's routine (after program creation)
-  ROUTINE_REQUEST_PATTERNS = /네|1|오늘.*루틴|루틴.*보여|운동.*시작|시작.*할게/i.freeze
-  
+  # Check if user just completed onboarding and has no routines yet
+  # No regex parsing - just check state, Claude will decide based on context
   def wants_today_routine?
     return false if message.blank?
-    
+
+    # Skip if user still needs level assessment (AI consultation)
+    return false if needs_level_assessment?
+
     # Reload profile to get fresh data (fix stale association)
     profile = UserProfile.find_by(user_id: user.id)
     Rails.logger.info("[wants_today_routine?] user_id=#{user.id}, onboarding_completed_at=#{profile&.onboarding_completed_at}")
     return false unless profile&.onboarding_completed_at.present?
-    
+
     # Check if no routines exist yet (just finished program creation)
+    # If true, any positive response should trigger routine generation
     routine_count = WorkoutRoutine.where(user_id: user.id).count
     Rails.logger.info("[wants_today_routine?] routine_count=#{routine_count}, message=#{message}")
-    return false unless routine_count == 0
-    
-    matches = message.strip.match?(ROUTINE_REQUEST_PATTERNS)
-    Rails.logger.info("[wants_today_routine?] pattern_match=#{matches}")
-    matches
+
+    # If onboarding complete + no routines yet, assume user wants first routine
+    # (they just saw "오늘 운동 시작할까요?" prompt)
+    routine_count == 0
   end
 
   def handle_show_today_routine
-    # Generate today's routine
-    generator = AiTrainer::DynamicRoutineGenerator.new(user: user)
-    result = generator.generate
-    
-    if result[:success] && result[:exercises].present?
-      # Save to database
-      routine = save_routine_to_db(result)
-      
-      # Format response
-      lines = []
-      lines << "오늘의 운동 루틴이에요! 💪"
-      lines << ""
-      lines << "📋 **#{result[:day_korean] || '오늘의 운동'}**"
-      lines << "⏱️ 예상 시간: #{result[:estimated_duration_minutes] || 45}분"
-      lines << ""
-      lines << "**운동 목록:**"
-      
-      result[:exercises].each_with_index do |ex, idx|
-        name = ex[:exercise_name] || ex["exercise_name"] || ex[:name] || ex["name"]
-        sets = ex[:sets] || ex["sets"] || 3
-        reps = ex[:reps] || ex["reps"] || 10
-        lines << "#{idx + 1}. **#{name}** - #{sets}세트 x #{reps}회"
-      end
-      
-      lines << ""
-      lines << "운동을 마치면 **\"운동 끝났어\"** 라고 말씀해주세요!"
-      lines << "피드백을 받아 다음 루틴을 최적화해드릴게요 📈"
-      
-      success_response(
-        message: lines.join("\n"),
-        intent: "GENERATE_ROUTINE",
-        data: {
-          routine_id: routine&.id,
-          routine: result,
-          suggestions: ["운동 시작!", "운동 하나 교체해줘", "나중에 할게"]
-        }
-      )
-    else
-      error_response("루틴 생성 중 문제가 발생했어요. 다시 시도해주세요.")
+    # Get user's training program (should exist after onboarding)
+    program = user.active_training_program
+
+    # Generate today's routine using the same method as handle_generate_routine
+    day_of_week = Time.current.wday
+    day_of_week = day_of_week == 0 ? 7 : day_of_week
+
+    result = AiTrainer.generate_routine(
+      user: user,
+      day_of_week: day_of_week,
+      condition_inputs: nil,
+      recent_feedbacks: user.workout_feedbacks.order(created_at: :desc).limit(5)
+    )
+
+    if result.is_a?(Hash) && result[:success] == false
+      return error_response(result[:error] || "루틴 생성에 실패했어요.")
     end
+
+    # Build program info for display
+    program_info = if program
+      {
+        name: program.name,
+        current_week: program.current_week,
+        total_weeks: program.total_weeks,
+        phase: program.current_phase,
+        volume_modifier: program.current_volume_modifier
+      }
+    end
+
+    # Format response with program context
+    lines = []
+    lines << "오늘의 운동 루틴이에요! 💪"
+    lines << ""
+
+    if program_info
+      lines << "🗓️ **#{program_info[:name]}** - #{program_info[:current_week]}/#{program_info[:total_weeks]}주차 (#{program_info[:phase]})"
+    end
+
+    lines << "📋 **#{result[:day_korean] || '오늘의 운동'}**"
+    lines << "⏱️ 예상 시간: #{result[:estimated_duration_minutes] || 45}분"
+    lines << ""
+    lines << "**운동 목록:**"
+
+    exercises = result[:exercises] || []
+    exercises.each_with_index do |ex, idx|
+      name = ex[:exercise_name] || ex["exercise_name"] || ex[:name] || ex["name"]
+      sets = ex[:sets] || ex["sets"] || 3
+      reps = ex[:reps] || ex["reps"] || 10
+      lines << "#{idx + 1}. **#{name}** - #{sets}세트 x #{reps}회"
+    end
+
+    lines << ""
+    lines << "운동을 마치면 **\"운동 끝났어\"** 라고 말씀해주세요!"
+    lines << "피드백을 받아 다음 루틴을 최적화해드릴게요 📈"
+
+    success_response(
+      message: lines.join("\n"),
+      intent: "GENERATE_ROUTINE",
+      data: {
+        routine: result,
+        program: program_info,
+        suggestions: ["운동 시작!", "운동 하나 교체해줘", "나중에 할게"]
+      }
+    )
   end
   
   def save_routine_to_db(result)
     today = Date.current
-    
+    program = user.active_training_program
+
     routine = WorkoutRoutine.create!(
       user_id: user.id,
-      level: user.user_profile&.numeric_level || 1,
-      week_number: 1,  # First week of program
+      level: user.user_profile&.tier || "beginner",
+      week_number: program&.current_week || 1,
       day_number: today.cwday,  # Day of week (1=Mon, 7=Sun)
       workout_type: result[:workout_type] || "full_body",
       day_of_week: result[:day_korean] || today.strftime("%A"),
@@ -993,55 +1179,23 @@ class ChatService
     nil
   end
 
-  # Check if user says workout is finished
-  WORKOUT_FINISHED_PATTERNS = /운동.*끝|끝났|완료|다.*했|finished|done|complete/i.freeze
-  
-  def workout_finished?
-    return false if message.blank?
-    message.strip.match?(WORKOUT_FINISHED_PATTERNS)
-  end
+  def handle_submit_feedback(input)
+    feedback_text = input["feedback_text"]
+    feedback_type = input["feedback_type"]&.to_sym || :specific
 
-  # Check if this is feedback response
-  FEEDBACK_PATTERNS = {
-    just_right: /적당|1|괜찮|좋았|비슷/i,
-    too_easy: /쉬|2|올려|더.*강|증가/i,
-    too_hard: /힘들|3|어려|낮춰|줄여|hard/i,
-    specific: /4|특정|어려웠|힘들었|통증/i
-  }.freeze
+    return error_response("피드백 내용을 알려주세요.") if feedback_text.blank?
 
-  def feedback_response?
-    return false if message.blank?
-    
-    # Skip during onboarding
-    return false if needs_level_assessment?
-    
-    # Must have completed onboarding
-    return false unless user.user_profile&.onboarding_completed_at.present?
-    
-    # Check if there was a recent workout completion (within last hour)
-    recent_completed = user.user_profile&.fitness_factors&.dig("last_workout_completed_at")
-    return false unless recent_completed.present?
-    
-    completed_time = Time.parse(recent_completed) rescue nil
-    return false unless completed_time && completed_time > 1.hour.ago
-    
-    FEEDBACK_PATTERNS.values.any? { |pattern| message.match?(pattern) }
-  end
-
-  def handle_feedback_response
-    feedback_type = detect_feedback_type
-    
     # Store feedback
-    store_workout_feedback(feedback_type)
-    
-    # Generate response based on feedback
+    store_workout_feedback(feedback_type, feedback_text)
+
+    # Generate response based on feedback type
     responses = {
       just_right: {
         message: "좋아요! 👍 현재 강도가 딱 맞는 것 같네요.\n\n다음 운동에도 비슷한 강도로 진행할게요. 꾸준히 하시면 2주 후에는 자연스럽게 강도를 올릴 수 있을 거예요! 💪",
         adjustment: 0
       },
       too_easy: {
-        message: "알겠어요! 💪 다음 운동부터 **강도를 10% 올릴게요**.\n\n세트 수나 중량을 조금씩 늘려서 더 도전적인 루틴을 만들어드릴게요!",
+        message: "알겠어요! 💪 다음 운동부터 **강도를 올릴게요**.\n\n세트 수나 중량을 조금씩 늘려서 더 도전적인 루틴을 만들어드릴게요!",
         adjustment: 0.1
       },
       too_hard: {
@@ -1049,108 +1203,100 @@ class ChatService
         adjustment: -0.1
       },
       specific: {
-        message: "어떤 운동이 어려우셨나요? 🤔\n\n말씀해주시면 다음에 대체 운동을 추천하거나, 그 운동의 팁을 알려드릴게요!",
+        message: "피드백 감사합니다! 🙏\n\n\"#{feedback_text}\" - 다음 루틴에 반영할게요!",
         adjustment: 0
       }
     }
-    
-    response = responses[feedback_type]
-    
+
+    response_data = responses[feedback_type] || responses[:specific]
+
     lines = []
-    lines << response[:message]
+    lines << response_data[:message]
     lines << ""
     lines << "---"
     lines << ""
     lines << "내일 또 운동하러 오세요! 채팅창에 들어오시면 오늘의 루틴을 준비해드릴게요 🔥"
-    
+
     success_response(
       message: lines.join("\n"),
       intent: "FEEDBACK_RECEIVED",
       data: {
         feedback_type: feedback_type.to_s,
-        intensity_adjustment: response[:adjustment],
+        feedback_text: feedback_text,
+        intensity_adjustment: response_data[:adjustment],
         suggestions: ["내일 운동 미리보기", "이번 주 기록 보기", "프로그램 진행 상황"]
       }
     )
   end
 
-  def detect_feedback_type
-    normalized = message.strip
-    
-    if normalized.match?(FEEDBACK_PATTERNS[:just_right])
-      :just_right
-    elsif normalized.match?(FEEDBACK_PATTERNS[:too_easy])
-      :too_easy
-    elsif normalized.match?(FEEDBACK_PATTERNS[:too_hard])
-      :too_hard
-    else
-      :specific
-    end
-  end
-
-  def store_workout_feedback(feedback_type)
+  def store_workout_feedback(feedback_type, feedback_text = nil)
     profile = user.user_profile
     return unless profile
-    
+
+    feedback_type_sym = feedback_type.to_s.to_sym
     factors = profile.fitness_factors || {}
-    
+
     # Store feedback history
     feedbacks = factors["workout_feedbacks"] || []
     feedbacks << {
       date: Date.current.to_s,
-      type: feedback_type.to_s,
+      type: feedback_type_sym.to_s,
+      text: feedback_text,
       recorded_at: Time.current.iso8601
     }
-    
+
     # Keep last 30 feedbacks
     feedbacks = feedbacks.last(30)
-    
+
     # Calculate running intensity adjustment
     adjustment = factors["intensity_adjustment"] || 0.0
-    case feedback_type
+    case feedback_type_sym
     when :too_easy
       adjustment = [adjustment + 0.05, 0.3].min  # Max +30%
     when :too_hard
       adjustment = [adjustment - 0.05, -0.3].max  # Max -30%
     end
-    
+
     factors["workout_feedbacks"] = feedbacks
     factors["intensity_adjustment"] = adjustment
     factors["last_feedback_at"] = Time.current.iso8601
-    
+
     profile.update!(fitness_factors: factors)
   end
 
-  def handle_workout_finished
+  def handle_complete_workout(input)
     # Get today's routine
     today_routine = WorkoutRoutine.where(user_id: user.id)
                                    .where("created_at > ?", Time.current.beginning_of_day)
                                    .order(created_at: :desc)
                                    .first
-    
+
     # Mark workout as completed for feedback tracking
     mark_workout_completed
-    
+
+    # Save notes if provided
+    notes = input["notes"]
+    if notes.present? && today_routine
+      today_routine.update(notes: notes)
+    end
+
     lines = []
     lines << "수고하셨어요! 🎉 오늘 운동 완료!"
     lines << ""
-    
+
     if today_routine
       lines << "📊 **오늘의 운동 기록**"
-      lines << "• #{today_routine.name}"
+      lines << "• #{today_routine.day_of_week}"
       lines << "• 예상 시간: #{today_routine.estimated_duration}분"
       lines << ""
     end
-    
+
     lines << "💬 **피드백을 남겨주세요!**"
     lines << ""
-    lines << "오늘 운동 어떠셨어요? 아래 중 선택하거나 자유롭게 말씀해주세요:"
+    lines << "오늘 운동 어떠셨어요? 자유롭게 말씀해주세요:"
     lines << ""
-    lines << "1️⃣ 적당했어 - 다음에도 비슷하게"
-    lines << "2️⃣ 좀 쉬웠어 - 강도 올려줘"
-    lines << "3️⃣ 힘들었어 - 강도 낮춰줘"
-    lines << "4️⃣ 특정 운동이 어려웠어 (어떤 운동?)"
-    
+    lines << "예: \"적당했어\", \"좀 쉬웠어\", \"힘들었어\", \"스쿼트가 어려웠어\""
+
     success_response(
       message: lines.join("\n"),
       intent: "WORKOUT_COMPLETED",
@@ -1168,37 +1314,6 @@ class ChatService
     factors = profile.fitness_factors || {}
     factors["last_workout_completed_at"] = Time.current.iso8601
     profile.update!(fitness_factors: factors)
-  end
-
-  def handle_condition_response
-    condition = detect_condition
-    intensity = condition_to_intensity(condition)
-
-    # Store condition in session/profile for routine generation
-    store_today_condition(condition, intensity)
-
-    # Generate routine with adjusted intensity
-    generate_routine_with_condition(condition, intensity)
-  end
-
-  def detect_condition
-    normalized = message.strip.downcase
-
-    if normalized.match?(CONDITION_PATTERNS[:good])
-      :good
-    elsif normalized.match?(CONDITION_PATTERNS[:tired])
-      :tired
-    else
-      :normal
-    end
-  end
-
-  def condition_to_intensity(condition)
-    case condition
-    when :good then 1.1   # 110% - 강도 높여서
-    when :tired then 0.7  # 70% - 가볍게
-    else 1.0              # 100% - 평소처럼
-    end
   end
 
   def store_today_condition(condition, intensity)
@@ -1674,6 +1789,45 @@ class ChatService
     { "none" => "입문", "beginner" => "초급", "intermediate" => "중급", "advanced" => "고급" }[tier] || "입문"
   end
 
+  # Build conversation context summary for system prompt (brief)
+  def conversation_context_summary
+    recent = ChatMessage.where(user_id: user.id)
+                        .order(created_at: :desc)
+                        .limit(5)
+
+    return "새 대화입니다." if recent.empty?
+
+    summary = recent.reverse.map do |msg|
+      role = msg.role == "user" ? "사용자" : "트레이너"
+      "#{role}: #{msg.content.to_s.truncate(50)}"
+    end.join("\n")
+
+    summary
+  rescue StandardError => e
+    Rails.logger.warn("[ChatService] Failed to build conversation context: #{e.message}")
+    "대화 컨텍스트를 불러오지 못했습니다."
+  end
+
+  # Build full conversation history for messages array (better context)
+  # This allows Claude to understand the full conversation flow
+  def build_conversation_history
+    recent = ChatMessage.where(user_id: user.id)
+                        .order(created_at: :desc)
+                        .limit(15)  # Last 15 messages for good context balance
+
+    return [] if recent.empty?
+
+    recent.reverse.map do |msg|
+      {
+        role: msg.role == "user" ? "user" : "assistant",
+        content: msg.content.to_s
+      }
+    end
+  rescue StandardError => e
+    Rails.logger.warn("[ChatService] Failed to build conversation history: #{e.message}")
+    []
+  end
+
   # ============================================
   # Level Assessment (Special Flow)
   # ============================================
@@ -1688,13 +1842,17 @@ class ChatService
     if result[:success]
       # Use TRAINING_PROGRAM intent when program is created (is_complete)
       intent = result[:is_complete] ? "TRAINING_PROGRAM" : "CONSULTATION"
-      
+
+      # Extract suggestions from AI message for button display
+      suggestions = extract_suggestions_from_message(result[:message])
+
       success_response(
         message: result[:message],
         intent: intent,
         data: {
           is_complete: result[:is_complete],
-          assessment: result[:assessment]
+          assessment: result[:assessment],
+          suggestions: suggestions.presence
         }
       )
     else
@@ -1702,9 +1860,66 @@ class ChatService
     end
   end
 
+  # Extract choice options from AI message for button display
+  # Patterns: "A? B?", "(A/B/C)", "1. A 2. B", numbered emoji options
+  def extract_suggestions_from_message(message)
+    return [] if message.blank?
+
+    suggestions = []
+
+    # Pattern 1: Numbered emoji options (1️⃣, 2️⃣, 3️⃣)
+    # Example: "1️⃣ 네, 오늘 운동 루틴 보여줘"
+    emoji_pattern = /([1-9]️⃣[^\n]+)/
+    emoji_matches = message.scan(emoji_pattern).flatten
+    if emoji_matches.length >= 2
+      suggestions = emoji_matches.map do |match|
+        # Remove emoji prefix and clean up
+        match.gsub(/^[1-9]️⃣\s*/, "").strip
+      end
+      return suggestions.first(4) if suggestions.any?
+    end
+
+    # Pattern 2: "A? B?" format (Korean question options)
+    # Example: "아침형? 저녁형?"
+    question_pattern = /([가-힣a-zA-Z0-9]+)\?\s*([가-힣a-zA-Z0-9]+)\?/
+    if message =~ question_pattern
+      suggestions = [$1, $2]
+      return suggestions if suggestions.length >= 2
+    end
+
+    # Pattern 3: "(A/B/C)" format
+    # Example: "(헬스장/홈트/기구 유무)"
+    paren_pattern = /\(([^)]+[\/,][^)]+)\)/
+    paren_matches = message.scan(paren_pattern).flatten
+    paren_matches.each do |match|
+      options = match.split(%r{[/,]}).map(&:strip).reject(&:blank?)
+      if options.length >= 2
+        suggestions = options
+        return suggestions.first(4)
+      end
+    end
+
+    # Pattern 4: Numbered list "1. A 2. B" format
+    # Example: "1. 근비대 2. 다이어트 3. 체력 향상"
+    numbered_pattern = /\d+\.\s*([^\d\n]+?)(?=\s*\d+\.|$)/
+    numbered_matches = message.scan(numbered_pattern).flatten.map(&:strip).reject(&:blank?)
+    if numbered_matches.length >= 2
+      suggestions = numbered_matches.first(4)
+      return suggestions
+    end
+
+    suggestions
+  end
+
   # ============================================
   # Helpers
   # ============================================
+
+  # Check if routine can be edited (only today's routine is editable)
+  def routine_editable?(routine)
+    return false unless routine
+    routine.created_at >= Time.current.beginning_of_day
+  end
 
   def current_routine
     return @current_routine if defined?(@current_routine)
@@ -1835,8 +2050,19 @@ class ChatService
     "other"
   end
 
-  def format_routine_message(routine)
+  def format_routine_message(routine, program_info = nil)
     msg = "오늘의 루틴을 준비했어요! 💪\n\n"
+
+    # Show program context if available
+    if program_info
+      phase = program_info[:phase] || program_info["phase"]
+      week = program_info[:current_week] || program_info["current_week"]
+      total = program_info[:total_weeks] || program_info["total_weeks"]
+      if phase && week && total
+        msg += "🗓️ **#{program_info[:name] || '프로그램'}** - #{week}/#{total}주차 (#{phase})\n"
+      end
+    end
+
     msg += "📋 **#{routine[:day_korean] || routine['day_korean']}** - #{routine[:fitness_factor_korean] || routine['fitness_factor_korean']}\n"
     msg += "⏱️ 예상 시간: #{routine[:estimated_duration_minutes] || routine['estimated_duration_minutes']}분\n\n"
 

@@ -5,6 +5,7 @@ class User < ApplicationRecord
 
   # Associations
   has_one :user_profile, dependent: :destroy
+  has_many :training_programs, dependent: :destroy
   has_many :workout_sessions, dependent: :destroy
   has_many :workout_routines, dependent: :destroy
   has_many :workout_sets, through: :workout_sessions
@@ -71,6 +72,11 @@ class User < ApplicationRecord
       day_number: user_profile&.day_number,
       is_completed: false
     ).first
+  end
+
+  # Get current active training program
+  def active_training_program
+    training_programs.active.order(created_at: :desc).first
   end
 
   private

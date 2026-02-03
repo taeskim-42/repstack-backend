@@ -1,0 +1,438 @@
+# frozen_string_literal: true
+
+require_relative "constants"
+require_relative "llm_gateway"
+
+module AiTrainer
+  # Generates long-term training programs using RAG + LLM
+  # Called after onboarding consultation to create personalized multi-week programs
+  #
+  # Key features:
+  # - Uses RAG to search fitness knowledge for program design
+  # - LLM generates periodized program based on user profile
+  # - Stores framework (weekly_plan, split_schedule) not daily routines
+  # - Daily routines are generated dynamically based on program context
+  class ProgramGenerator
+    include Constants
+
+    # Default program configurations by experience level
+    DEFAULT_CONFIGS = {
+      beginner: {
+        weeks: 8,
+        days_per_week: 3,
+        periodization: "linear",
+        split: "full_body"  # 전신 운동
+      },
+      intermediate: {
+        weeks: 12,
+        days_per_week: 4,
+        periodization: "linear",
+        split: "upper_lower"  # 상하체 분할
+      },
+      advanced: {
+        weeks: 12,
+        days_per_week: 5,
+        periodization: "block",
+        split: "ppl"  # Push/Pull/Legs
+      }
+    }.freeze
+
+    class << self
+      def generate(user:)
+        new(user: user).generate
+      end
+    end
+
+    def initialize(user:)
+      @user = user
+      @profile = user.user_profile
+      @collected_data = @profile&.fitness_factors&.dig("collected_data") || {}
+    end
+
+    def generate
+      Rails.logger.info("[ProgramGenerator] Starting program generation for user #{@user.id}")
+
+      # 1. Build user context from consultation data
+      context = build_user_context
+
+      # 2. Search RAG for program design knowledge
+      rag_knowledge = search_program_knowledge(context)
+
+      # 3. Build and call LLM to generate program
+      prompt = build_prompt(context, rag_knowledge)
+      response = call_llm(prompt)
+
+      if response[:success]
+        # 4. Parse response and create TrainingProgram
+        result = parse_and_create_program(response[:content], context, rag_knowledge)
+        Rails.logger.info("[ProgramGenerator] Program created: #{result[:program]&.id}")
+        result
+      else
+        Rails.logger.error("[ProgramGenerator] LLM call failed: #{response[:error]}")
+        { success: false, error: response[:error] }
+      end
+    rescue StandardError => e
+      Rails.logger.error("[ProgramGenerator] Error: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
+      { success: false, error: e.message }
+    end
+
+    private
+
+    def build_user_context
+      # Extract experience level (tier)
+      experience = @collected_data["experience"] || @profile&.current_level || "beginner"
+      tier = normalize_tier(experience)
+
+      # Pass frequency as-is to LLM (no code parsing!)
+      frequency = @collected_data["frequency"] || "주 3회"
+
+      Rails.logger.info("[ProgramGenerator] collected_data: #{@collected_data.inspect}")
+      Rails.logger.info("[ProgramGenerator] frequency=#{frequency}")
+
+      # Get default config for this tier
+      config = DEFAULT_CONFIGS[tier]
+
+      {
+        # User info
+        user_id: @user.id,
+        name: @user.name,
+
+        # Experience & Level
+        tier: tier,
+        tier_korean: tier_korean(tier),
+        numeric_level: @profile&.numeric_level || 1,
+
+        # Goals
+        goal: @collected_data["goals"] || @profile&.fitness_goal || "근력 향상",
+        focus_areas: @collected_data["focus_areas"],
+
+        # Constraints
+        injuries: @collected_data["injuries"],
+        preferences: @collected_data["preferences"],
+        environment: @collected_data["environment"] || "헬스장",
+
+        # Schedule - pass frequency string directly to LLM
+        frequency: frequency,
+        schedule: @collected_data["schedule"],
+
+        # Program defaults (from tier)
+        default_weeks: config[:weeks],
+        default_periodization: config[:periodization],
+        default_split: config[:split],
+
+        # Physical info
+        height: @profile&.height,
+        weight: @profile&.weight
+      }
+    end
+
+    def search_program_knowledge(context)
+      # Build search query based on user context
+      query_parts = []
+      query_parts << "#{context[:tier_korean]} 운동 프로그램"
+      query_parts << context[:goal] if context[:goal].present?
+      query_parts << "#{context[:days_per_week]}일 분할" if context[:days_per_week]
+
+      query = query_parts.join(" ")
+
+      # Search RAG for routine_design knowledge
+      results = RagSearchService.search(
+        query,
+        limit: 5,
+        knowledge_types: ["routine_design", "program_periodization"],
+        filters: { difficulty_level: context[:tier].to_s }
+      )
+
+      # Format for prompt
+      {
+        query: query,
+        chunks: results.map { |r| r[:content] }.compact.first(3),
+        sources: results.map { |r| r[:source] }.compact.uniq
+      }
+    rescue StandardError => e
+      Rails.logger.warn("[ProgramGenerator] RAG search failed: #{e.message}")
+      { query: "", chunks: [], sources: [] }
+    end
+
+    def build_prompt(context, rag_knowledge)
+      system_prompt = <<~SYSTEM
+        당신은 전문 피트니스 트레이너입니다.
+        사용자의 상담 결과를 바탕으로 장기 운동 프로그램 프레임워크를 설계합니다.
+
+        ## 프레임워크 개념
+        - 매일 루틴을 미리 정하지 않음
+        - **주차별 테마/볼륨**과 **요일별 분할**만 정의
+        - 매일 운동 시: 프레임워크 + 컨디션 + 피드백 → 동적 루틴 생성
+
+        ## 주기화 원칙
+        1. **선형 주기화 (Linear)**: 초보자용, 매주 점진적 증가
+        2. **비선형/물결형 (Undulating)**: 중급자용, 주 내 강도 변화
+        3. **블록 주기화 (Block)**: 고급자용, 4주 단위 목표 블록
+
+        ## 디로드 가이드라인
+        - 초급: 4주마다 (또는 불필요)
+        - 중급: 4-6주마다 1주 디로드
+        - 고급: 3-4주마다 1주 디로드, 또는 매 블록 후
+
+        ## 분할 운동 가이드라인
+        - 주 2-3회: 전신 운동 (Full Body)
+        - 주 4회: 상하체 분할 (Upper/Lower)
+        - 주 5-6회: PPL (Push/Pull/Legs) 또는 부위별 분할
+      SYSTEM
+
+      user_prompt = <<~USER
+        ## 사용자 정보
+        - 이름: #{context[:name]}
+        - 경험 수준: #{context[:tier_korean]} (레벨 #{context[:numeric_level]}/8)
+        - 운동 목표: #{context[:goal]}
+        - 운동 가능 빈도: #{context[:frequency]}
+        #{context[:focus_areas].present? ? "- 집중 부위: #{context[:focus_areas]}" : ""}
+        #{context[:injuries].present? && context[:injuries] != "없음" ? "- 부상/주의: #{context[:injuries]}" : ""}
+        #{context[:preferences].present? ? "- 선호/비선호: #{context[:preferences]}" : ""}
+        - 운동 환경: #{context[:environment]}
+        #{context[:schedule].present? ? "- 선호 시간대: #{context[:schedule]}" : ""}
+
+        #{rag_knowledge[:chunks].any? ? "## 참고 지식\n#{rag_knowledge[:chunks].join("\n\n")}" : ""}
+
+        ## 요청
+        위 정보를 바탕으로 장기 운동 프로그램 프레임워크를 JSON으로 생성해주세요.
+
+        ## 응답 형식 (JSON)
+        ```json
+        {
+          "program_name": "프로그램 이름 (예: 12주 근비대 프로그램)",
+          "total_weeks": 12,
+          "periodization_type": "linear|undulating|block",
+          "weekly_plan": {
+            "1-3": {
+              "phase": "적응기",
+              "theme": "기본 동작 학습, 폼 교정",
+              "volume_modifier": 0.8,
+              "focus": "운동 패턴 익히기, 낮은 무게"
+            },
+            "4-8": {
+              "phase": "성장기",
+              "theme": "점진적 과부하",
+              "volume_modifier": 1.0,
+              "focus": "무게/볼륨 증가, 기본 복합운동 마스터"
+            },
+            "9-11": {
+              "phase": "강화기",
+              "theme": "고강도 훈련",
+              "volume_modifier": 1.1,
+              "focus": "개인 기록 도전, 테크닉 정교화"
+            },
+            "12": {
+              "phase": "디로드",
+              "theme": "회복",
+              "volume_modifier": 0.6,
+              "focus": "능동적 회복, 유연성"
+            }
+          },
+          "split_schedule": {
+            "1": {"focus": "상체", "muscles": ["chest", "back", "shoulders"]},
+            "2": {"focus": "하체", "muscles": ["legs", "core"]},
+            "3": {"focus": "휴식", "muscles": []},
+            "4": {"focus": "상체", "muscles": ["chest", "back", "shoulders"]},
+            "5": {"focus": "하체", "muscles": ["legs", "core"]},
+            "6": {"focus": "휴식", "muscles": []},
+            "7": {"focus": "휴식", "muscles": []}
+          },
+          "coach_message": "프로그램 소개 및 동기부여 메시지 (2-3문장)"
+        }
+        ```
+
+        주의사항:
+        - total_weeks는 사용자 레벨과 목표에 맞게 적절히 설정 (8-16주)
+        - weekly_plan의 키는 "1-3", "4-8" 등 주차 범위 문자열
+        - split_schedule의 키는 요일 번호 (1=월, 7=일)
+        - 사용자의 운동 가능 빈도(#{context[:frequency]})에 맞게 split_schedule 설정
+        - 부상이 있다면 해당 부위를 피하는 분할 구성
+        - coach_message는 한글로 친근하게
+      USER
+
+      { system: system_prompt, user: user_prompt }
+    end
+
+    def call_llm(prompt)
+      # Use routine_generation task for better quality
+      LlmGateway.chat(
+        prompt: prompt[:user],
+        task: :routine_generation,
+        system: prompt[:system]
+      )
+    end
+
+    def parse_and_create_program(content, context, rag_knowledge)
+      # Extract JSON from response
+      json_str = extract_json(content)
+      data = JSON.parse(json_str)
+
+      # Create TrainingProgram
+      program = @user.training_programs.create!(
+        name: data["program_name"] || "#{context[:tier_korean]} 운동 프로그램",
+        status: "active",
+        total_weeks: data["total_weeks"] || context[:default_weeks],
+        current_week: 1,
+        goal: context[:goal],
+        periodization_type: data["periodization_type"] || context[:default_periodization],
+        weekly_plan: data["weekly_plan"] || default_weekly_plan(context),
+        split_schedule: data["split_schedule"] || default_split_schedule(context),
+        generation_context: {
+          user_context: context.except(:user_id),
+          rag_query: rag_knowledge[:query],
+          rag_sources: rag_knowledge[:sources],
+          generated_at: Time.current.iso8601
+        },
+        started_at: Time.current
+      )
+
+      {
+        success: true,
+        program: program,
+        coach_message: data["coach_message"] || default_coach_message(context)
+      }
+    rescue JSON::ParserError => e
+      Rails.logger.error("[ProgramGenerator] JSON parse error: #{e.message}")
+      # Fallback to default program
+      create_default_program(context)
+    end
+
+    def extract_json(text)
+      if text =~ /```(?:json)?\s*(\{.*?\})\s*```/m
+        Regexp.last_match(1)
+      elsif text.include?("{")
+        start_idx = text.index("{")
+        end_idx = text.rindex("}")
+        text[start_idx..end_idx] if start_idx && end_idx
+      else
+        text
+      end
+    end
+
+    def create_default_program(context)
+      program = @user.training_programs.create!(
+        name: "#{context[:tier_korean]} #{context[:goal]} 프로그램",
+        status: "active",
+        total_weeks: context[:default_weeks],
+        current_week: 1,
+        goal: context[:goal],
+        periodization_type: context[:default_periodization],
+        weekly_plan: default_weekly_plan(context),
+        split_schedule: default_split_schedule(context),
+        generation_context: {
+          user_context: context.except(:user_id),
+          fallback: true,
+          generated_at: Time.current.iso8601
+        },
+        started_at: Time.current
+      )
+
+      {
+        success: true,
+        program: program,
+        coach_message: default_coach_message(context)
+      }
+    end
+
+    def default_weekly_plan(context)
+      weeks = context[:default_weeks] || 12
+      tier = context[:tier]
+
+      case tier
+      when :beginner
+        {
+          "1-2" => { "phase" => "적응기", "theme" => "기본 동작 학습", "volume_modifier" => 0.7 },
+          "3-6" => { "phase" => "성장기", "theme" => "점진적 과부하", "volume_modifier" => 0.9 },
+          "7-8" => { "phase" => "강화기", "theme" => "볼륨 증가", "volume_modifier" => 1.0 }
+        }
+      when :intermediate
+        {
+          "1-3" => { "phase" => "적응기", "theme" => "기본 동작 점검", "volume_modifier" => 0.8 },
+          "4-8" => { "phase" => "성장기", "theme" => "점진적 과부하", "volume_modifier" => 1.0 },
+          "9-11" => { "phase" => "강화기", "theme" => "고강도 훈련", "volume_modifier" => 1.1 },
+          "12" => { "phase" => "디로드", "theme" => "회복", "volume_modifier" => 0.6 }
+        }
+      else # advanced
+        {
+          "1-4" => { "phase" => "근력 블록", "theme" => "고중량 저반복", "volume_modifier" => 0.9 },
+          "5-8" => { "phase" => "근비대 블록", "theme" => "중량 고반복", "volume_modifier" => 1.1 },
+          "9-11" => { "phase" => "피킹 블록", "theme" => "최대 근력 도전", "volume_modifier" => 1.0 },
+          "12" => { "phase" => "디로드", "theme" => "회복", "volume_modifier" => 0.5 }
+        }
+      end
+    end
+
+    def default_split_schedule(context)
+      days = context[:days_per_week] || 3
+
+      case days
+      when 1..2
+        # Full body, 2-3 days
+        {
+          "1" => { "focus" => "전신", "muscles" => %w[legs chest back shoulders core] },
+          "3" => { "focus" => "전신", "muscles" => %w[legs chest back shoulders core] },
+          "5" => { "focus" => "전신", "muscles" => %w[legs chest back shoulders core] }
+        }
+      when 3
+        # Full body, 3 days
+        {
+          "1" => { "focus" => "전신 A", "muscles" => %w[legs chest back] },
+          "3" => { "focus" => "전신 B", "muscles" => %w[shoulders arms core] },
+          "5" => { "focus" => "전신 C", "muscles" => %w[legs back shoulders] }
+        }
+      when 4
+        # Upper/Lower split
+        {
+          "1" => { "focus" => "상체", "muscles" => %w[chest back shoulders arms] },
+          "2" => { "focus" => "하체", "muscles" => %w[legs core] },
+          "4" => { "focus" => "상체", "muscles" => %w[chest back shoulders arms] },
+          "5" => { "focus" => "하체", "muscles" => %w[legs core] }
+        }
+      when 5..6
+        # PPL split
+        {
+          "1" => { "focus" => "밀기 (Push)", "muscles" => %w[chest shoulders arms] },
+          "2" => { "focus" => "당기기 (Pull)", "muscles" => %w[back arms] },
+          "3" => { "focus" => "하체 (Legs)", "muscles" => %w[legs core] },
+          "4" => { "focus" => "밀기 (Push)", "muscles" => %w[chest shoulders arms] },
+          "5" => { "focus" => "당기기 (Pull)", "muscles" => %w[back arms] },
+          "6" => { "focus" => "하체 (Legs)", "muscles" => %w[legs core] }
+        }
+      else
+        # Default 4-day split
+        {
+          "1" => { "focus" => "상체", "muscles" => %w[chest back shoulders arms] },
+          "2" => { "focus" => "하체", "muscles" => %w[legs core] },
+          "4" => { "focus" => "상체", "muscles" => %w[chest back shoulders arms] },
+          "5" => { "focus" => "하체", "muscles" => %w[legs core] }
+        }
+      end
+    end
+
+    def default_coach_message(context)
+      goal = context[:goal] || "건강한 몸"
+      weeks = context[:default_weeks] || 12
+      tier = context[:tier_korean] || "중급자"
+
+      "#{context[:name]}님을 위한 #{weeks}주 #{goal} 프로그램을 준비했어요! " \
+      "#{tier} 레벨에 맞게 점진적으로 난이도를 높여갈게요. " \
+      "매일 컨디션과 피드백을 반영해서 최적의 루틴을 만들어드릴게요! 💪"
+    end
+
+    def normalize_tier(experience)
+      case experience.to_s.downcase
+      when "beginner", "초보", "초급"
+        :beginner
+      when "advanced", "고급", "상급"
+        :advanced
+      else
+        :intermediate
+      end
+    end
+
+    def tier_korean(tier)
+      { beginner: "초급", intermediate: "중급", advanced: "고급" }[tier]
+    end
+  end
+end
