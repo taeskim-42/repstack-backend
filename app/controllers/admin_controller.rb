@@ -156,13 +156,23 @@ class AdminController < ApplicationController
       pipeline_log: [{ event: "simulated", at: Time.current.iso8601 }]
     )
 
-    # Trigger analysis pipeline
-    TestflightFeedbackAnalysisJob.perform_async(feedback.id)
+    # Trigger analysis pipeline (sync mode for testing, async for production)
+    if params[:sync] == "true"
+      TestflightFeedbackAnalysisJob.new.perform(feedback.id)
+      feedback.reload
+    else
+      TestflightFeedbackAnalysisJob.perform_async(feedback.id)
+    end
 
     render json: {
       id: feedback.id,
       status: feedback.status,
-      message: "Feedback simulated. Analysis job enqueued.",
+      bug_category: feedback.bug_category,
+      severity: feedback.severity,
+      affected_repo: feedback.affected_repo,
+      auto_fixable: feedback.auto_fixable?,
+      github_issue_url: feedback.github_issue_url,
+      message: params[:sync] == "true" ? "Pipeline executed synchronously." : "Analysis job enqueued.",
       check_status: "/admin/testflight_feedback_status?id=#{feedback.id}"
     }
   end
