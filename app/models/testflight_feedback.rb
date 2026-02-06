@@ -24,9 +24,9 @@ class TestflightFeedback < ApplicationRecord
     save!
   end
 
-  # Whether this feedback should get auto-fix label
+  # All feedback gets auto-fix label for full automation
   def auto_fixable?
-    %w[medium low].include?(severity) && %w[crash ui_bug performance].include?(bug_category)
+    true
   end
 
   # Target GitHub repo based on affected_repo
