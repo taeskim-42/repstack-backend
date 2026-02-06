@@ -143,6 +143,41 @@ class AdminController < ApplicationController
   end
 
   # POST /admin/simulate_testflight_feedback - Simulate a TestFlight feedback for testing pipeline
+  # POST /admin/poll_testflight - Trigger ASC feedback polling immediately
+  def poll_testflight
+    unless AppStoreConnectService.configured?
+      return render json: { error: "App Store Connect not configured" }, status: :service_unavailable
+    end
+
+    new_feedbacks = AppStoreConnectService.fetch_new_feedback
+    results = new_feedbacks.map do |data|
+      attrs = data.dig("attributes") || {}
+      feedback = TestflightFeedback.create!(
+        asc_feedback_id: data["id"],
+        feedback_text: attrs["comment"] || attrs["feedback"],
+        app_version: attrs["appVersionString"],
+        build_number: attrs["buildNumber"],
+        device_model: attrs["deviceModel"],
+        os_version: attrs["osVersion"],
+        crash_log: attrs["crashLog"],
+        status: "received",
+        pipeline_log: [{ event: "received", at: Time.current.iso8601 }]
+      )
+      TestflightFeedbackAnalysisJob.perform_async(feedback.id)
+      { id: feedback.id, asc_id: data["id"], text: (attrs["comment"] || attrs["feedback"]).to_s.truncate(80) }
+    rescue ActiveRecord::RecordNotUnique
+      { asc_id: data["id"], skipped: "duplicate" }
+    end
+
+    render json: {
+      polled_at: Time.current.iso8601,
+      new_feedback_count: new_feedbacks.size,
+      results: results
+    }
+  rescue StandardError => e
+    render json: { error: e.message }, status: :internal_server_error
+  end
+
   def simulate_testflight_feedback
     feedback = TestflightFeedback.create!(
       asc_feedback_id: "sim_#{SecureRandom.hex(8)}",

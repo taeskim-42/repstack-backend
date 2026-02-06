@@ -61,6 +61,7 @@ Rails.application.routes.draw do
     delete "/delete_user_data", action: :delete_user_data
 
     # TestFlight feedback pipeline
+    post "/poll_testflight", action: :poll_testflight
     post "/simulate_testflight_feedback", action: :simulate_testflight_feedback
     get "/testflight_feedback_status", action: :testflight_feedback_status
     get "/testflight_feedbacks", action: :testflight_feedbacks_list
