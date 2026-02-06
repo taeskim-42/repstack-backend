@@ -272,7 +272,7 @@ module AiTrainer
       program = @user.training_programs.create!(
         name: data["program_name"] || "#{context[:tier_korean]} 운동 프로그램",
         status: "active",
-        total_weeks: data["total_weeks"] || context[:default_weeks],
+        total_weeks: data["total_weeks"] || context[:default_weeks] || 12,
         current_week: 1,
         goal: context[:goal],
         periodization_type: data["periodization_type"] || context[:default_periodization],
@@ -314,7 +314,7 @@ module AiTrainer
       program = @user.training_programs.create!(
         name: "#{context[:tier_korean]} #{context[:goal]} 프로그램",
         status: "active",
-        total_weeks: context[:default_weeks],
+        total_weeks: context[:default_weeks] || 12,
         current_week: 1,
         goal: context[:goal],
         periodization_type: context[:default_periodization],
