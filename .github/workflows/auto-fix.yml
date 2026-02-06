@@ -83,7 +83,6 @@ jobs:
             - Do NOT modify: db/migrate/, config/credentials*, Gemfile
             - Do NOT add new gems
             - Commit message should reference issue #${{ github.event.issue.number }}
-          additional_permissions: "Bash(bundle exec:*),Bash(RAILS_ENV=test:*),Bash(DATABASE_URL=*:*),Bash(ls:*),Bash(cat:*),Bash(ruby:*)"
           claude_args: "--max-turns 25"
           track_progress: true
 
