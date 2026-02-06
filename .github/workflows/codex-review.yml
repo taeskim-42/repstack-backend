@@ -8,7 +8,7 @@ jobs:
   codex-review:
     # Only review auto-fix PRs
     if: contains(github.event.pull_request.title, 'TestFlight') || contains(github.event.pull_request.title, 'auto-fix')
-    runs-on: ubuntu-latest
+    runs-on: self-hosted  # Mac with VPN access to LiteLLM proxy
 
     permissions:
       contents: read
@@ -24,114 +24,106 @@ jobs:
       - name: Get PR diff and context
         id: context
         run: |
-          # Get PR diff
           gh pr diff ${{ github.event.pull_request.number }} > /tmp/pr_diff.txt
-          DIFF=$(cat /tmp/pr_diff.txt | head -c 12000)
-          echo "diff_length=$(wc -c < /tmp/pr_diff.txt)" >> $GITHUB_OUTPUT
 
-          # Get PR body (contains issue context)
-          BODY=$(gh pr view ${{ github.event.pull_request.number }} --json body -q .body | head -c 3000)
+          # Get PR body
+          gh pr view ${{ github.event.pull_request.number }} --json body -q .body > /tmp/pr_body.txt
 
-          # Get changed files list
-          FILES=$(gh pr view ${{ github.event.pull_request.number }} --json files -q '.files[].path' | tr '\n' ', ')
-
-          # Save for next step
-          echo "$DIFF" > /tmp/diff_truncated.txt
-          echo "$BODY" > /tmp/pr_body.txt
-          echo "$FILES" > /tmp/changed_files.txt
+          # Get changed files
+          gh pr view ${{ github.event.pull_request.number }} --json files -q '.files[].path' > /tmp/changed_files.txt
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Review with Codex (OpenAI)
+      - name: Review with Codex via LiteLLM
         id: review
         run: |
-          DIFF=$(cat /tmp/diff_truncated.txt)
-          PR_BODY=$(cat /tmp/pr_body.txt)
-          FILES=$(cat /tmp/changed_files.txt)
+          DIFF=$(head -c 12000 /tmp/pr_diff.txt)
+          PR_BODY=$(head -c 3000 /tmp/pr_body.txt)
+          FILES=$(cat /tmp/changed_files.txt | tr '\n' ', ')
 
-          # Build review prompt
-          PROMPT=$(cat <<'PROMPT_EOF'
-          You are a senior code reviewer performing a cross-review of an AI-generated bug fix.
-          This PR was created by Claude Code to fix a TestFlight bug report.
+          SYSTEM_PROMPT='You are a senior code reviewer performing a cross-review of an AI-generated bug fix. This PR was created by Claude Code to fix a TestFlight bug report.
 
           Your job:
           1. Verify the fix actually addresses the reported bug
-          2. Check for new bugs, regressions, or security issues introduced
+          2. Check for new bugs, regressions, or security issues
           3. Verify code quality (no dead code, proper error handling)
           4. Check that no unrelated changes were made
 
-          Respond in this exact JSON format:
-          {
-            "decision": "APPROVE" or "REQUEST_CHANGES",
-            "summary": "One-line summary of your review",
-            "issues": ["List of specific issues found, empty if APPROVE"],
-            "suggestions": ["Optional improvement suggestions"]
-          }
+          Respond ONLY with valid JSON:
+          {"decision":"APPROVE or REQUEST_CHANGES","summary":"one-line summary","issues":["list of issues"],"suggestions":["optional suggestions"]}
 
           Rules:
           - APPROVE if the fix is correct, minimal, and safe
-          - REQUEST_CHANGES only for actual bugs, security issues, or clearly wrong fixes
-          - Do NOT request changes for style preferences
-          - Be concise
-          PROMPT_EOF
-          )
+          - REQUEST_CHANGES only for actual bugs, security issues, or wrong fixes
+          - Do NOT request changes for style preferences'
 
-          # Call OpenAI API
-          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
-            -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
+          USER_MSG="## PR Context
+          ${PR_BODY}
+
+          ## Changed Files
+          ${FILES}
+
+          ## Diff
+          \`\`\`diff
+          ${DIFF}
+          \`\`\`"
+
+          # Call LiteLLM proxy (OpenAI-compatible)
+          RESPONSE=$(curl -s "${{ secrets.LITELLM_BASE_URL }}/chat/completions" \
+            -H "Authorization: Bearer ${{ secrets.LITELLM_API_KEY }}" \
             -H "Content-Type: application/json" \
             -d "$(jq -n \
-              --arg system "$PROMPT" \
-              --arg diff "## PR Context\n$PR_BODY\n\n## Changed Files\n$FILES\n\n## Diff\n\`\`\`diff\n$DIFF\n\`\`\`" \
+              --arg system "$SYSTEM_PROMPT" \
+              --arg user "$USER_MSG" \
               '{
-                model: "gpt-4o",
+                model: "openai/gpt-5.2-codex",
                 messages: [
                   {role: "system", content: $system},
-                  {role: "user", content: $diff}
+                  {role: "user", content: $user}
                 ],
                 temperature: 0.2,
                 max_tokens: 1024
               }')")
 
-          # Extract response content
-          REVIEW_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "ERROR"')
+          REVIEW_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
 
-          if [ "$REVIEW_CONTENT" = "ERROR" ] || [ -z "$REVIEW_CONTENT" ]; then
-            echo "::error::OpenAI API call failed"
-            echo "$RESPONSE" | jq .
+          if [ -z "$REVIEW_CONTENT" ]; then
+            echo "::error::LiteLLM API call failed"
+            echo "$RESPONSE" | jq . 2>/dev/null || echo "$RESPONSE"
             echo "decision=ERROR" >> $GITHUB_OUTPUT
             exit 1
           fi
 
-          # Parse decision
-          DECISION=$(echo "$REVIEW_CONTENT" | jq -r '.decision // "REQUEST_CHANGES"' 2>/dev/null || echo "REQUEST_CHANGES")
-          SUMMARY=$(echo "$REVIEW_CONTENT" | jq -r '.summary // "Review completed"' 2>/dev/null || echo "Review completed")
+          # Parse JSON from response (may be wrapped in code block)
+          JSON_CONTENT=$(echo "$REVIEW_CONTENT" | sed -n 's/.*\({.*}\).*/\1/p' | head -1)
+          if [ -z "$JSON_CONTENT" ]; then
+            JSON_CONTENT="$REVIEW_CONTENT"
+          fi
 
+          DECISION=$(echo "$JSON_CONTENT" | jq -r '.decision // "REQUEST_CHANGES"' 2>/dev/null || echo "REQUEST_CHANGES")
           echo "decision=$DECISION" >> $GITHUB_OUTPUT
-          echo "$REVIEW_CONTENT" > /tmp/review_result.json
+          echo "$JSON_CONTENT" > /tmp/review_result.json
 
           echo "Decision: $DECISION"
-          echo "Summary: $SUMMARY"
 
-      - name: Post review comment
+      - name: Post review
         run: |
           DECISION="${{ steps.review.outputs.decision }}"
           REVIEW=$(cat /tmp/review_result.json)
 
-          SUMMARY=$(echo "$REVIEW" | jq -r '.summary // "Review completed"')
-          ISSUES=$(echo "$REVIEW" | jq -r '.issues // [] | if length > 0 then map("- " + .) | join("\n") else "None" end')
-          SUGGESTIONS=$(echo "$REVIEW" | jq -r '.suggestions // [] | if length > 0 then map("- " + .) | join("\n") else "None" end')
+          SUMMARY=$(echo "$REVIEW" | jq -r '.summary // "Review completed"' 2>/dev/null)
+          ISSUES=$(echo "$REVIEW" | jq -r '.issues // [] | if length > 0 then map("- " + .) | join("\n") else "None" end' 2>/dev/null)
+          SUGGESTIONS=$(echo "$REVIEW" | jq -r '.suggestions // [] | if length > 0 then map("- " + .) | join("\n") else "None" end' 2>/dev/null)
 
           if [ "$DECISION" = "APPROVE" ]; then
-            EMOJI="✅"
             EVENT="APPROVE"
+            HEADER="## ✅ Codex Cross-Review (gpt-5.2-codex)"
           else
-            EMOJI="❌"
             EVENT="REQUEST_CHANGES"
+            HEADER="## ❌ Codex Cross-Review (gpt-5.2-codex)"
           fi
 
-          BODY=$(cat <<EOF
-          ## ${EMOJI} Codex Cross-Review
+          BODY="${HEADER}
 
           **Decision:** ${DECISION}
           **Summary:** ${SUMMARY}
@@ -143,9 +135,7 @@ jobs:
           ${SUGGESTIONS}
 
           ---
-          _Reviewed by OpenAI Codex (GPT-4o) as cross-validation of Claude Code's fix_
-          EOF
-          )
+          _Cross-reviewed by OpenAI Codex via LiteLLM proxy_"
 
           gh pr review ${{ github.event.pull_request.number }} \
             --event "$EVENT" \
@@ -162,16 +152,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Comment on issue if changes requested
+      - name: Comment on issue if rejected
         if: steps.review.outputs.decision == 'REQUEST_CHANGES'
         run: |
-          # Extract issue number from PR body or title
-          ISSUE_NUM=$(gh pr view ${{ github.event.pull_request.number }} --json body -q .body | grep -oP '#\d+' | head -1 | tr -d '#')
-
+          ISSUE_NUM=$(gh pr view ${{ github.event.pull_request.number }} --json body -q .body | grep -oE '#[0-9]+' | head -1 | tr -d '#')
           if [ -n "$ISSUE_NUM" ]; then
-            SUMMARY=$(cat /tmp/review_result.json | jq -r '.summary // "Issues found"')
+            SUMMARY=$(cat /tmp/review_result.json | jq -r '.summary // "Issues found"' 2>/dev/null)
             gh issue comment "$ISSUE_NUM" \
-              --body "Codex cross-review requested changes on PR #${{ github.event.pull_request.number }}: ${SUMMARY}. Manual review needed."
+              --body "❌ Codex cross-review requested changes on PR #${{ github.event.pull_request.number }}: ${SUMMARY}. Manual review needed."
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
