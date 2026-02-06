@@ -57,21 +57,35 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          issue_number: ${{ github.event.issue.number }}
-          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
-          custom_instructions: |
+          trigger_phrase: ""
+          label_trigger: "auto-fix"
+          prompt: |
             You are fixing a bug reported from TestFlight feedback.
             Read the issue carefully - it contains AI analysis with root cause hypothesis and suggested fixes.
 
+            Environment:
+            - Ruby on Rails backend, Ruby 3.3
+            - PostgreSQL test DB at: postgres://postgres:postgres@localhost:5432/repstack_test
+            - Redis at: localhost:6379
+            - RAILS_ENV=test
+
+            Steps:
+            1. Read and understand the issue (bug description, root cause, suggested fix)
+            2. Find the relevant source files
+            3. Fix the bug with minimal changes
+            4. Run tests: RAILS_ENV=test DATABASE_URL=postgres://postgres:postgres@localhost:5432/repstack_test bundle exec rspec
+            5. If tests pass, create a PR with title starting with "[TestFlight Auto-Fix]"
+            6. If the fix requires a migration or config change, comment on the issue explaining why and stop
+
             Rules:
             - Fix the bug with minimal changes
-            - Run tests after fixing: bundle exec rspec
             - Do NOT modify: db/migrate/, config/credentials*, Gemfile
             - Do NOT add new gems
-            - If the fix requires a migration or config change, comment on the issue instead
-            - Commit message should reference the issue number
-            - PR title must start with "[TestFlight Auto-Fix]"
-          timeout_minutes: 30
+            - Commit message should reference issue #${{ github.event.issue.number }}
+          claude_args: |
+            --max-turns 25
+            --allowedTools Bash,Read,Write,Edit,Glob,Grep
+          track_progress: true
 
       - name: Safety check - block dangerous changes
         if: always()
