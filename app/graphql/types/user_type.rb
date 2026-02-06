@@ -12,6 +12,7 @@ module Types
     field :user_profile, Types::UserProfileType, null: true
     field :workout_sessions, [ Types::WorkoutSessionType ], null: false do
       argument :limit, Integer, required: false, default_value: 10
+      argument :date, String, required: false, description: "Filter by date (ISO 8601)"
     end
     field :workout_routines, [ Types::WorkoutRoutineType ], null: false do
       argument :limit, Integer, required: false, default_value: 10
@@ -32,11 +33,15 @@ module Types
       object.updated_at.iso8601
     end
 
-    def workout_sessions(limit: 10)
-      object.workout_sessions
-            .includes(:workout_sets)
-            .order(created_at: :desc)
-            .limit([ limit, MAX_LIMIT ].min)
+    def workout_sessions(limit: 10, date: nil)
+      scope = object.workout_sessions
+                    .includes(:workout_sets)
+                    .order(created_at: :desc)
+      if date.present?
+        parsed_date = begin; Date.iso8601(date); rescue ArgumentError; Date.parse(date) rescue nil; end
+        scope = scope.for_date(parsed_date) if parsed_date
+      end
+      scope.limit([ limit, MAX_LIMIT ].min)
     end
 
     def workout_routines(limit: 10)

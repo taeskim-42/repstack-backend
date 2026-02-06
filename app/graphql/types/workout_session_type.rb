@@ -57,15 +57,27 @@ module Types
     end
 
     def total_sets
-      object.total_sets
+      if object.workout_sets.loaded?
+        object.workout_sets.size
+      else
+        object.total_sets
+      end
     end
 
     def exercises_performed
-      object.exercises_performed
+      if object.workout_sets.loaded?
+        object.workout_sets.map(&:exercise_name).uniq.size
+      else
+        object.exercises_performed
+      end
     end
 
     def total_volume
-      object.total_volume
+      if object.workout_sets.loaded?
+        object.workout_sets.sum { |s| (s.weight || 0) * (s.reps || 0) }
+      else
+        object.total_volume
+      end
     end
   end
 end

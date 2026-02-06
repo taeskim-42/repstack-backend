@@ -69,6 +69,14 @@ module Mutations
           error: nil
         }
       end
+    rescue NoMethodError => e
+      Rails.logger.error("GenerateAiRoutine NoMethodError: #{e.message}\n#{e.backtrace&.first(5)&.join("\n")}")
+      { success: false, routine: nil, remaining_generations: rate_check&.dig(:remaining) || 0,
+        error: "루틴 생성 중 오류가 발생했어요. 프로필 설정을 확인해주세요." }
+    rescue StandardError => e
+      Rails.logger.error("GenerateAiRoutine error: #{e.message}")
+      { success: false, routine: nil, remaining_generations: rate_check&.dig(:remaining) || 0,
+        error: "루틴 생성에 실패했어요. 잠시 후 다시 시도해주세요." }
     end
   end
 end

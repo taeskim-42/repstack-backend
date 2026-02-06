@@ -1012,24 +1012,40 @@ module AiTrainer
       return false if message.blank?
       message_lower = message.downcase.strip
 
-      # Explicit routine request patterns (high confidence)
+      # Skip if message is a question (contains ? or ends with interrogative)
+      is_question = message_lower.end_with?("?") ||
+                    message_lower =~ /(어\?*|나\?*|까\?*|요\?*|죠\?*)$/ ||
+                    message_lower.include?("어떻게") ||
+                    message_lower.include?("뭐가") ||
+                    message_lower.include?("왜")
+
+      # Explicit routine request patterns (high confidence) - match even in questions
       explicit_patterns = [
-        "루틴 만들어", "루틴 짜", "루틴을 만들어", "루틴이요", "루틴 부탁",
-        "만들어줘", "만들어주세요", "만들어 주세요", "짜줘", "짜주세요",
-        "시작하자", "시작할게", "시작해", "바로 시작",
-        "이제 됐", "이제 충분", "됐어", "충분해", "그만 물어", "그만 질문"
+        "루틴 만들어줘", "루틴 만들어주세요", "루틴 만들어 주세요",
+        "루틴 짜줘", "루틴 짜주세요", "루틴 짜 주세요",
+        "루틴을 만들어줘", "루틴을 만들어주세요",
+        "루틴이요", "루틴 부탁",
+        "이제 됐", "이제 충분", "됐어 만들어", "충분해", "그만 물어", "그만 질문"
       ]
       return true if explicit_patterns.any? { |pattern| message_lower.include?(pattern) }
 
+      # Don't match generic keywords if it's a question
+      return false if is_question
+
+      # Action request patterns (only non-questions)
+      action_patterns = [
+        "만들어줘", "만들어주세요", "만들어 주세요", "짜줘", "짜주세요",
+        "시작하자", "시작할게", "바로 시작"
+      ]
+      return true if action_patterns.any? { |pattern| message_lower.include?(pattern) }
+
       # Single word confirmations (only if message is short)
-      if message_lower.length < 15
-        short_confirmations = %w[네 응 좋아 그래 오케이 ㅇㅋ ok 알겠어 고마워 됐어 충분 시작]
-        return true if short_confirmations.any? { |word| message_lower == word || message_lower.start_with?(word) }
+      if message_lower.length < 10
+        short_confirmations = %w[네 응 좋아 그래 오케이 ㅇㅋ ok 알겠어 됐어 충분]
+        return true if short_confirmations.any? { |word| message_lower == word }
       end
 
-      # Check for routine-related keywords in longer messages
-      routine_keywords = %w[루틴 만들어 짜줘 시작]
-      routine_keywords.any? { |keyword| message_lower.include?(keyword) }
+      false
     end
 
     def complete_assessment(collected)

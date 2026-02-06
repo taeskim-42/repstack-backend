@@ -182,6 +182,14 @@ module AiTrainer
 
     private
 
+    def default_rest_for_level
+      case @level
+      when 1..2 then 90
+      when 3..5 then 75
+      else 60
+      end
+    end
+
     def build_context
       profile = @user.user_profile
       tier = level_to_tier(@level)
@@ -975,7 +983,7 @@ module AiTrainer
           rpe: ex["rpe"],
           tempo: ex["tempo"],
           rom: ex["rom"],
-          rest_seconds: ex["rest_seconds"] || 60,
+          rest_seconds: ex["rest_seconds"] || default_rest_for_level,
           weight_guide: ex["weight_guide"],
           # Use AI instructions, fallback to DB form_tips
           instructions: ex["instructions"].presence || db_exercise&.form_tips,

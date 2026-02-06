@@ -52,7 +52,7 @@ class WorkoutSession < ApplicationRecord
   end
 
   def total_volume
-    workout_sets.sum("weight * reps")
+    workout_sets.sum("COALESCE(weight, 0) * COALESCE(reps, 0)")
   end
 
   def complete!

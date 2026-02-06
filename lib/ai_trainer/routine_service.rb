@@ -143,7 +143,7 @@ module AiTrainer
             sets: ex[:sets] || 3,
             reps: ex[:reps],
             target_muscle: ex[:target_muscle] || "other",
-            rest_duration_seconds: ex[:rest_seconds] || 60,
+            rest_duration_seconds: ex[:rest_seconds] || default_rest_seconds,
             how_to: ex[:instructions],
             weight_description: ex[:weight_description] || ex[:weight_guide]
           )
@@ -161,6 +161,15 @@ module AiTrainer
       Rails.logger.error("[RoutineService] Failed to create routine: #{e.message}\n#{e.backtrace.first(5).join("\n")}")
       # Return result with original AI ID if routine creation fails completely
       result
+    end
+
+    def default_rest_seconds
+      level = @user.user_profile&.numeric_level || 1
+      case level
+      when 1..2 then 90   # beginner: longer rest
+      when 3..5 then 75   # intermediate
+      else 60              # advanced: shorter rest
+      end
     end
 
     def calculate_week_number
