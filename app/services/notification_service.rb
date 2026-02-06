@@ -58,7 +58,7 @@ class NotificationService
       end
 
       # Webhook payload (compatible with both Slack and Discord)
-      { content: text }
+      { text: text, content: text }
     end
 
     def send_webhook(message)

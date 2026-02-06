@@ -1,0 +1,141 @@
+name: TestFlight Auto-Fix
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  fix:
+    if: github.event.label.name == 'auto-fix'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: repstack_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.3'
+          bundler-cache: true
+      - name: Setup DB
+        run: bundle exec rails db:create && bundle exec rails db:schema:load
+        env:
+          RAILS_ENV: test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/repstack_test
+
+      # 1) Claude Code가 버그 수정
+      - name: Fix with Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          label_trigger: auto-fix
+          prompt: |
+            Fix the bug in this issue. Go directly to affected files.
+            Do NOT modify: db/migrate/, config/credentials*, Gemfile
+            Commit referencing issue #${{ github.event.issue.number }}
+          claude_args: "--max-turns 50"
+          track_progress: true
+
+      # 2) PR 자동 생성
+      - name: Create PR
+        id: pr
+        if: success()
+        run: |
+          git fetch origin
+          BRANCH=$(git branch -r --list "origin/claude/issue-${{ github.event.issue.number }}-*" | head -1 | xargs | sed 's|origin/||')
+          if [ -z "$BRANCH" ]; then
+            echo "pr_created=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          PR_URL=$(gh pr create --base main --head "$BRANCH" \
+            --title "[TestFlight] Fix #${{ github.event.issue.number }}" \
+            --body "Fixes #${{ github.event.issue.number }}")
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "pr_created=true" >> $GITHUB_OUTPUT
+          PR_NUM=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "pr_num=$PR_NUM" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 3) Codex가 크로스 리뷰
+      - name: Codex Review
+        id: review
+        if: steps.pr.outputs.pr_created == 'true'
+        run: |
+          DIFF=$(gh pr diff ${{ steps.pr.outputs.pr_num }} | head -c 12000)
+          ISSUE_BODY=$(gh issue view ${{ github.event.issue.number }} --json body -q .body | head -c 3000)
+
+          RESPONSE=$(curl -s "${{ secrets.LITELLM_BASE_URL }}/chat/completions" \
+            -H "Authorization: Bearer ${{ secrets.LITELLM_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg issue "$ISSUE_BODY" \
+              --arg diff "$DIFF" \
+              '{
+                model: "openai/gpt-5.2-codex",
+                messages: [{
+                  role: "user",
+                  content: ("Review this bug fix. Issue:\n" + $issue + "\n\nDiff:\n" + $diff + "\n\nRespond JSON: {\"approve\": true/false, \"reason\": \"...\"}")
+                }],
+                temperature: 0.2,
+                max_tokens: 512
+              }')")
+
+          APPROVE=$(echo "$RESPONSE" | jq -r '.choices[0].message.content' | jq -r '.approve // false')
+          REASON=$(echo "$RESPONSE" | jq -r '.choices[0].message.content' | jq -r '.reason // "No reason"')
+          echo "approved=$APPROVE" >> $GITHUB_OUTPUT
+          echo "reason=$REASON" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 4) 승인 시 자동 병합
+      - name: Auto-merge
+        if: steps.review.outputs.approved == 'true'
+        run: gh pr merge ${{ steps.pr.outputs.pr_num }} --squash --auto
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 5) 거부 시 코멘트
+      - name: Comment if rejected
+        if: steps.review.outputs.approved == 'false'
+        run: |
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "Codex rejected auto-fix: ${{ steps.review.outputs.reason }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 6) Safety check
+      - name: Safety check
+        if: always()
+        run: |
+          git fetch origin
+          BRANCH=$(git branch -r --list "origin/claude/issue-${{ github.event.issue.number }}-*" | head -1 | xargs | sed 's|origin/||')
+          [ -z "$BRANCH" ] && exit 0
+          DANGEROUS=$(git diff main..."$BRANCH" --name-only | grep -E '^(db/migrate/|config/|Gemfile)' || true)
+          if [ -n "$DANGEROUS" ]; then
+            echo "::error::Dangerous files modified: $DANGEROUS"
+            gh issue comment ${{ github.event.issue.number }} \
+              --body "⚠️ Auto-fix modified restricted files: \`$DANGEROUS\`. Manual review required."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
