@@ -1852,8 +1852,8 @@ class ChatService
       # Use TRAINING_PROGRAM intent when program is created (is_complete)
       intent = result[:is_complete] ? "TRAINING_PROGRAM" : "CONSULTATION"
 
-      # Extract suggestions from AI message for button display
-      suggestions = extract_suggestions_from_message(result[:message])
+      # Use explicit suggestions from assessment, or extract from message
+      suggestions = result[:suggestions].presence || extract_suggestions_from_message(result[:message])
 
       success_response(
         message: result[:message],

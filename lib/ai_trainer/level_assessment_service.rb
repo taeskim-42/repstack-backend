@@ -116,7 +116,8 @@ module AiTrainer
         success: true,
         message: result[:message],
         is_complete: result[:is_complete],
-        assessment: result[:is_complete] ? result[:assessment] : nil
+        assessment: result[:is_complete] ? result[:assessment] : nil,
+        suggestions: result[:suggestions]
       }
     rescue StandardError => e
       Rails.logger.error("LevelAssessmentService error: #{e.message}")
@@ -151,8 +152,22 @@ module AiTrainer
         success: true,
         message: greeting,
         is_complete: false,
-        assessment: nil
+        assessment: nil,
+        suggestions: greeting_suggestions_for(form_data)
       }
+    end
+
+    # Return suggestions matching the first missing question in greeting
+    def greeting_suggestions_for(form_data)
+      if form_data["frequency"].blank?
+        ["주 3회, 1시간", "주 4회, 1시간", "주 5회 이상"]
+      elsif form_data["environment"].blank?
+        ["헬스장", "홈트레이닝", "둘 다"]
+      elsif form_data["injuries"].blank?
+        ["없어요", "허리 조심", "무릎 조심"]
+      else
+        []
+      end
     end
 
     # Build personalized greeting based on form data
@@ -925,7 +940,8 @@ module AiTrainer
             success: true,
             message: "좋아요! 운동 목표가 어떻게 되시나요? 근육 키우기, 다이어트, 체력 향상, 건강 유지 등 편하게 말씀해주세요 😊",
             is_complete: false,
-            assessment: nil
+            assessment: nil,
+            suggestions: ["근육 키우기", "다이어트", "체력 향상", "건강 유지"]
           }
         end
       end
@@ -938,7 +954,8 @@ module AiTrainer
           success: true,
           message: "#{goal_comment}주 몇 회 정도 운동하실 수 있으세요? 한 번에 얼마나 시간을 쓸 수 있는지도 알려주시면 좋아요!",
           is_complete: false,
-          assessment: nil
+          assessment: nil,
+          suggestions: ["주 3회, 1시간", "주 4회, 1시간", "주 5회 이상"]
         }
       end
 
@@ -949,7 +966,8 @@ module AiTrainer
           success: true,
           message: "혹시 특정 요일이나 시간대에 운동하시나요? (예: 평일 저녁, 주말 오전 등) 아니면 유동적인가요?",
           is_complete: false,
-          assessment: nil
+          assessment: nil,
+          suggestions: ["평일 저녁", "주말 오전", "유동적"]
         }
       end
 
@@ -960,7 +978,8 @@ module AiTrainer
           success: true,
           message: "운동 환경은 어떻게 되시나요? 헬스장을 다니시나요, 아니면 홈트레이닝 위주인가요? 사용 가능한 기구가 있다면 알려주세요!",
           is_complete: false,
-          assessment: nil
+          assessment: nil,
+          suggestions: ["헬스장", "홈트레이닝", "둘 다"]
         }
       end
 
@@ -971,7 +990,8 @@ module AiTrainer
           success: true,
           message: "혹시 부상이나 통증이 있는 부위가 있으신가요? 아니면 피해야 할 동작이 있나요? 없으시면 '없어요'라고 해주세요 😊",
           is_complete: false,
-          assessment: nil
+          assessment: nil,
+          suggestions: ["없어요", "허리 조심", "무릎 조심", "어깨 조심"]
         }
       end
 
@@ -982,7 +1002,8 @@ module AiTrainer
           success: true,
           message: "특별히 발달시키고 싶은 부위가 있으신가요? (예: 어깨, 가슴, 등, 하체 등) 전체적으로 균형 있게 하고 싶으시면 그렇게 말씀해주셔도 돼요!",
           is_complete: false,
-          assessment: nil
+          assessment: nil,
+          suggestions: ["전체 균형", "상체 위주", "하체 위주"]
         }
       end
 
@@ -993,7 +1014,8 @@ module AiTrainer
           success: true,
           message: "좋아하는 운동이나 피하고 싶은 운동이 있으신가요? 예를 들어 '스쿼트는 좋아하는데 데드리프트는 무서워요' 같은 거요 😄",
           is_complete: false,
-          assessment: nil
+          assessment: nil,
+          suggestions: ["딱히 없어요", "머신 위주가 좋아요", "프리웨이트 좋아요"]
         }
       end
 
@@ -1004,7 +1026,8 @@ module AiTrainer
         success: true,
         message: "#{summary}\n\n이 정보를 바탕으로 맞춤 루틴을 만들어드릴까요? 더 얘기하고 싶은 게 있으시면 편하게 말씀해주세요! 🏋️",
         is_complete: false,
-        assessment: nil
+        assessment: nil,
+        suggestions: ["루틴 만들어줘!", "수정할 게 있어", "더 얘기하고 싶어"]
       }
     end
 
