@@ -26,7 +26,8 @@ class AppStoreConnectService
     def configured?
       ENV["ASC_KEY_ID"].present? &&
         ENV["ASC_ISSUER_ID"].present? &&
-        ENV["ASC_PRIVATE_KEY"].present?
+        ENV["ASC_PRIVATE_KEY"].present? &&
+        ENV["ASC_APP_ID"].present?
     end
 
     private
@@ -56,30 +57,50 @@ class AppStoreConnectService
       "-----BEGIN EC PRIVATE KEY-----\n#{key}\n-----END EC PRIVATE KEY-----"
     end
 
-    # Fetch beta feedback submissions from ASC API
+    # Fetch beta feedback from ASC Feedback API (WWDC 2025)
+    # Uses /v1/apps/{appId}/betaFeedbackScreenshotSubmissions
+    # and /v1/apps/{appId}/betaFeedbackCrashSubmissions
     def fetch_beta_feedback(token)
-      uri = URI("#{ASC_API_BASE}/v1/betaAppReviewSubmissions")
-      # Also try the feedback-specific endpoints
-      feedback_uri = URI("#{ASC_API_BASE}/v1/betaFeedbacks")
-
+      app_id = ENV["ASC_APP_ID"]
       all_feedback = []
 
-      # Try betaFeedbacks endpoint
-      response = api_request(feedback_uri, token)
+      # Screenshot feedback (user-submitted via TestFlight "Send Feedback")
+      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions")
+      response = api_request(screenshot_uri, token)
       if response && response["data"]
-        all_feedback.concat(response["data"])
+        all_feedback.concat(response["data"].map { |d| normalize_feedback(d, "screenshot") })
       end
 
-      # Fallback: fetch from betaAppReviewSubmissions
-      response = api_request(uri, token)
+      # Crash feedback
+      crash_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackCrashSubmissions")
+      response = api_request(crash_uri, token)
       if response && response["data"]
-        all_feedback.concat(response["data"])
+        all_feedback.concat(response["data"].map { |d| normalize_feedback(d, "crash") })
       end
 
       all_feedback
     rescue StandardError => e
       Rails.logger.error("[AppStoreConnect] API request failed: #{e.message}")
       []
+    end
+
+    # Normalize feedback data to a consistent format for PollTestflightFeedbackJob
+    def normalize_feedback(data, feedback_type)
+      attrs = data["attributes"] || {}
+      {
+        "id" => data["id"],
+        "type" => data["type"],
+        "attributes" => {
+          "comment" => attrs["comment"] || attrs["feedback"] || attrs["description"],
+          "appVersionString" => attrs["appVersionString"] || attrs["appVersion"],
+          "buildNumber" => attrs["buildNumber"],
+          "deviceModel" => attrs["deviceModel"],
+          "osVersion" => attrs["osVersion"],
+          "crashLog" => attrs["crashLog"],
+          "feedbackType" => feedback_type,
+          "timestamp" => attrs["timestamp"] || attrs["createdDate"]
+        }
+      }
     end
 
     # Make authenticated GET request to ASC API
