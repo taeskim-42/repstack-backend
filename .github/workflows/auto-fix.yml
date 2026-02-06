@@ -70,44 +70,18 @@ jobs:
             - Do NOT add new gems
             - If the fix requires a migration or config change, comment on the issue instead
             - Commit message should reference the issue number
+            - PR title must start with "[TestFlight Auto-Fix]"
           timeout_minutes: 30
 
       - name: Safety check - block dangerous changes
         if: always()
         run: |
-          # Check if any dangerous files were modified
           DANGEROUS_FILES=$(git diff --name-only HEAD~1 2>/dev/null | grep -E '^(db/migrate/|config/|Gemfile)' || true)
           if [ -n "$DANGEROUS_FILES" ]; then
             echo "::error::Dangerous files modified by auto-fix: $DANGEROUS_FILES"
-            echo "Auto-merge blocked. Manual review required."
             gh issue comment ${{ github.event.issue.number }} \
-              --body "Auto-fix attempted but modified restricted files: \`$DANGEROUS_FILES\`. Manual review required."
+              --body "Auto-fix modified restricted files: \`$DANGEROUS_FILES\`. Manual review required."
             exit 1
-          fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  auto-merge:
-    needs: auto-fix
-    runs-on: ubuntu-latest
-    if: success()
-
-    permissions:
-      contents: write
-      pull-requests: write
-
-    steps:
-      - name: Auto-merge if CI passes
-        run: |
-          # Find the PR created by Claude Code
-          PR_NUMBER=$(gh pr list --repo ${{ github.repository }} --state open --json number,title \
-            --jq '.[] | select(.title | contains("#${{ github.event.issue.number }}")) | .number' | head -1)
-
-          if [ -n "$PR_NUMBER" ]; then
-            echo "Found PR #$PR_NUMBER, enabling auto-merge..."
-            gh pr merge "$PR_NUMBER" --repo ${{ github.repository }} --squash --auto
-          else
-            echo "No matching PR found for issue #${{ github.event.issue.number }}"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

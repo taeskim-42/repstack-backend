@@ -1,0 +1,177 @@
+name: Codex Cross-Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  codex-review:
+    # Only review auto-fix PRs
+    if: contains(github.event.pull_request.title, 'TestFlight') || contains(github.event.pull_request.title, 'auto-fix')
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get PR diff and context
+        id: context
+        run: |
+          # Get PR diff
+          gh pr diff ${{ github.event.pull_request.number }} > /tmp/pr_diff.txt
+          DIFF=$(cat /tmp/pr_diff.txt | head -c 12000)
+          echo "diff_length=$(wc -c < /tmp/pr_diff.txt)" >> $GITHUB_OUTPUT
+
+          # Get PR body (contains issue context)
+          BODY=$(gh pr view ${{ github.event.pull_request.number }} --json body -q .body | head -c 3000)
+
+          # Get changed files list
+          FILES=$(gh pr view ${{ github.event.pull_request.number }} --json files -q '.files[].path' | tr '\n' ', ')
+
+          # Save for next step
+          echo "$DIFF" > /tmp/diff_truncated.txt
+          echo "$BODY" > /tmp/pr_body.txt
+          echo "$FILES" > /tmp/changed_files.txt
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Review with Codex (OpenAI)
+        id: review
+        run: |
+          DIFF=$(cat /tmp/diff_truncated.txt)
+          PR_BODY=$(cat /tmp/pr_body.txt)
+          FILES=$(cat /tmp/changed_files.txt)
+
+          # Build review prompt
+          PROMPT=$(cat <<'PROMPT_EOF'
+          You are a senior code reviewer performing a cross-review of an AI-generated bug fix.
+          This PR was created by Claude Code to fix a TestFlight bug report.
+
+          Your job:
+          1. Verify the fix actually addresses the reported bug
+          2. Check for new bugs, regressions, or security issues introduced
+          3. Verify code quality (no dead code, proper error handling)
+          4. Check that no unrelated changes were made
+
+          Respond in this exact JSON format:
+          {
+            "decision": "APPROVE" or "REQUEST_CHANGES",
+            "summary": "One-line summary of your review",
+            "issues": ["List of specific issues found, empty if APPROVE"],
+            "suggestions": ["Optional improvement suggestions"]
+          }
+
+          Rules:
+          - APPROVE if the fix is correct, minimal, and safe
+          - REQUEST_CHANGES only for actual bugs, security issues, or clearly wrong fixes
+          - Do NOT request changes for style preferences
+          - Be concise
+          PROMPT_EOF
+          )
+
+          # Call OpenAI API
+          RESPONSE=$(curl -s https://api.openai.com/v1/chat/completions \
+            -H "Authorization: Bearer ${{ secrets.OPENAI_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg system "$PROMPT" \
+              --arg diff "## PR Context\n$PR_BODY\n\n## Changed Files\n$FILES\n\n## Diff\n\`\`\`diff\n$DIFF\n\`\`\`" \
+              '{
+                model: "gpt-4o",
+                messages: [
+                  {role: "system", content: $system},
+                  {role: "user", content: $diff}
+                ],
+                temperature: 0.2,
+                max_tokens: 1024
+              }')")
+
+          # Extract response content
+          REVIEW_CONTENT=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "ERROR"')
+
+          if [ "$REVIEW_CONTENT" = "ERROR" ] || [ -z "$REVIEW_CONTENT" ]; then
+            echo "::error::OpenAI API call failed"
+            echo "$RESPONSE" | jq .
+            echo "decision=ERROR" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          # Parse decision
+          DECISION=$(echo "$REVIEW_CONTENT" | jq -r '.decision // "REQUEST_CHANGES"' 2>/dev/null || echo "REQUEST_CHANGES")
+          SUMMARY=$(echo "$REVIEW_CONTENT" | jq -r '.summary // "Review completed"' 2>/dev/null || echo "Review completed")
+
+          echo "decision=$DECISION" >> $GITHUB_OUTPUT
+          echo "$REVIEW_CONTENT" > /tmp/review_result.json
+
+          echo "Decision: $DECISION"
+          echo "Summary: $SUMMARY"
+
+      - name: Post review comment
+        run: |
+          DECISION="${{ steps.review.outputs.decision }}"
+          REVIEW=$(cat /tmp/review_result.json)
+
+          SUMMARY=$(echo "$REVIEW" | jq -r '.summary // "Review completed"')
+          ISSUES=$(echo "$REVIEW" | jq -r '.issues // [] | if length > 0 then map("- " + .) | join("\n") else "None" end')
+          SUGGESTIONS=$(echo "$REVIEW" | jq -r '.suggestions // [] | if length > 0 then map("- " + .) | join("\n") else "None" end')
+
+          if [ "$DECISION" = "APPROVE" ]; then
+            EMOJI="✅"
+            EVENT="APPROVE"
+          else
+            EMOJI="❌"
+            EVENT="REQUEST_CHANGES"
+          fi
+
+          BODY=$(cat <<EOF
+          ## ${EMOJI} Codex Cross-Review
+
+          **Decision:** ${DECISION}
+          **Summary:** ${SUMMARY}
+
+          ### Issues Found
+          ${ISSUES}
+
+          ### Suggestions
+          ${SUGGESTIONS}
+
+          ---
+          _Reviewed by OpenAI Codex (GPT-4o) as cross-validation of Claude Code's fix_
+          EOF
+          )
+
+          gh pr review ${{ github.event.pull_request.number }} \
+            --event "$EVENT" \
+            --body "$BODY"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-merge if approved
+        if: steps.review.outputs.decision == 'APPROVE'
+        run: |
+          echo "Codex approved. Enabling auto-merge..."
+          gh pr merge ${{ github.event.pull_request.number }} \
+            --squash --auto
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Comment on issue if changes requested
+        if: steps.review.outputs.decision == 'REQUEST_CHANGES'
+        run: |
+          # Extract issue number from PR body or title
+          ISSUE_NUM=$(gh pr view ${{ github.event.pull_request.number }} --json body -q .body | grep -oP '#\d+' | head -1 | tr -d '#')
+
+          if [ -n "$ISSUE_NUM" ]; then
+            SUMMARY=$(cat /tmp/review_result.json | jq -r '.summary // "Issues found"')
+            gh issue comment "$ISSUE_NUM" \
+              --body "Codex cross-review requested changes on PR #${{ github.event.pull_request.number }}: ${SUMMARY}. Manual review needed."
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
