@@ -59,6 +59,11 @@ Rails.application.routes.draw do
     get "/worker_status", action: :worker_status
     post "/random_form_complete", action: :random_form_complete
     delete "/delete_user_data", action: :delete_user_data
+
+    # TestFlight feedback pipeline
+    post "/simulate_testflight_feedback", action: :simulate_testflight_feedback
+    get "/testflight_feedback_status", action: :testflight_feedback_status
+    get "/testflight_feedbacks", action: :testflight_feedbacks_list
   end
 
   # Defines the root path route ("/")

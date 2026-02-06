@@ -142,6 +142,76 @@ class AdminController < ApplicationController
     }
   end
 
+  # POST /admin/simulate_testflight_feedback - Simulate a TestFlight feedback for testing pipeline
+  def simulate_testflight_feedback
+    feedback = TestflightFeedback.create!(
+      asc_feedback_id: "sim_#{SecureRandom.hex(8)}",
+      feedback_text: params[:feedback_text] || "앱이 크래시됩니다",
+      app_version: params[:app_version] || "1.0.0",
+      build_number: params[:build_number] || "42",
+      device_model: params[:device_model] || "iPhone 15 Pro",
+      os_version: params[:os_version] || "iOS 18.0",
+      crash_log: params[:crash_log],
+      status: "received",
+      pipeline_log: [{ event: "simulated", at: Time.current.iso8601 }]
+    )
+
+    # Trigger analysis pipeline
+    TestflightFeedbackAnalysisJob.perform_async(feedback.id)
+
+    render json: {
+      id: feedback.id,
+      status: feedback.status,
+      message: "Feedback simulated. Analysis job enqueued.",
+      check_status: "/admin/testflight_feedback_status?id=#{feedback.id}"
+    }
+  end
+
+  # GET /admin/testflight_feedback_status - Check pipeline status for a feedback
+  def testflight_feedback_status
+    feedback = TestflightFeedback.find_by(id: params[:id])
+    return render json: { error: "Not found" }, status: :not_found unless feedback
+
+    render json: {
+      id: feedback.id,
+      status: feedback.status,
+      bug_category: feedback.bug_category,
+      severity: feedback.severity,
+      affected_repo: feedback.affected_repo,
+      auto_fixable: feedback.auto_fixable?,
+      ai_analysis_json: feedback.ai_analysis_json,
+      github_issue_url: feedback.github_issue_url,
+      github_pr_url: feedback.github_pr_url,
+      pipeline_log: feedback.pipeline_log,
+      created_at: feedback.created_at,
+      updated_at: feedback.updated_at
+    }
+  end
+
+  # GET /admin/testflight_feedbacks - List all feedbacks with filtering
+  def testflight_feedbacks_list
+    feedbacks = TestflightFeedback.order(created_at: :desc)
+    feedbacks = feedbacks.where(status: params[:status]) if params[:status].present?
+    feedbacks = feedbacks.where(severity: params[:severity]) if params[:severity].present?
+    feedbacks = feedbacks.limit(params[:limit]&.to_i || 50)
+
+    render json: {
+      count: feedbacks.size,
+      feedbacks: feedbacks.map { |f|
+        {
+          id: f.id,
+          status: f.status,
+          bug_category: f.bug_category,
+          severity: f.severity,
+          affected_repo: f.affected_repo,
+          feedback_text: f.feedback_text&.truncate(100),
+          github_issue_url: f.github_issue_url,
+          created_at: f.created_at
+        }
+      }
+    }
+  end
+
   # DELETE /admin/delete_user_data - Delete all data for a user by email
   def delete_user_data
     email = params[:email]

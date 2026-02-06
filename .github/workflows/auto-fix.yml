@@ -1,0 +1,113 @@
+name: Auto Fix (Claude Code)
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  auto-fix:
+    # Only trigger when 'auto-fix' label is added
+    if: github.event.label.name == 'auto-fix'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: repstack_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Set up database
+        run: |
+          bundle exec rails db:create
+          bundle exec rails db:schema:load
+        env:
+          RAILS_ENV: test
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/repstack_test
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          issue_number: ${{ github.event.issue.number }}
+          allowed_tools: "Bash,Read,Write,Edit,Glob,Grep"
+          custom_instructions: |
+            You are fixing a bug reported from TestFlight feedback.
+            Read the issue carefully - it contains AI analysis with root cause hypothesis and suggested fixes.
+
+            Rules:
+            - Fix the bug with minimal changes
+            - Run tests after fixing: bundle exec rspec
+            - Do NOT modify: db/migrate/, config/credentials*, Gemfile
+            - Do NOT add new gems
+            - If the fix requires a migration or config change, comment on the issue instead
+            - Commit message should reference the issue number
+          timeout_minutes: 30
+
+      - name: Safety check - block dangerous changes
+        if: always()
+        run: |
+          # Check if any dangerous files were modified
+          DANGEROUS_FILES=$(git diff --name-only HEAD~1 2>/dev/null | grep -E '^(db/migrate/|config/|Gemfile)' || true)
+          if [ -n "$DANGEROUS_FILES" ]; then
+            echo "::error::Dangerous files modified by auto-fix: $DANGEROUS_FILES"
+            echo "Auto-merge blocked. Manual review required."
+            gh issue comment ${{ github.event.issue.number }} \
+              --body "Auto-fix attempted but modified restricted files: \`$DANGEROUS_FILES\`. Manual review required."
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  auto-merge:
+    needs: auto-fix
+    runs-on: ubuntu-latest
+    if: success()
+
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Auto-merge if CI passes
+        run: |
+          # Find the PR created by Claude Code
+          PR_NUMBER=$(gh pr list --repo ${{ github.repository }} --state open --json number,title \
+            --jq '.[] | select(.title | contains("#${{ github.event.issue.number }}")) | .number' | head -1)
+
+          if [ -n "$PR_NUMBER" ]; then
+            echo "Found PR #$PR_NUMBER, enabling auto-merge..."
+            gh pr merge "$PR_NUMBER" --repo ${{ github.repository }} --squash --auto
+          else
+            echo "No matching PR found for issue #${{ github.event.issue.number }}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

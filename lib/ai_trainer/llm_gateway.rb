@@ -85,6 +85,14 @@ module AiTrainer
         temperature: 0.5
       },
 
+      # TestFlight feedback analysis - deterministic classification
+      testflight_analysis: {
+        provider: :anthropic,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1024,
+        temperature: 0.2
+      },
+
       # Long-term program generation (needs good reasoning)
       program_generation: {
         provider: :anthropic,
