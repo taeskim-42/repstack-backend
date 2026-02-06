@@ -90,6 +90,13 @@ class TestflightGithubIssueJob
       #{(analysis['affected_files_hint'] || []).map { |f| "- `#{f}`" }.join("\n")}
     BODY
 
+    if feedback.screenshots.present?
+      body += "\n## Screenshots\n\n"
+      feedback.screenshots.each_with_index do |url, i|
+        body += "![Screenshot #{i + 1}](#{url})\n\n"
+      end
+    end
+
     if feedback.crash_log.present?
       body += <<~CRASH
 

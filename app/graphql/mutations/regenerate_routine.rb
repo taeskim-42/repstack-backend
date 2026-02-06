@@ -119,8 +119,8 @@ module Mutations
           reps: ex[:reps],
           target_muscle: ex[:target_muscle],
           rest_duration_seconds: ex[:rest_seconds] || 60,
-          instructions: ex[:instructions],
-          weight_suggestion: ex[:weight_description]
+          how_to: ex[:instructions],
+          weight_description: ex[:weight_description]
         )
 
         current_order += 1

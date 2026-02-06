@@ -45,6 +45,7 @@ class PollTestflightFeedbackJob
       device_model: attrs["deviceModel"],
       os_version: attrs["osVersion"],
       crash_log: attrs["crashLog"],
+      screenshots: attrs["screenshots"] || [],
       status: "received",
       pipeline_log: [{ event: "received", at: Time.current.iso8601 }]
     )

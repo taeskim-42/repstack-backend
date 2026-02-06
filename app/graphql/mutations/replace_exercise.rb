@@ -33,28 +33,30 @@ module Mutations
       routine = current_user.workout_routines.find_by(id: routine_id)
       return error_response("루틴을 찾을 수 없습니다") unless routine
 
-      # Find exercise to replace
-      old_exercise = routine.routine_exercises.find_by(order_index: exercise_index)
+      # Find exercise to replace (lock row to prevent race condition)
+      old_exercise = routine.routine_exercises.lock.find_by(order_index: exercise_index)
       return error_response("해당 운동을 찾을 수 없습니다") unless old_exercise
 
-      # Generate replacement using AI
+      # Generate replacement using AI (target_muscle may be nil - AI will infer)
+      resolved_muscle = target_muscle || old_exercise&.target_muscle
       replacement = generate_replacement(
         routine: routine,
         old_exercise: old_exercise,
         reason: reason,
-        target_muscle: target_muscle || old_exercise.target_muscle
+        target_muscle: resolved_muscle
       )
 
       return error_response(replacement[:error]) unless replacement[:success]
 
-      # Update exercise
+      # Update exercise (trust AI response for target_muscle)
       old_exercise.update!(
         exercise_name: replacement[:exercise_name],
+        target_muscle: replacement[:target_muscle] || resolved_muscle,
         sets: replacement[:sets],
         reps: replacement[:reps],
         rest_duration_seconds: replacement[:rest_seconds] || 60,
-        instructions: replacement[:instructions],
-        weight_suggestion: replacement[:weight_guide]
+        how_to: replacement[:instructions],
+        weight_description: replacement[:weight_guide]
       )
 
       {
@@ -185,5 +187,6 @@ module Mutations
         text
       end
     end
+
   end
 end

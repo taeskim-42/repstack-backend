@@ -64,11 +64,12 @@ class AppStoreConnectService
       app_id = ENV["ASC_APP_ID"]
       all_feedback = []
 
-      # Screenshot feedback (user-submitted via TestFlight "Send Feedback")
-      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions")
+      # Screenshot feedback - include related screenshots
+      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=screenshots")
       response = api_request(screenshot_uri, token)
       if response && response["data"]
-        all_feedback.concat(response["data"].map { |d| normalize_feedback(d, "screenshot") })
+        included = response["included"] || []
+        all_feedback.concat(response["data"].map { |d| normalize_feedback(d, "screenshot", included) })
       end
 
       # Crash feedback
@@ -85,7 +86,7 @@ class AppStoreConnectService
     end
 
     # Normalize feedback data to a consistent format for PollTestflightFeedbackJob
-    def normalize_feedback(data, feedback_type)
+    def normalize_feedback(data, feedback_type, included = [])
       attrs = data["attributes"] || {}
       {
         "id" => data["id"],
@@ -98,9 +99,38 @@ class AppStoreConnectService
           "osVersion" => attrs["osVersion"],
           "crashLog" => attrs["crashLog"],
           "feedbackType" => feedback_type,
-          "timestamp" => attrs["timestamp"] || attrs["createdDate"]
+          "timestamp" => attrs["timestamp"] || attrs["createdDate"],
+          "screenshots" => extract_screenshot_urls(data, included)
         }
       }
+    end
+
+    # Extract screenshot image URLs from ASC included resources
+    def extract_screenshot_urls(data, included)
+      return [] if included.empty?
+
+      # Get screenshot IDs from relationships (try both singular and plural)
+      screenshot_refs = data.dig("relationships", "screenshots", "data") ||
+                        Array(data.dig("relationships", "screenshot", "data"))
+      screenshot_ids = screenshot_refs.map { |s| s["id"] }
+      return [] if screenshot_ids.empty?
+
+      # Match included resources and extract image URLs
+      included.select { |r| screenshot_ids.include?(r["id"]) }.filter_map do |resource|
+        attrs = resource["attributes"] || {}
+        # ASC imageAsset has templateUrl with {w}, {h}, {f} placeholders
+        image_asset = attrs["imageAsset"] || {}
+        template_url = image_asset["templateUrl"]
+
+        if template_url
+          w = image_asset["width"] || 1170
+          h = image_asset["height"] || 2532
+          template_url.gsub("{w}", w.to_s).gsub("{h}", h.to_s).gsub("{f}", "png")
+        else
+          # Fallback: direct URL fields
+          attrs["imageUrl"] || attrs["url"]
+        end
+      end
     end
 
     # Make authenticated GET request to ASC API
