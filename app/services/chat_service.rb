@@ -148,7 +148,7 @@ class ChatService
   def system_prompt
     tier = user.user_profile&.tier || "beginner"
     level = user.user_profile&.level || 1
-    today = Time.current.in_time_zone("Asia/Seoul")
+    today = Time.current
     day_names = %w[일 월 화 수 목 금 토]
 
     # Check if user has today's routine (for feedback vs condition distinction)
@@ -191,13 +191,13 @@ class ChatService
          예: "벤치프레스 60kg 8회", "스쿼트 10회 했어"
 
       4. 운동 교체 요청 → **replace_exercise** tool 필수 (routineId가 있을 때)
-         예: "XX 말고 다른거", "XX 대신 다른 운동", "이거 힘들어", "XX 빼줘"
+         예: "XX 말고 다른거", "XX 대신 다른 운동"
 
       5. 운동 추가 요청 → **add_exercise** tool 필수 (routineId가 있을 때)
          예: "XX도 넣어줘", "팔운동 더 하고싶어"
 
-      6. 루틴 전체 재생성 → **regenerate_routine** tool 필수 (routineId가 있을 때)
-         예: "다른 루틴으로", "전부 바꿔줘", "마음에 안들어"
+      6. 운동 삭제 요청 → **delete_exercise** tool 필수 (routineId가 있을 때)
+         예: "XX 빼줘", "XX 삭제해줘", "XX 빼고 싶어"
 
       7. 운동 계획/프로그램 설명 요청 → **explain_long_term_plan** tool 필수
          예: "내 운동 계획 알려줘", "주간 스케줄", "어떻게 운동해야 해", "프로그램 설명해줘", "나 어떤 운동 하면 돼"
@@ -378,31 +378,17 @@ class ChatService
           }
         },
         {
-          name: "regenerate_routine",
-          description: "루틴 전체를 새로 만듭니다. '마음에 안 들어', '다른 루틴으로', '전부 바꿔줘' 등의 요청에 사용합니다.",
+          name: "delete_exercise",
+          description: "루틴에서 특정 운동을 삭제합니다. 'XX 빼줘', 'XX 삭제해줘' 등의 요청에 사용합니다.",
           input_schema: {
             type: "object",
             properties: {
-              goal: {
+              exercise_name: {
                 type: "string",
-                description: "새 루틴의 목표"
+                description: "삭제할 운동 이름"
               }
             },
-            required: []
-          }
-        },
-        {
-          name: "delete_routine",
-          description: "현재 루틴을 삭제합니다. 완료된 루틴은 삭제할 수 없습니다. '루틴 삭제해줘', '이 루틴 지워줘' 등의 요청에 사용합니다.",
-          input_schema: {
-            type: "object",
-            properties: {
-              confirm: {
-                type: "boolean",
-                description: "삭제 확인 (true일 때만 삭제)"
-              }
-            },
-            required: %w[confirm]
+            required: %w[exercise_name]
           }
         }
       ]
@@ -428,10 +414,8 @@ class ChatService
       handle_replace_exercise(input)
     when "add_exercise"
       handle_add_exercise(input)
-    when "regenerate_routine"
-      handle_regenerate_routine(input)
-    when "delete_routine"
-      handle_delete_routine(input)
+    when "delete_exercise"
+      handle_delete_exercise(input)
     when "explain_long_term_plan"
       handle_explain_long_term_plan(input)
     when "complete_workout"
@@ -464,6 +448,23 @@ class ChatService
     unless profile.numeric_level.present?
       Rails.logger.warn("[ChatService] User #{user.id} has onboarding completed but no numeric_level, setting default")
       profile.update!(numeric_level: 1, current_level: "beginner")
+    end
+
+    # Check for today's existing incomplete routine
+    today_routine = WorkoutRoutine.where(user_id: user.id)
+                                  .where("created_at >= ?", Time.current.beginning_of_day)
+                                  .where(is_completed: false)
+                                  .order(created_at: :desc)
+                                  .first
+
+    if today_routine
+      # Return existing routine instead of creating a new one
+      routine_data = format_existing_routine(today_routine)
+      return success_response(
+        message: "오늘의 루틴이에요! 💪\n\n특정 운동을 바꾸고 싶으면 'XX 대신 다른 운동'이라고 말씀해주세요.",
+        intent: "GENERATE_ROUTINE",
+        data: { routine: routine_data }
+      )
     end
 
     # Ensure user has a training program (create if missing)
@@ -715,68 +716,35 @@ class ChatService
     )
   end
 
-  def handle_regenerate_routine(input)
+  def handle_delete_exercise(input)
     routine = current_routine
     return error_response("수정할 루틴을 찾을 수 없어요.") unless routine
     return error_response("이미 지난 루틴은 수정할 수 없어요.") unless routine_editable?(routine)
 
-    rate_check = RoutineRateLimiter.check_and_increment!(user: user, action: :routine_regeneration)
-    return error_response(rate_check[:error]) unless rate_check[:allowed]
+    exercise_name = input["exercise_name"]
+    return error_response("삭제할 운동 이름을 알려주세요.") if exercise_name.blank?
 
-    result = AiTrainer::RoutineService.generate(
-      user: user,
-      day_of_week: routine.day_number,
-      goal: input["goal"]
-    )
+    exercise = routine.routine_exercises.find_by("exercise_name ILIKE ?", "%#{exercise_name}%")
 
-    return error_response("루틴 재생성에 실패했어요.") unless result&.dig(:routine_id)
+    return error_response("'#{exercise_name}' 운동을 찾을 수 없어요.") unless exercise
 
-    routine.routine_exercises.destroy_all
+    deleted_name = exercise.exercise_name
+    exercise.destroy!
 
-    result[:exercises]&.each_with_index do |ex, idx|
-      routine.routine_exercises.create!(
-        exercise_name: ex[:exercise_name],
-        order_index: idx,
-        sets: ex[:sets],
-        reps: ex[:reps],
-        target_muscle: ex[:target_muscle],
-        rest_duration_seconds: ex[:rest_seconds] || 60,
-        how_to: ex[:instructions],
-        weight_description: ex[:weight_description] || ex[:weight_guide]
-      )
+    # Reorder remaining exercises
+    routine.routine_exercises.order(:order_index).each_with_index do |ex, idx|
+      ex.update!(order_index: idx)
     end
 
-    routine.update!(
-      workout_type: result[:training_type],
-      estimated_duration: result[:estimated_duration_minutes]
-    )
+    routine_data = format_existing_routine(routine.reload)
 
     success_response(
-      message: "새로운 루틴으로 다시 만들었어요! 💪\n\n#{format_regenerated_routine_message(routine.reload)}",
-      intent: "REGENERATE_ROUTINE",
+      message: "**#{deleted_name}**을(를) 루틴에서 삭제했어요! ✂️",
+      intent: "DELETE_EXERCISE",
       data: {
-        routine: routine.reload,
-        remaining_regenerations: rate_check[:remaining]
+        routine: routine_data,
+        deleted_exercise: deleted_name
       }
-    )
-  end
-
-  def handle_delete_routine(input)
-    routine = current_routine
-    return error_response("삭제할 루틴을 찾을 수 없어요.") unless routine
-    return error_response("이미 지난 루틴은 삭제할 수 없어요.") unless routine_editable?(routine)
-
-    unless input["confirm"] == true
-      return error_response("삭제를 확인해주세요.")
-    end
-
-    routine_id = routine.id
-    routine.destroy!
-
-    success_response(
-      message: "루틴을 삭제했어요. 새로운 루틴이 필요하면 말씀해주세요!",
-      intent: "DELETE_ROUTINE",
-      data: { deleted_routine_id: routine_id }
     )
   end
 
@@ -792,6 +760,16 @@ class ChatService
 
     # Build long-term plan
     long_term_plan = build_long_term_plan(profile, consultation_data)
+
+    # Enrich with actual TrainingProgram data
+    program = user.active_training_program
+    if program
+      long_term_plan[:current_week] = program.current_week
+      long_term_plan[:total_weeks] = program.total_weeks
+      long_term_plan[:current_phase] = program.current_phase
+      long_term_plan[:program_name] = program.name
+      long_term_plan[:progress_percentage] = program.progress_percentage
+    end
 
     detail_level = input["detail_level"] || "detailed"
 
@@ -819,6 +797,12 @@ class ChatService
 
       ## 예상 타임라인
       #{long_term_plan[:estimated_timeline]}
+
+      ## 현재 진행 상황
+      - 프로그램: #{long_term_plan[:program_name] || '미설정'}
+      - 현재 주차: #{long_term_plan[:current_week] || '?'}/#{long_term_plan[:total_weeks] || '?'}주
+      - 현재 페이즈: #{long_term_plan[:current_phase] || '미설정'}
+      - 진행률: #{long_term_plan[:progress_percentage] || 0}%
 
       ## 응답 규칙
       1. 사용자 정보 기반 맞춤 계획 설명
@@ -933,7 +917,7 @@ class ChatService
 
   def handle_daily_greeting
     profile = user.user_profile
-    today = Time.current.in_time_zone("Asia/Seoul").to_date
+    today = Time.current.to_date
 
     # Get recent workout history
     yesterday_session = get_workout_session(today - 1.day)
@@ -1271,6 +1255,22 @@ class ChatService
                                    .order(created_at: :desc)
                                    .first
 
+    # End active workout session and collect stats
+    active_session = user.workout_sessions.where(end_time: nil).order(created_at: :desc).first
+    completed_sets = 0
+    total_volume = 0
+    exercises_count = 0
+
+    if active_session
+      completed_sets = active_session.total_sets
+      total_volume = active_session.total_volume
+      exercises_count = active_session.exercises_performed
+      active_session.complete!
+    end
+
+    # Complete the routine
+    today_routine&.complete! unless today_routine&.is_completed
+
     # Mark workout as completed for feedback tracking
     mark_workout_completed
 
@@ -1284,10 +1284,16 @@ class ChatService
     lines << "수고하셨어요! 🎉 오늘 운동 완료!"
     lines << ""
 
-    if today_routine
+    if completed_sets > 0
       lines << "📊 **오늘의 운동 기록**"
+      lines << "• 완료 세트: #{completed_sets}세트"
+      lines << "• 수행 운동: #{exercises_count}종목"
+      lines << "• 총 볼륨: #{total_volume.to_i}kg" if total_volume > 0
+      lines << ""
+    elsif today_routine
+      lines << "📊 **오늘의 운동**"
       lines << "• #{today_routine.day_of_week}"
-      lines << "• 예상 시간: #{today_routine.estimated_duration}분"
+      lines << "• 예상 시간: #{today_routine.estimated_duration || 45}분"
       lines << ""
     end
 
@@ -1302,6 +1308,9 @@ class ChatService
       intent: "WORKOUT_COMPLETED",
       data: {
         routine_id: today_routine&.id,
+        completed_sets: completed_sets,
+        exercises_performed: exercises_count,
+        total_volume: total_volume.to_i,
         suggestions: ["적당했어", "좀 쉬웠어", "힘들었어", "스쿼트가 어려웠어"]
       }
     )
@@ -1320,7 +1329,7 @@ class ChatService
     profile = user.user_profile
     return unless profile
 
-    today = Time.current.in_time_zone("Asia/Seoul").to_date.to_s
+    today = Time.current.to_date.to_s
 
     # Store in fitness_factors
     factors = profile.fitness_factors || {}
@@ -1372,7 +1381,7 @@ class ChatService
   end
 
   def suggest_today_focus
-    today = Time.current.in_time_zone("Asia/Seoul")
+    today = Time.current
     day_of_week = today.wday  # 0=일, 1=월, ...
 
     # Check user's recent workouts to suggest next focus
@@ -2091,6 +2100,43 @@ class ChatService
     msg += "• ... 외 #{exercises.length - 5}개\n" if exercises.length > 5
     msg += "\n운동 시작할 준비가 되면 알려주세요!"
     msg
+  end
+
+  # Convert existing DB routine to frontend format
+  def format_existing_routine(routine)
+    exercises = routine.routine_exercises.order(:order_index).map do |ex|
+      {
+        exercise_id: ex.id.to_s,
+        exercise_name: ex.exercise_name,
+        exercise_name_english: ex.exercise_name_english,
+        target_muscle: ex.target_muscle,
+        target_muscle_korean: ex.target_muscle_korean,
+        order: ex.order_index + 1,
+        sets: ex.sets,
+        reps: ex.reps,
+        target_weight_kg: ex.weight,
+        weight_description: ex.weight_description,
+        rest_seconds: ex.rest_duration_seconds,
+        instructions: ex.how_to,
+        rpe: ex.rpe,
+        tempo: ex.tempo,
+        rom: ex.range_of_motion
+      }
+    end
+
+    {
+      routine_id: routine.id.to_s,
+      day_of_week: routine.day_number,
+      day_korean: routine.day_korean,
+      tier: routine.level,
+      user_level: routine.user_level || 1,
+      fitness_factor: routine.workout_type,
+      fitness_factor_korean: routine.workout_type,
+      estimated_duration_minutes: routine.estimated_duration,
+      generated_at: routine.created_at.iso8601,
+      exercises: exercises,
+      training_type: routine.workout_type
+    }
   end
 
   # LLM이 전달한 컨디션 문자열을 해시로 변환

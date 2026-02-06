@@ -29,6 +29,7 @@ module Types
     field :added_exercise, Types::RoutineExerciseType, null: true, description: "Added exercise (ADD_EXERCISE)"
     field :remaining_replacements, Integer, null: true, description: "Remaining exercise replacements today"
     field :remaining_regenerations, Integer, null: true, description: "Remaining routine regenerations today"
+    field :deleted_exercise, String, null: true, description: "Deleted exercise name (DELETE_EXERCISE)"
     field :deleted_routine_id, ID, null: true, description: "Deleted routine ID (DELETE_ROUTINE)"
 
     # Welcome/Long-term plan fields

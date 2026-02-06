@@ -19,6 +19,7 @@ module Types
     value "PROMOTION_ELIGIBLE", "User is eligible for level promotion test"
     value "REPLACE_EXERCISE", "Exercise replaced in routine"
     value "ADD_EXERCISE", "Exercise added to routine"
+    value "DELETE_EXERCISE", "Exercise deleted from routine"
     value "REGENERATE_ROUTINE", "Routine regenerated with new exercises"
     value "DELETE_ROUTINE", "Routine deleted"
     value "EXPLAIN_LONG_TERM_PLAN", "Long-term workout plan explanation"

@@ -65,8 +65,8 @@ module Mutations
     private
 
     def find_or_create_session(input)
-      # Try to find an active session
-      session = current_user.workout_sessions.find_by(status: "active")
+      # Find active session using end_time (consistent with WorkoutSession#active?)
+      session = current_user.workout_sessions.where(end_time: nil).order(created_at: :desc).first
       return session if session
 
       # Create new session

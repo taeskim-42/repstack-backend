@@ -55,7 +55,7 @@ module Mutations
       # Update routine metadata
       routine.update!(
         workout_type: result[:training_type],
-        estimated_duration: result[:estimated_duration_minutes]
+        estimated_duration: result[:estimated_duration_minutes] || 45
       )
 
       {

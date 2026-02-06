@@ -9,6 +9,7 @@ module Types
     field :workout_type, String, null: true
     field :day_of_week, String, null: true
     field :estimated_duration, Integer, null: true
+    field :estimated_duration_minutes, Integer, null: false, description: "Estimated duration in minutes (alias with fallback)"
     field :is_completed, Boolean, null: false
     field :completed_at, String, null: true
     field :generated_at, String, null: false
@@ -23,6 +24,10 @@ module Types
     field :estimated_duration_formatted, String, null: true
     field :workout_summary, Types::WorkoutSummaryType, null: false
     field :day_name, String, null: false
+
+    def estimated_duration_minutes
+      object.estimated_duration || 45
+    end
 
     def completed_at
       object.completed_at&.iso8601
