@@ -13,6 +13,10 @@ class PollTestflightFeedbackJob
       return
     end
 
+    # Backfill screenshots for recent feedbacks that were saved with empty screenshots
+    # (ASC race condition: feedback arrives before screenshot processing completes)
+    backfill_empty_screenshots
+
     new_feedbacks = AppStoreConnectService.fetch_new_feedback
     Rails.logger.info("[PollFeedback] Found #{new_feedbacks.size} new feedback(s)")
 
@@ -55,5 +59,25 @@ class PollTestflightFeedbackJob
   rescue StandardError => e
     Rails.logger.error("[PollFeedback] Error creating feedback: #{e.message}")
     nil
+  end
+
+  # Re-fetch screenshots from ASC for feedbacks saved with empty screenshots
+  # Also patches the corresponding GitHub issues with the new screenshots
+  def backfill_empty_screenshots
+    empty_count = TestflightFeedback.where("created_at > ?", 7.days.ago)
+                                    .where("screenshots = '[]' OR screenshots IS NULL")
+                                    .count
+    return if empty_count.zero?
+
+    Rails.logger.info("[PollFeedback] Backfilling screenshots for #{empty_count} feedback(s)")
+    result = AppStoreConnectService.backfill_screenshots
+    Rails.logger.info("[PollFeedback] Backfill result: #{result}")
+
+    # Patch GitHub issues that now have screenshots
+    return unless result.is_a?(Hash) && result[:updated].to_i > 0
+
+    TestflightGithubIssueJob.patch_missing_screenshots
+  rescue StandardError => e
+    Rails.logger.error("[PollFeedback] Screenshot backfill error: #{e.message}")
   end
 end

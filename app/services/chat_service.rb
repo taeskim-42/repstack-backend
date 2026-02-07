@@ -1939,11 +1939,16 @@ class ChatService
     suggestions
   end
 
-  # Strip "suggestions: [...]" text from message so it doesn't show in chat
+  # Strip "suggestions: ..." text from message so it doesn't show in chat
+  # Handles multiple LLM output formats:
+  #   - JSON array: suggestions: ["A", "B"]
+  #   - Dash + array: suggestions:\n- ["A", "B"]
+  #   - Markdown list: suggestions:\n- A\n- B\n- C
   def strip_suggestions_text(message)
     return message if message.blank?
 
-    message.gsub(/\n*suggestions:\s*-?\s*\[[^\]]*\]\s*/i, "").strip
+    # Remove everything from "suggestions:" to end of message
+    message.sub(/\n*suggestions:.*\z/mi, "").strip
   end
 
   # ============================================
