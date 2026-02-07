@@ -251,6 +251,7 @@ class AdminController < ApplicationController
           severity: f.severity,
           affected_repo: f.affected_repo,
           feedback_text: f.feedback_text&.truncate(100),
+          screenshots: f.screenshots,
           github_issue_url: f.github_issue_url,
           created_at: f.created_at
         }
