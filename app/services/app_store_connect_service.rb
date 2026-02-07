@@ -35,18 +35,44 @@ class AppStoreConnectService
       token = generate_jwt
       app_id = ENV["ASC_APP_ID"]
 
-      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=screenshots&fields[betaScreenshots]=imageAsset&limit=3")
-      screenshot_response = api_request(screenshot_uri, token)
+      results = {}
 
-      {
-        screenshot_endpoint: screenshot_uri.to_s,
-        screenshot_response_keys: screenshot_response&.keys,
-        data_count: screenshot_response&.dig("data")&.size,
-        included_count: screenshot_response&.dig("included")&.size,
-        sample_data: screenshot_response&.dig("data")&.first,
-        sample_included: screenshot_response&.dig("included")&.first,
-        all_relationship_keys: screenshot_response&.dig("data")&.flat_map { |d| d.dig("relationships")&.keys || [] }&.uniq
-      }
+      # Test 1: Screenshot submissions endpoint
+      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=screenshots&fields[betaScreenshots]=imageAsset&limit=3")
+      raw1 = raw_api_request(screenshot_uri, token)
+      results[:screenshot_submissions] = raw1
+
+      # Test 2: Try betaAppReviewSubmissions (older API)
+      review_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaAppReviewSubmissions?limit=3")
+      raw2 = raw_api_request(review_uri, token)
+      results[:beta_review_submissions] = raw2
+
+      # Test 3: Try betaTesterUsages or builds
+      builds_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/builds?limit=1&sort=-uploadedDate")
+      raw3 = raw_api_request(builds_uri, token)
+      results[:latest_build] = raw3
+
+      results
+    end
+
+    # Raw API request that returns status code + body for debugging
+    def raw_api_request(uri, token)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.read_timeout = 30
+
+      request = Net::HTTP::Get.new(uri)
+      request["Authorization"] = "Bearer #{token}"
+      request["Content-Type"] = "application/json"
+
+      response = http.request(request)
+      body = begin
+        JSON.parse(response.body)
+      rescue StandardError
+        response.body.truncate(1000)
+      end
+
+      { status: response.code.to_i, endpoint: uri.to_s, body: body }
     end
 
     private
