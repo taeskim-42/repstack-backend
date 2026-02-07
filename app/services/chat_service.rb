@@ -463,7 +463,7 @@ class ChatService
       return success_response(
         message: "오늘의 루틴이에요! 💪\n\n특정 운동을 바꾸고 싶으면 'XX 대신 다른 운동'이라고 말씀해주세요.",
         intent: "GENERATE_ROUTINE",
-        data: { routine: routine_data }
+        data: { routine: routine_data, suggestions: ["운동 시작!", "운동 끝났어"] }
       )
     end
 
@@ -506,7 +506,7 @@ class ChatService
     success_response(
       message: format_routine_message(routine, program_info),
       intent: "GENERATE_ROUTINE",
-      data: { routine: routine, program: program_info }
+      data: { routine: routine, program: program_info, suggestions: ["운동 시작!", "운동 하나 교체해줘", "운동 끝났어"] }
     )
   end
 
@@ -1131,7 +1131,7 @@ class ChatService
       data: {
         routine: result,
         program: program_info,
-        suggestions: ["운동 시작!", "운동 하나 교체해줘", "나중에 할게"]
+        suggestions: ["운동 시작!", "운동 하나 교체해줘", "운동 끝났어"]
       }
     )
   end
