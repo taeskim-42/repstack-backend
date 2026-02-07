@@ -10,6 +10,27 @@
 [Opus 4.6] 검증 피드백 반영 → 최종 수정
 ```
 
+## Step 0: ASC API에서 최신 피드백 즉시 가져오기
+
+Sidekiq 크론잡(5분 간격)을 기다리지 않고, 먼저 수동으로 ASC 폴링을 트리거합니다:
+
+```bash
+curl -s 'https://repstack-backend-production.up.railway.app/admin/poll_testflight?admin_token=repstack_admin_1864a749b23220d903a0c3636c1e83b1' -X POST | python3 -m json.tool
+```
+
+새 피드백이 있으면 DB에 저장되고, AI 분석 + GitHub Issue 생성이 자동으로 실행됩니다.
+`new_feedback_count > 0`이면 파이프라인 처리를 위해 **30초 대기** 후 Step 1로 진행합니다:
+
+```bash
+sleep 30
+```
+
+스크린샷 backfill도 함께 트리거합니다 (ASC race condition 대응):
+
+```bash
+curl -s 'https://repstack-backend-production.up.railway.app/admin/backfill_screenshots?admin_token=repstack_admin_1864a749b23220d903a0c3636c1e83b1' -X POST | python3 -m json.tool
+```
+
 ## Step 1: 열린 피드백 Issue 가져오기
 
 backend와 frontend 레포에서 열린 testflight-feedback Issue를 가져옵니다:
