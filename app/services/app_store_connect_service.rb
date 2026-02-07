@@ -30,6 +30,39 @@ class AppStoreConnectService
         ENV["ASC_APP_ID"].present?
     end
 
+    # Backfill screenshots for existing feedbacks that have empty screenshots
+    def backfill_screenshots
+      token = generate_jwt
+      app_id = ENV["ASC_APP_ID"]
+
+      # Fetch all screenshot submissions from ASC
+      uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?limit=200")
+      response = api_request(uri, token)
+      return { error: "API request failed" } unless response && response["data"]
+
+      # Build lookup: asc_feedback_id -> screenshot URLs
+      screenshot_map = {}
+      response["data"].each do |item|
+        attrs = item["attributes"] || {}
+        urls = Array(attrs["screenshots"]).filter_map { |s| s["url"] }
+        screenshot_map[item["id"]] = urls if urls.any?
+      end
+
+      # Update existing feedbacks
+      updated = 0
+      TestflightFeedback.where(asc_feedback_id: screenshot_map.keys)
+                        .where("screenshots = '[]' OR screenshots IS NULL")
+                        .find_each do |feedback|
+        urls = screenshot_map[feedback.asc_feedback_id]
+        if urls&.any?
+          feedback.update!(screenshots: urls)
+          updated += 1
+        end
+      end
+
+      { total_from_asc: screenshot_map.size, updated: updated }
+    end
+
     # Debug: return raw ASC API responses for inspection
     def debug_raw_response
       token = generate_jwt
@@ -108,23 +141,18 @@ class AppStoreConnectService
       "-----BEGIN EC PRIVATE KEY-----\n#{key}\n-----END EC PRIVATE KEY-----"
     end
 
-    # Fetch beta feedback from ASC Feedback API (WWDC 2025)
-    # Uses /v1/apps/{appId}/betaFeedbackScreenshotSubmissions
-    # and /v1/apps/{appId}/betaFeedbackCrashSubmissions
+    # Fetch beta feedback from ASC API
+    # Screenshots are embedded directly in attributes.screenshots[]
     def fetch_beta_feedback(token)
       app_id = ENV["ASC_APP_ID"]
       all_feedback = []
 
-      # Screenshot feedback - include related screenshots
-      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=screenshots&fields[betaScreenshots]=imageAsset")
+      # Screenshot feedback (screenshots are in attributes directly)
+      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions")
       response = api_request(screenshot_uri, token)
       if response && response["data"]
-        included = response["included"] || []
-        Rails.logger.info("[AppStoreConnect] Screenshot feedback: #{response['data'].size} items, #{included.size} included resources")
-        Rails.logger.info("[AppStoreConnect] Sample data keys: #{response['data'].first&.keys}") if response["data"].any?
-        Rails.logger.info("[AppStoreConnect] Sample relationships: #{response['data'].first&.dig('relationships')&.keys}") if response["data"].any?
-        Rails.logger.info("[AppStoreConnect] Sample included: #{included.first&.slice('id', 'type', 'attributes')}") if included.any?
-        all_feedback.concat(response["data"].map { |d| normalize_feedback(d, "screenshot", included) })
+        Rails.logger.info("[AppStoreConnect] Screenshot feedback: #{response['data'].size} items")
+        all_feedback.concat(response["data"].map { |d| normalize_feedback(d, "screenshot") })
       end
 
       # Crash feedback
@@ -141,53 +169,25 @@ class AppStoreConnectService
     end
 
     # Normalize feedback data to a consistent format for PollTestflightFeedbackJob
-    def normalize_feedback(data, feedback_type, included = [])
+    def normalize_feedback(data, feedback_type)
       attrs = data["attributes"] || {}
+      screenshot_urls = Array(attrs["screenshots"]).filter_map { |s| s["url"] }
+
       {
         "id" => data["id"],
         "type" => data["type"],
         "attributes" => {
-          "comment" => attrs["comment"] || attrs["feedback"] || attrs["description"],
-          "appVersionString" => attrs["appVersionString"] || attrs["appVersion"],
-          "buildNumber" => attrs["buildNumber"],
+          "comment" => attrs["comment"],
+          "email" => attrs["email"],
           "deviceModel" => attrs["deviceModel"],
           "osVersion" => attrs["osVersion"],
+          "locale" => attrs["locale"],
           "crashLog" => attrs["crashLog"],
           "feedbackType" => feedback_type,
-          "timestamp" => attrs["timestamp"] || attrs["createdDate"],
-          "screenshots" => extract_screenshot_urls(data, included)
+          "timestamp" => attrs["createdDate"],
+          "screenshots" => screenshot_urls
         }
       }
-    end
-
-    # Extract screenshot image URLs from ASC included resources
-    def extract_screenshot_urls(data, included)
-      return [] if included.empty?
-
-      # Get screenshot IDs from relationships (try both singular and plural)
-      screenshot_refs = data.dig("relationships", "screenshots", "data") ||
-                        Array(data.dig("relationships", "screenshot", "data"))
-      Rails.logger.info("[AppStoreConnect] Relationships for #{data['id']}: #{data.dig('relationships')&.keys&.join(', ')}")
-      Rails.logger.info("[AppStoreConnect] Screenshot refs: #{screenshot_refs.inspect}")
-      screenshot_ids = screenshot_refs.map { |s| s["id"] }
-      return [] if screenshot_ids.empty?
-
-      # Match included resources and extract image URLs
-      included.select { |r| screenshot_ids.include?(r["id"]) }.filter_map do |resource|
-        attrs = resource["attributes"] || {}
-        # ASC imageAsset has templateUrl with {w}, {h}, {f} placeholders
-        image_asset = attrs["imageAsset"] || {}
-        template_url = image_asset["templateUrl"]
-
-        if template_url
-          w = image_asset["width"] || 1170
-          h = image_asset["height"] || 2532
-          template_url.gsub("{w}", w.to_s).gsub("{h}", h.to_s).gsub("{f}", "png")
-        else
-          # Fallback: direct URL fields
-          attrs["imageUrl"] || attrs["url"]
-        end
-      end
     end
 
     # Make authenticated GET request to ASC API

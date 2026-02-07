@@ -179,6 +179,18 @@ class AdminController < ApplicationController
     render json: { error: e.message }, status: :internal_server_error
   end
 
+  # POST /admin/backfill_screenshots - Re-fetch screenshots for existing feedbacks
+  def backfill_screenshots
+    unless AppStoreConnectService.configured?
+      return render json: { error: "App Store Connect not configured" }, status: :service_unavailable
+    end
+
+    result = AppStoreConnectService.backfill_screenshots
+    render json: result
+  rescue StandardError => e
+    render json: { error: e.message }, status: :internal_server_error
+  end
+
   # GET /admin/debug_asc_api - Show raw ASC API response for debugging
   def debug_asc_api
     unless AppStoreConnectService.configured?
