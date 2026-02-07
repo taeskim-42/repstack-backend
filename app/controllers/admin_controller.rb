@@ -179,6 +179,18 @@ class AdminController < ApplicationController
     render json: { error: e.message }, status: :internal_server_error
   end
 
+  # GET /admin/debug_asc_api - Show raw ASC API response for debugging
+  def debug_asc_api
+    unless AppStoreConnectService.configured?
+      return render json: { error: "App Store Connect not configured" }, status: :service_unavailable
+    end
+
+    raw = AppStoreConnectService.debug_raw_response
+    render json: raw
+  rescue StandardError => e
+    render json: { error: e.message }, status: :internal_server_error
+  end
+
   def simulate_testflight_feedback
     feedback = TestflightFeedback.create!(
       asc_feedback_id: "sim_#{SecureRandom.hex(8)}",

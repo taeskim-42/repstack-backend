@@ -30,6 +30,25 @@ class AppStoreConnectService
         ENV["ASC_APP_ID"].present?
     end
 
+    # Debug: return raw ASC API responses for inspection
+    def debug_raw_response
+      token = generate_jwt
+      app_id = ENV["ASC_APP_ID"]
+
+      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=screenshots&fields[betaScreenshots]=imageAsset&limit=3")
+      screenshot_response = api_request(screenshot_uri, token)
+
+      {
+        screenshot_endpoint: screenshot_uri.to_s,
+        screenshot_response_keys: screenshot_response&.keys,
+        data_count: screenshot_response&.dig("data")&.size,
+        included_count: screenshot_response&.dig("included")&.size,
+        sample_data: screenshot_response&.dig("data")&.first,
+        sample_included: screenshot_response&.dig("included")&.first,
+        all_relationship_keys: screenshot_response&.dig("data")&.flat_map { |d| d.dig("relationships")&.keys || [] }&.uniq
+      }
+    end
+
     private
 
     # Generate ES256 JWT for ASC API authentication
@@ -65,10 +84,14 @@ class AppStoreConnectService
       all_feedback = []
 
       # Screenshot feedback - include related screenshots
-      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=screenshots")
+      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=screenshots&fields[betaScreenshots]=imageAsset")
       response = api_request(screenshot_uri, token)
       if response && response["data"]
         included = response["included"] || []
+        Rails.logger.info("[AppStoreConnect] Screenshot feedback: #{response['data'].size} items, #{included.size} included resources")
+        Rails.logger.info("[AppStoreConnect] Sample data keys: #{response['data'].first&.keys}") if response["data"].any?
+        Rails.logger.info("[AppStoreConnect] Sample relationships: #{response['data'].first&.dig('relationships')&.keys}") if response["data"].any?
+        Rails.logger.info("[AppStoreConnect] Sample included: #{included.first&.slice('id', 'type', 'attributes')}") if included.any?
         all_feedback.concat(response["data"].map { |d| normalize_feedback(d, "screenshot", included) })
       end
 
@@ -112,6 +135,8 @@ class AppStoreConnectService
       # Get screenshot IDs from relationships (try both singular and plural)
       screenshot_refs = data.dig("relationships", "screenshots", "data") ||
                         Array(data.dig("relationships", "screenshot", "data"))
+      Rails.logger.info("[AppStoreConnect] Relationships for #{data['id']}: #{data.dig('relationships')&.keys&.join(', ')}")
+      Rails.logger.info("[AppStoreConnect] Screenshot refs: #{screenshot_refs.inspect}")
       screenshot_ids = screenshot_refs.map { |s| s["id"] }
       return [] if screenshot_ids.empty?
 

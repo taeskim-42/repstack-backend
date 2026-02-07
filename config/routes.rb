@@ -65,6 +65,7 @@ Rails.application.routes.draw do
     post "/simulate_testflight_feedback", action: :simulate_testflight_feedback
     get "/testflight_feedback_status", action: :testflight_feedback_status
     get "/testflight_feedbacks", action: :testflight_feedbacks_list
+    get "/debug_asc_api", action: :debug_asc_api
   end
 
   # Defines the root path route ("/")
