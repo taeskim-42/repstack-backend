@@ -463,7 +463,7 @@ class ChatService
       return success_response(
         message: "오늘의 루틴이에요! 💪\n\n특정 운동을 바꾸고 싶으면 'XX 대신 다른 운동'이라고 말씀해주세요.",
         intent: "GENERATE_ROUTINE",
-        data: { routine: routine_data, suggestions: ["운동 시작!", "운동 끝났어"] }
+        data: { routine: routine_data, suggestions: ["운동 끝났어", "운동 하나 교체해줘"] }
       )
     end
 
@@ -506,7 +506,7 @@ class ChatService
     success_response(
       message: format_routine_message(routine, program_info),
       intent: "GENERATE_ROUTINE",
-      data: { routine: routine, program: program_info, suggestions: ["운동 시작!", "운동 하나 교체해줘", "운동 끝났어"] }
+      data: { routine: routine, program: program_info, suggestions: ["운동 끝났어", "운동 하나 교체해줘"] }
     )
   end
 
@@ -1213,7 +1213,7 @@ class ChatService
         feedback_type: feedback_type.to_s,
         feedback_text: feedback_text,
         intensity_adjustment: response_data[:adjustment],
-        suggestions: ["내일 운동 미리보기", "이번 주 기록 보기", "프로그램 진행 상황"]
+        suggestions: ["이번 주 기록 보기", "프로그램 진행 상황"]
       }
     )
   end
@@ -1945,11 +1945,15 @@ class ChatService
   #   - Dash + array: suggestions:\n- ["A", "B"]
   #   - Markdown list: suggestions:\n- A\n- B\n- C
   #   - Bold-wrapped: **\nsuggestions: [...]
+  #   - Mid-message: suggestions block anywhere (not just at end)
   def strip_suggestions_text(message)
     return message if message.blank?
 
-    # Remove everything from "suggestions:" to end of message
+    # Remove everything from "suggestions:" to end of message (dotall: match across newlines)
     cleaned = message.sub(/\n*suggestions:.*\z/mi, "").strip
+
+    # Also handle suggestions block in the middle (followed by more content on next lines)
+    cleaned = cleaned.sub(/\n*suggestions:\s*\[.*?\]/mi, "").strip
 
     # Clean up orphaned markdown bold/italic markers left after stripping (e.g., trailing "**")
     cleaned.sub(/\s*\*{1,3}\s*\z/, "").strip
@@ -2264,10 +2268,13 @@ class ChatService
   end
 
   def success_response(message:, intent:, data:)
+    # Strip raw "suggestions: [...]" text that LLM may include in message
+    clean_msg = strip_suggestions_text(message)
+
     # Strip markdown formatting — iOS app doesn't render markdown bold/headers
     # TODO: Remove this when iOS supports AttributedString markdown rendering
-    clean_msg = message&.gsub(/\*\*([^*]*)\*\*/, '\1') # **bold** → bold
-                       &.gsub(/^##\s+/, "")             # ## heading → heading
+    clean_msg = clean_msg&.gsub(/\*\*([^*]*)\*\*/, '\1') # **bold** → bold
+                         &.gsub(/^##\s+/, "")             # ## heading → heading
     { success: true, message: clean_msg, intent: intent, data: data, error: nil }
   end
 
