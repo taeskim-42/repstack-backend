@@ -37,20 +37,26 @@ class AppStoreConnectService
 
       results = {}
 
-      # Test 1: Screenshot submissions endpoint
-      screenshot_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=screenshots&fields[betaScreenshots]=imageAsset&limit=3")
-      raw1 = raw_api_request(screenshot_uri, token)
-      results[:screenshot_submissions] = raw1
+      # Test 1: Screenshot submissions - no include params
+      uri1 = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?limit=3")
+      results[:screenshot_plain] = raw_api_request(uri1, token)
 
-      # Test 2: Try betaAppReviewSubmissions (older API)
-      review_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaAppReviewSubmissions?limit=3")
-      raw2 = raw_api_request(review_uri, token)
-      results[:beta_review_submissions] = raw2
+      # Test 2: Crash submissions
+      uri2 = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackCrashSubmissions?limit=3")
+      results[:crash_plain] = raw_api_request(uri2, token)
 
-      # Test 3: Try betaTesterUsages or builds
-      builds_uri = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/builds?limit=1&sort=-uploadedDate")
-      raw3 = raw_api_request(builds_uri, token)
-      results[:latest_build] = raw3
+      # Test 3: Screenshot submissions with include=betaScreenshots
+      uri3 = URI("#{ASC_API_BASE}/v1/apps/#{app_id}/betaFeedbackScreenshotSubmissions?include=betaScreenshots&limit=3")
+      results[:screenshot_with_beta_screenshots] = raw_api_request(uri3, token)
+
+      # Test 4: Try individual screenshot submission to see relationships
+      if results[:screenshot_plain][:status] == 200
+        first_id = results[:screenshot_plain][:body].dig("data", 0, "id")
+        if first_id
+          uri4 = URI("#{ASC_API_BASE}/v1/betaFeedbackScreenshotSubmissions/#{first_id}?include=betaScreenshot")
+          results[:single_with_include] = raw_api_request(uri4, token)
+        end
+      end
 
       results
     end
