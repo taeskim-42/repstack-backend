@@ -539,6 +539,16 @@ module AiTrainer
           assessment = nil
           final_message = content
 
+          # Extract suggestions from plain text (e.g., 'suggestions: ["A", "B"]')
+          fallback_suggestions = []
+          suggestions_pattern = /suggestions:\s*-?\s*\[([^\]]+)\]/i
+          if final_message =~ suggestions_pattern
+            raw = $1
+            fallback_suggestions = raw.scan(/"([^"]+)"/).flatten.first(4)
+            # Strip suggestions text from message
+            final_message = final_message.gsub(/\n*suggestions:\s*-?\s*\[[^\]]*\]\s*/i, "").strip
+          end
+
           if is_complete
             experience_level = new_collected["experience"] || "intermediate"
             assessment = {
@@ -561,7 +571,8 @@ module AiTrainer
             next_state: is_complete ? STATES[:completed] : STATES[:asking_experience],
             collected_data: new_collected,
             is_complete: is_complete,
-            assessment: assessment
+            assessment: assessment,
+            suggestions: fallback_suggestions.presence
           }
         end
       rescue JSON::ParserError => e
@@ -591,6 +602,15 @@ module AiTrainer
         assessment = nil
         final_message = content
 
+        # Extract suggestions from plain text (e.g., 'suggestions: ["A", "B"]')
+        rescue_suggestions = []
+        suggestions_pattern = /suggestions:\s*-?\s*\[([^\]]+)\]/i
+        if final_message =~ suggestions_pattern
+          raw = $1
+          rescue_suggestions = raw.scan(/"([^"]+)"/).flatten.first(4)
+          final_message = final_message.gsub(/\n*suggestions:\s*-?\s*\[[^\]]*\]\s*/i, "").strip
+        end
+
         if is_complete
           experience_level = new_collected["experience"] || "intermediate"
           assessment = {
@@ -613,7 +633,8 @@ module AiTrainer
           next_state: is_complete ? STATES[:completed] : STATES[:asking_experience],
           collected_data: new_collected,
           is_complete: is_complete,
-          assessment: assessment
+          assessment: assessment,
+          suggestions: rescue_suggestions.presence
         }
       end
     end

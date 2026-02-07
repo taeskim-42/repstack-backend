@@ -892,9 +892,10 @@ class ChatService
 
     answer_msg = result[:message] || "무엇을 도와드릴까요?"
     suggestions = extract_suggestions_from_message(answer_msg)
+    clean_msg = strip_suggestions_text(answer_msg)
 
     success_response(
-      message: answer_msg,
+      message: clean_msg,
       intent: "GENERAL_CHAT",
       data: {
         knowledge_used: result[:knowledge_used],
@@ -1859,8 +1860,11 @@ class ChatService
       # Use explicit suggestions from assessment, or extract from message
       suggestions = result[:suggestions].presence || extract_suggestions_from_message(result[:message])
 
+      # Strip raw "suggestions: [...]" text from message so it doesn't show in chat
+      clean_message = strip_suggestions_text(result[:message])
+
       success_response(
-        message: result[:message],
+        message: clean_message,
         intent: intent,
         data: {
           is_complete: result[:is_complete],
@@ -1879,6 +1883,17 @@ class ChatService
     return [] if message.blank?
 
     suggestions = []
+
+    # Pattern 0: "suggestions:" followed by JSON array or "- [...]" format
+    # Example: 'suggestions: ["없어요", "있어요"]' or 'suggestions:\n- ["없어요", "있어요"]'
+    suggestions_pattern = /suggestions:\s*-?\s*\[([^\]]+)\]/i
+    if message =~ suggestions_pattern
+      raw = $1
+      items = raw.scan(/"([^"]+)"/).flatten
+      if items.length >= 2
+        return items.first(4)
+      end
+    end
 
     # Pattern 1: Numbered emoji options (1️⃣, 2️⃣, 3️⃣)
     # Example: "1️⃣ 네, 오늘 운동 루틴 보여줘"
@@ -1922,6 +1937,13 @@ class ChatService
     end
 
     suggestions
+  end
+
+  # Strip "suggestions: [...]" text from message so it doesn't show in chat
+  def strip_suggestions_text(message)
+    return message if message.blank?
+
+    message.gsub(/\n*suggestions:\s*-?\s*\[[^\]]*\]\s*/i, "").strip
   end
 
   # ============================================
@@ -2233,7 +2255,11 @@ class ChatService
   end
 
   def success_response(message:, intent:, data:)
-    { success: true, message: message, intent: intent, data: data, error: nil }
+    # Strip markdown formatting — iOS app doesn't render markdown bold/headers
+    # TODO: Remove this when iOS supports AttributedString markdown rendering
+    clean_msg = message&.gsub(/\*\*([^*]*)\*\*/, '\1') # **bold** → bold
+                       &.gsub(/^##\s+/, "")             # ## heading → heading
+    { success: true, message: clean_msg, intent: intent, data: data, error: nil }
   end
 
   def error_response(error_message)
