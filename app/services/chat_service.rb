@@ -890,12 +890,16 @@ class ChatService
     answer = result[:message] || "무엇을 도와드릴까요?"
     cache_response(answer)
 
+    answer_msg = result[:message] || "무엇을 도와드릴까요?"
+    suggestions = extract_suggestions_from_message(answer_msg)
+
     success_response(
-      message: result[:message] || "무엇을 도와드릴까요?",
+      message: answer_msg,
       intent: "GENERAL_CHAT",
       data: {
         knowledge_used: result[:knowledge_used],
-        session_id: result[:session_id]
+        session_id: result[:session_id],
+        suggestions: suggestions.presence
       }
     )
   end

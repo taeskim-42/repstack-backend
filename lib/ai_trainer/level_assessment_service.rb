@@ -364,10 +364,19 @@ module AiTrainer
             "schedule": "새로 파악했으면 여기에!",
             "lifestyle": "새로 파악했으면 여기에!"
           },
+          "suggestions": ["선택지1", "선택지2", "선택지3"],
           "is_complete": false,
           "assessment": null
         }
         ```
+
+        ## 🔘 suggestions 규칙 (매우 중요!)
+        - 질문할 때 **반드시** 사용자가 탭할 수 있는 선택지를 suggestions에 포함하세요!
+        - 예: "운동 목표가 뭔가요?" → suggestions: ["근육 키우기", "다이어트", "체력 향상", "건강 유지"]
+        - 예: "아침형? 저녁형?" → suggestions: ["아침형", "저녁형", "상관없어"]
+        - 예: "헬스장 다니세요?" → suggestions: ["헬스장", "홈트레이닝", "둘 다"]
+        - 2~4개가 적당, 사용자가 자유 입력도 가능하므로 대표적인 것만
+        - 질문이 아닌 공감/반응만 하는 경우에도 다음 행동 suggestions 제공
 
         ## 완료 시에만 (사용자가 루틴 요청했을 때)
         ```json
@@ -499,7 +508,8 @@ module AiTrainer
             next_state: data["next_state"] || STATES[:asking_experience],
             collected_data: new_collected,
             is_complete: is_complete,
-            assessment: assessment
+            assessment: assessment,
+            suggestions: Array(data["suggestions"]).first(4)
           }
         else
           # Fallback: treat as plain text response (Claude returned text instead of JSON)
