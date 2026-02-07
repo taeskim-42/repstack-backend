@@ -98,6 +98,22 @@ class RagSearchService
       PROMPT
     end
 
+    # Batch search: combine multiple keywords into fewer queries.
+    # Instead of N separate hybrid_search calls, joins keywords for 1 vector + 1 keyword search.
+    def batch_search(keywords, limit: 5)
+      return [] if keywords.blank?
+
+      combined_query = keywords.first(5).join(" ")
+
+      results = if EmbeddingService.pgvector_available? && EmbeddingService.configured?
+        hybrid_search(combined_query, limit: limit, knowledge_types: nil, filters: {})
+      else
+        keyword_search(combined_query, limit: limit, knowledge_types: nil, filters: {})
+      end
+
+      format_results(results)
+    end
+
     # Get trending/popular knowledge (most referenced)
     def trending_knowledge(limit: 5)
       FitnessKnowledgeChunk

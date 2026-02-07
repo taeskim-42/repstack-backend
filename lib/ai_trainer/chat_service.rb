@@ -143,27 +143,7 @@ module AiTrainer
     end
 
     def build_memory_context
-      factors = user.user_profile&.fitness_factors
-      return nil if factors.blank?
-
-      parts = []
-
-      memories = factors["trainer_memories"]
-      if memories.present?
-        facts = memories.map { |m| "- #{m['fact']} (#{m['category']}, #{m['date']})" }.join("\n")
-        parts << "## 기억하고 있는 사항\n#{facts}"
-      end
-
-      summaries = factors["session_summaries"]
-      if summaries.present?
-        lines = summaries.map { |s| "- [#{s['date']}] #{s['summary']}" }.join("\n")
-        parts << "## 최근 대화 요약\n#{lines}"
-      end
-
-      parts.any? ? parts.join("\n\n") : nil
-    rescue StandardError => e
-      Rails.logger.warn("[ChatService] Memory context build failed: #{e.message}")
-      nil
+      ConversationMemoryService.format_context(user)
     end
 
     def extract_keywords(message)
@@ -193,16 +173,7 @@ module AiTrainer
     def search_with_keywords(keywords)
       return [] if keywords.empty?
 
-      all_results = []
-
-      # Search each keyword
-      keywords.first(5).each do |keyword|
-        results = RagSearchService.search(keyword, limit: 2)
-        all_results.concat(results)
-      end
-
-      # Deduplicate and limit
-      all_results.uniq { |r| r[:id] }.first(5)
+      RagSearchService.batch_search(keywords, limit: 5)
     end
 
     # Build system prompt for conversation (cached for efficiency)

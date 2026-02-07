@@ -12,6 +12,32 @@ class ConversationMemoryService
     def extract(user:, session_id:)
       new(user: user, session_id: session_id).extract
     end
+
+    # Build formatted memory context string from user's stored memories.
+    # Returns nil if no memories exist.
+    def format_context(user)
+      factors = user.user_profile&.fitness_factors
+      return nil if factors.blank?
+
+      parts = []
+
+      memories = factors["trainer_memories"]
+      if memories.present?
+        facts = memories.map { |m| "- #{m['fact']} (#{m['category']}, #{m['date']})" }.join("\n")
+        parts << "## 기억하고 있는 사항\n#{facts}"
+      end
+
+      summaries = factors["session_summaries"]
+      if summaries.present?
+        lines = summaries.map { |s| "- [#{s['date']}] #{s['summary']}" }.join("\n")
+        parts << "## 최근 대화 요약\n#{lines}"
+      end
+
+      parts.any? ? parts.join("\n\n") : nil
+    rescue StandardError => e
+      Rails.logger.warn("[ConversationMemory] format_context failed: #{e.message}")
+      nil
+    end
   end
 
   def initialize(user:, session_id:)
