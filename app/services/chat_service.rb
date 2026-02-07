@@ -1944,11 +1944,15 @@ class ChatService
   #   - JSON array: suggestions: ["A", "B"]
   #   - Dash + array: suggestions:\n- ["A", "B"]
   #   - Markdown list: suggestions:\n- A\n- B\n- C
+  #   - Bold-wrapped: **\nsuggestions: [...]
   def strip_suggestions_text(message)
     return message if message.blank?
 
     # Remove everything from "suggestions:" to end of message
-    message.sub(/\n*suggestions:.*\z/mi, "").strip
+    cleaned = message.sub(/\n*suggestions:.*\z/mi, "").strip
+
+    # Clean up orphaned markdown bold/italic markers left after stripping (e.g., trailing "**")
+    cleaned.sub(/\s*\*{1,3}\s*\z/, "").strip
   end
 
   # ============================================
