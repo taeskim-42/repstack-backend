@@ -10,6 +10,41 @@ class TestflightGithubIssueJob
 
   GITHUB_API_BASE = "https://api.github.com"
 
+  # Update existing GitHub issues that are missing screenshots
+  # Called from admin endpoint to fix historical data
+  def self.patch_missing_screenshots
+    feedbacks = TestflightFeedback.where.not(github_issue_url: nil)
+                                 .where.not(screenshots: nil)
+    updated = 0
+    skipped = 0
+
+    feedbacks.find_each do |feedback|
+      screenshots = Array(feedback.screenshots).select(&:present?)
+      next if screenshots.empty?
+
+      match = feedback.github_issue_url&.match(%r{github\.com/(.+)/issues/(\d+)})
+      next unless match
+
+      repo = match[1]
+      issue_number = match[2].to_i
+      analysis = feedback.ai_analysis_json || {}
+      new_body = new.send(:build_issue_body, feedback, analysis)
+
+      uri = URI("#{GITHUB_API_BASE}/repos/#{repo}/issues/#{issue_number}")
+      response = new.send(:github_patch, uri, { body: new_body })
+
+      if response&.code&.to_i == 200
+        updated += 1
+        Rails.logger.info("[GithubIssue] Patched issue ##{issue_number} in #{repo} with #{screenshots.size} screenshot(s)")
+      else
+        skipped += 1
+        Rails.logger.warn("[GithubIssue] Failed to patch issue ##{issue_number}: #{response&.code}")
+      end
+    end
+
+    { updated: updated, skipped: skipped }
+  end
+
   def perform(feedback_id)
     feedback = TestflightFeedback.find_by(id: feedback_id)
     return unless feedback
@@ -67,6 +102,9 @@ class TestflightGithubIssueJob
   end
 
   def build_issue_body(feedback, analysis)
+    screenshots = feedback.screenshots.presence || []
+    Rails.logger.info("[GithubIssue] Building issue body for feedback ##{feedback.id}, screenshots: #{screenshots.size}")
+
     body = <<~BODY
       ## TestFlight Feedback Report
 
@@ -90,9 +128,9 @@ class TestflightGithubIssueJob
       #{(analysis['affected_files_hint'] || []).map { |f| "- `#{f}`" }.join("\n")}
     BODY
 
-    if feedback.screenshots.present?
+    if screenshots.any?
       body += "\n## Screenshots\n\n"
-      feedback.screenshots.each_with_index do |url, i|
+      screenshots.each_with_index do |url, i|
         body += "![Screenshot #{i + 1}](#{url})\n\n"
       end
     end
@@ -121,11 +159,19 @@ class TestflightGithubIssueJob
   end
 
   def github_post(uri, payload)
+    github_request(Net::HTTP::Post, uri, payload)
+  end
+
+  def github_patch(uri, payload)
+    github_request(Net::HTTP::Patch, uri, payload)
+  end
+
+  def github_request(method_class, uri, payload)
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
     http.read_timeout = 30
 
-    request = Net::HTTP::Post.new(uri.path)
+    request = method_class.new(uri.path)
     request["Authorization"] = "Bearer #{ENV['GITHUB_PAT']}"
     request["Accept"] = "application/vnd.github+json"
     request["Content-Type"] = "application/json"

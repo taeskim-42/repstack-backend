@@ -29,12 +29,31 @@ gh issue list --repo taeskim-42/repstack-frontend --label testflight-feedback --
 gh issue view <NUMBER> --repo <REPO> --json title,body,labels,createdAt
 ```
 
+### 스크린샷 가져오기 (2단계)
+
+**1단계: Issue 본문에서 추출**
 Issue 본문의 `## Screenshots` 섹션에서 이미지 URL을 추출합니다 (`![Screenshot N](URL)` 형식).
+
+**2단계: Fallback - Admin API에서 가져오기**
+Issue 본문에 `## Screenshots` 섹션이 없으면, Admin API에서 스크린샷을 조회합니다:
+
+```bash
+curl -s 'https://repstack-backend-production.up.railway.app/admin/testflight_feedbacks?admin_token=repstack_admin_1864a749b23220d903a0c3636c1e83b1&limit=50' | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for f in data['feedbacks']:
+    issue_url = f.get('github_issue_url', '')
+    if '<REPO>/issues/<NUMBER>' in issue_url and f.get('screenshots'):
+        for i, url in enumerate(f['screenshots']):
+            print(f'SCREENSHOT_{i+1}: {url}')
+"
+```
+
 이미지 URL이 있으면 로컬에 다운로드합니다:
 
 ```bash
 mkdir -p /tmp/testflight-feedback
-curl -sL "<IMAGE_URL>" -o /tmp/testflight-feedback/issue-<NUMBER>-screenshot-1.png
+curl -sL "<IMAGE_URL>" -o /tmp/testflight-feedback/issue-<NUMBER>-screenshot-1.jpg
 ```
 
 다운로드한 스크린샷은 Read 도구로 직접 확인합니다 (이미지 파일 읽기 지원).

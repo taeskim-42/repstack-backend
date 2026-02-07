@@ -66,6 +66,7 @@ Rails.application.routes.draw do
     get "/testflight_feedback_status", action: :testflight_feedback_status
     get "/testflight_feedbacks", action: :testflight_feedbacks_list
     post "/backfill_screenshots", action: :backfill_screenshots
+    post "/patch_issue_screenshots", action: :patch_issue_screenshots
     get "/debug_asc_api", action: :debug_asc_api
   end
 

@@ -270,17 +270,29 @@ class AdminController < ApplicationController
       feedbacks: feedbacks.map { |f|
         {
           id: f.id,
+          asc_feedback_id: f.asc_feedback_id,
           status: f.status,
           bug_category: f.bug_category,
           severity: f.severity,
           affected_repo: f.affected_repo,
           feedback_text: f.feedback_text&.truncate(100),
+          app_version: f.app_version,
+          build_number: f.build_number,
+          device_model: f.device_model,
           screenshots: f.screenshots,
           github_issue_url: f.github_issue_url,
           created_at: f.created_at
         }
       }
     }
+  end
+
+  # POST /admin/patch_issue_screenshots - Update GitHub issues missing screenshots
+  def patch_issue_screenshots
+    result = TestflightGithubIssueJob.patch_missing_screenshots
+    render json: { success: true, **result }
+  rescue StandardError => e
+    render json: { error: e.message }, status: :internal_server_error
   end
 
   # DELETE /admin/delete_user_data - Delete all data for a user by email
