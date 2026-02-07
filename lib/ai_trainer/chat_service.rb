@@ -114,6 +114,11 @@ module AiTrainer
       if last_message && last_message.created_at > 30.minutes.ago
         last_message.session_id
       else
+        # New session — trigger memory extraction for previous session
+        if last_message&.session_id.present?
+          ConversationMemoryJob.perform_async(user.id, last_message.session_id)
+        end
+
         "session_#{user.id}_#{Time.current.to_i}"
       end
     end
@@ -135,6 +140,30 @@ module AiTrainer
     rescue StandardError => e
       Rails.logger.warn("RAG search failed: #{e.message}")
       { used: false, prompt: "", sources: [] }
+    end
+
+    def build_memory_context
+      factors = user.user_profile&.fitness_factors
+      return nil if factors.blank?
+
+      parts = []
+
+      memories = factors["trainer_memories"]
+      if memories.present?
+        facts = memories.map { |m| "- #{m['fact']} (#{m['category']}, #{m['date']})" }.join("\n")
+        parts << "## 기억하고 있는 사항\n#{facts}"
+      end
+
+      summaries = factors["session_summaries"]
+      if summaries.present?
+        lines = summaries.map { |s| "- [#{s['date']}] #{s['summary']}" }.join("\n")
+        parts << "## 최근 대화 요약\n#{lines}"
+      end
+
+      parts.any? ? parts.join("\n\n") : nil
+    rescue StandardError => e
+      Rails.logger.warn("[ChatService] Memory context build failed: #{e.message}")
+      nil
     end
 
     def extract_keywords(message)
@@ -191,6 +220,10 @@ module AiTrainer
         - 이름: #{user.name || '회원'}
       INTRO
 
+      # Inject conversation memory
+      mem_ctx = build_memory_context
+      prompt_parts << mem_ctx if mem_ctx.present?
+
       # Add RAG knowledge if available
       if knowledge_context[:used] && knowledge_context[:prompt].present?
         prompt_parts << knowledge_context[:prompt]
@@ -217,7 +250,17 @@ module AiTrainer
         - 사용자가 짧게 답변해도 (예: "좋아", "네", "아니요", "피곤해") 직전 대화 맥락에서 의미를 파악하세요
         - 맥락 없이 단어만 보고 엉뚱한 해석을 하지 마세요
 
-        위 규칙에 따라 친근하게 답변하세요. JSON 형식 없이 자연스러운 대화체로 답변합니다.
+        ## 🔘 suggestions (매우 중요!)
+        - 답변 마지막에 **반드시** 다음 형식으로 사용자가 탭할 수 있는 선택지를 포함하세요:
+          suggestions: ["선택지1", "선택지2", "선택지3"]
+        - 선택지는 현재 대화 맥락에 맞는 자연스러운 후속 질문/행동이어야 합니다
+        - 2~4개, 각 15자 이내로 짧게
+        - 예시:
+          - 벤치프레스 폼 설명 후 → suggestions: ["다른 폼도 알려줘", "오늘 루틴 만들어줘", "무게 추천해줘"]
+          - 영양 조언 후 → suggestions: ["식단 더 알려줘", "오늘 루틴 만들어줘", "단백질 얼마나 먹어야 해"]
+          - 일반 대화 후 → suggestions: ["오늘 운동 뭐해", "운동 계획 알려줘", "더 궁금한 거 있어"]
+
+        위 규칙에 따라 친근하게 답변하세요. JSON 형식 없이 자연스러운 대화체로 답변하되, 마지막에 suggestions 행을 꼭 추가하세요.
       RULES
 
       prompt_parts.join("\n")

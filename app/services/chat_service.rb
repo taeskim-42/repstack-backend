@@ -19,7 +19,10 @@ class ChatService
   def process
     # Reload user to get fresh profile data
     user.reload
-    
+
+    # Trigger memory extraction for previous session if session changed
+    detect_and_trigger_memory_extraction
+
     # 0. Daily greeting (AI first - for all users when entering chat)
     if needs_daily_greeting?
       return handle_daily_greeting
@@ -92,7 +95,14 @@ class ChatService
       return success_response(
         message: cached_answer,
         intent: "CACHED_RESPONSE",
-        data: { cached: true }
+        data: {
+          cached: true,
+          suggestions: [
+            "오늘 루틴 만들어줘",
+            "내 운동 계획 알려줘",
+            "더 궁금한 거 있어"
+          ]
+        }
       )
     end
 
@@ -172,6 +182,8 @@ class ChatService
       - 이름: #{user.name || '회원'}
       - 오늘 루틴 있음: #{has_today_routine ? '예' : '아니오'}
       - 오늘 운동 완료: #{workout_completed ? '예' : '아니오'}
+
+      #{memory_context}
 
       ## 대화 맥락
       #{conversation_context_summary}
@@ -567,7 +579,8 @@ class ChatService
         data: {
           condition: condition,
           intensity_modifier: result[:intensity_modifier],
-          existing_routine_id: today_routine.id
+          existing_routine_id: today_routine.id,
+          suggestions: ["루틴 보여줘", "운동 시작할게"]
         }
       )
     end
@@ -586,7 +599,10 @@ class ChatService
       return success_response(
         message: message,
         intent: "CHECK_CONDITION",
-        data: { condition: condition }
+        data: {
+          condition: condition,
+          suggestions: ["오늘 루틴 만들어줘", "좀 더 쉬울래"]
+        }
       )
     end
 
@@ -600,7 +616,8 @@ class ChatService
       data: {
         condition: condition,
         intensity_modifier: result[:intensity_modifier],
-        routine: routine_result
+        routine: routine_result,
+        suggestions: ["운동 시작!", "운동 하나 교체해줘", "운동 끝났어"]
       }
     )
   end
@@ -642,7 +659,10 @@ class ChatService
       success_response(
         message: msg,
         intent: "RECORD_EXERCISE",
-        data: { records: [ record_item ] }
+        data: {
+          records: [ record_item ],
+          suggestions: ["다음 운동 기록", "운동 끝났어", "오늘 총 기록 보기"]
+        }
       )
     else
       error_response(result[:error] || "기록 저장에 실패했어요.")
@@ -683,7 +703,8 @@ class ChatService
       data: {
         routine: routine.reload,
         new_exercise: exercise.reload,
-        remaining_replacements: rate_check[:remaining]
+        remaining_replacements: rate_check[:remaining],
+        suggestions: ["운동 시작할게!", "다른 것도 바꿔줘", "운동 끝났어"]
       }
     )
   end
@@ -711,7 +732,8 @@ class ChatService
       intent: "ADD_EXERCISE",
       data: {
         routine: routine.reload,
-        added_exercise: exercise
+        added_exercise: exercise,
+        suggestions: ["운동 시작!", "다른 운동도 추가해줘", "운동 끝났어"]
       }
     )
   end
@@ -743,7 +765,8 @@ class ChatService
       intent: "DELETE_EXERCISE",
       data: {
         routine: routine_data,
-        deleted_exercise: deleted_name
+        deleted_exercise: deleted_name,
+        suggestions: ["운동 시작!", "다른 운동 추가해줘", "운동 끝났어"]
       }
     )
   end
@@ -900,7 +923,11 @@ class ChatService
       data: {
         knowledge_used: result[:knowledge_used],
         session_id: result[:session_id],
-        suggestions: suggestions.presence
+        suggestions: suggestions.presence || [
+          "오늘 루틴 만들어줘",
+          "내 운동 계획 알려줘",
+          "더 궁금한 거 있어"
+        ]
       }
     )
   end
@@ -1803,6 +1830,46 @@ class ChatService
     { "none" => "입문", "beginner" => "초급", "intermediate" => "중급", "advanced" => "고급" }[tier] || "입문"
   end
 
+  # Build memory context from stored trainer_memories and session_summaries
+  def memory_context
+    factors = user.user_profile&.fitness_factors
+    return "" if factors.blank?
+
+    parts = []
+
+    memories = factors["trainer_memories"]
+    if memories.present?
+      facts = memories.map { |m| "- #{m['fact']} (#{m['category']}, #{m['date']})" }.join("\n")
+      parts << "## 기억하고 있는 사항\n#{facts}"
+    end
+
+    summaries = factors["session_summaries"]
+    if summaries.present?
+      lines = summaries.map { |s| "- [#{s['date']}] #{s['summary']}" }.join("\n")
+      parts << "## 최근 대화 요약\n#{lines}"
+    end
+
+    parts.join("\n\n")
+  rescue StandardError => e
+    Rails.logger.warn("[ChatService] Memory context build failed: #{e.message}")
+    ""
+  end
+
+  # Detect session change and trigger memory extraction for previous session
+  def detect_and_trigger_memory_extraction
+    return if session_id.blank?
+
+    last_message = ChatMessage.where(user_id: user.id).order(created_at: :desc).first
+    return unless last_message
+
+    # If the incoming session_id differs from the last message's session, extract from old session
+    if last_message.session_id.present? && last_message.session_id != session_id
+      ConversationMemoryJob.perform_async(user.id, last_message.session_id)
+    end
+  rescue StandardError => e
+    Rails.logger.warn("[ChatService] Memory extraction trigger failed: #{e.message}")
+  end
+
   # Build conversation context summary for system prompt (brief)
   def conversation_context_summary
     recent = ChatMessage.where(user_id: user.id)
@@ -1860,6 +1927,15 @@ class ChatService
       # Use explicit suggestions from assessment, or extract from message
       suggestions = result[:suggestions].presence || extract_suggestions_from_message(result[:message])
 
+      # Fallback suggestions based on completion state
+      if suggestions.blank?
+        suggestions = if result[:is_complete]
+          ["오늘 루틴 만들어줘", "더 얘기하고 싶어", "나중에 할게"]
+        else
+          ["네", "아니요", "잘 모르겠어"]
+        end
+      end
+
       # Strip raw "suggestions: [...]" text from message so it doesn't show in chat
       clean_message = strip_suggestions_text(result[:message])
 
@@ -1869,7 +1945,7 @@ class ChatService
         data: {
           is_complete: result[:is_complete],
           assessment: result[:assessment],
-          suggestions: suggestions.presence
+          suggestions: suggestions
         }
       )
     else

@@ -93,6 +93,14 @@ module AiTrainer
         temperature: 0.2
       },
 
+      # Conversation memory extraction - deterministic, structured output
+      memory_extraction: {
+        provider: :anthropic,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 512,
+        temperature: 0.0
+      },
+
       # Long-term program generation (needs good reasoning)
       program_generation: {
         provider: :anthropic,
