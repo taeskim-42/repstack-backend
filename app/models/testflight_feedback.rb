@@ -30,12 +30,12 @@ class TestflightFeedback < ApplicationRecord
   end
 
   # Target GitHub repo based on affected_repo
+  # "unknown" creates issues in both repos — Opus will determine the real target
   def target_repos
     case affected_repo
     when "backend"  then ["taeskim-42/repstack-backend"]
     when "frontend" then ["taeskim-42/repstack-frontend"]
-    when "both"     then ["taeskim-42/repstack-backend", "taeskim-42/repstack-frontend"]
-    else ["taeskim-42/repstack-backend"]
+    else ["taeskim-42/repstack-backend", "taeskim-42/repstack-frontend"]
     end
   end
 end

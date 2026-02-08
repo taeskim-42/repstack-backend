@@ -1,24 +1,19 @@
 # frozen_string_literal: true
 
-# Analyzes TestFlight feedback using Claude AI
-# Classifies bug category, severity, affected repo, and suggests fixes
+# Classifies TestFlight feedback using Claude AI
+# Only categorizes — root cause analysis is done by Opus in /poll-feedback
 class TestflightFeedbackAnalyzer
   SYSTEM_PROMPT = <<~PROMPT
-    You are a bug triage specialist for RepStack, a fitness app with:
-    - Backend: Ruby on Rails API (GraphQL, Sidekiq, PostgreSQL)
-    - Frontend: Swift/SwiftUI iOS app
-
-    Analyze TestFlight user feedback and classify it precisely.
-    Respond ONLY with valid JSON matching this schema:
+    You are a bug classifier for RepStack, a fitness app.
+    Classify TestFlight user feedback into exactly 4 fields.
+    Do NOT guess root causes, affected files, or fixes.
+    Respond ONLY with valid JSON:
 
     {
       "bug_category": "crash|ui_bug|performance|feature_request|other",
       "severity": "critical|high|medium|low",
       "affected_repo": "backend|frontend|both|unknown",
-      "root_cause_hypothesis": "Brief hypothesis of the root cause",
-      "suggested_fix": "Specific suggestion for fixing the issue",
-      "affected_files_hint": ["Likely affected files or areas"],
-      "summary": "One-line summary of the issue"
+      "summary": "한국어 한 줄 요약"
     }
 
     Classification rules:
@@ -28,11 +23,11 @@ class TestflightFeedbackAnalyzer
     - cosmetic / minor = low
     - feature_request = always low severity
 
-    Repo detection hints:
-    - Swift symbols, UI layout, animation, navigation = frontend
-    - API errors, 500 status, data inconsistency, GraphQL = backend
-    - Login/auth issues = both
-    - If unclear = unknown
+    Repo detection:
+    - Swift symbols, UI layout, animation = frontend
+    - API errors, 500 status, GraphQL = backend
+    - Both indicators present = both
+    - If unclear = unknown (Opus will investigate later)
   PROMPT
 
   class << self
@@ -109,10 +104,7 @@ class TestflightFeedbackAnalyzer
         "bug_category" => "other",
         "severity" => "low",
         "affected_repo" => "unknown",
-        "root_cause_hypothesis" => "Unable to determine from feedback",
-        "suggested_fix" => "Manual investigation required",
-        "affected_files_hint" => [],
-        "summary" => "Unclassified feedback"
+        "summary" => "분류 실패 — 수동 확인 필요"
       }
     end
 

@@ -27,8 +27,7 @@ class TestflightGithubIssueJob
 
       repo = match[1]
       issue_number = match[2].to_i
-      analysis = feedback.ai_analysis_json || {}
-      new_body = new.send(:build_issue_body, feedback, analysis)
+      new_body = new.send(:build_issue_body, feedback, nil)
 
       uri = URI("#{GITHUB_API_BASE}/repos/#{repo}/issues/#{issue_number}")
       response = new.send(:github_patch, uri, { body: new_body })
@@ -76,13 +75,13 @@ class TestflightGithubIssueJob
 
   def create_issue(feedback, repo)
     uri = URI("#{GITHUB_API_BASE}/repos/#{repo}/issues")
-    analysis = feedback.ai_analysis_json || {}
 
-    body = build_issue_body(feedback, analysis)
+    body = build_issue_body(feedback, nil)
     labels = build_labels(feedback)
 
+    summary = feedback.ai_analysis_json&.dig("summary") || "Bug Report"
     payload = {
-      title: "[TestFlight] #{analysis['summary'] || 'Bug Report'} (#{feedback.app_version})",
+      title: "[TestFlight] #{summary} (#{feedback.app_version})",
       body: body,
       labels: labels
     }
@@ -101,31 +100,18 @@ class TestflightGithubIssueJob
     end
   end
 
-  def build_issue_body(feedback, analysis)
+  def build_issue_body(feedback, _analysis)
     screenshots = feedback.screenshots.presence || []
     Rails.logger.info("[GithubIssue] Building issue body for feedback ##{feedback.id}, screenshots: #{screenshots.size}")
 
     body = <<~BODY
-      ## TestFlight Feedback Report
-
-      **Category:** #{feedback.bug_category}
-      **Severity:** #{feedback.severity}
-      **Affected Repo:** #{feedback.affected_repo}
-      **App Version:** #{feedback.app_version} (#{feedback.build_number})
-      **Device:** #{feedback.device_model} / #{feedback.os_version}
+      | 분류 | 심각도 | 대상 | 버전 | 디바이스 |
+      |------|--------|------|------|----------|
+      | #{feedback.bug_category} | #{feedback.severity} | #{feedback.affected_repo} | #{feedback.app_version} (#{feedback.build_number}) | #{feedback.device_model} / #{feedback.os_version} |
 
       ## User Feedback
 
       #{feedback.feedback_text || 'No feedback text provided'}
-
-      ## AI Analysis
-
-      **Root Cause Hypothesis:** #{analysis['root_cause_hypothesis']}
-
-      **Suggested Fix:** #{analysis['suggested_fix']}
-
-      **Affected Files (hint):**
-      #{(analysis['affected_files_hint'] || []).map { |f| "- `#{f}`" }.join("\n")}
     BODY
 
     if screenshots.any?
@@ -146,7 +132,7 @@ class TestflightGithubIssueJob
       CRASH
     end
 
-    body += "\n\n---\n_Auto-generated from TestFlight feedback pipeline_"
+    body += "\n\n---\n_Auto-generated from TestFlight feedback pipeline. Root cause analysis by Opus via `/poll-feedback`._"
     body
   end
 
