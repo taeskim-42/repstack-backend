@@ -360,7 +360,9 @@ module AiTrainer
         - 전문 용어는 쉽게 설명
         - 트레이너다운 격려와 조언 포함
 
-        ## 응답 형식 (JSON만 반환)
+        ## 응답 형식 (JSON만 반환 — 절대 규칙!)
+        🚨 **반드시 JSON 객체만 반환하세요!** 일반 텍스트로 응답하면 시스템이 깨집니다.
+        🚨 **JSON 외 다른 형식은 절대 사용하지 마세요!** 코드블록(```)도 사용하지 마세요.
         **⚠️ collected_data는 이전 값 + 새로 파악한 값을 모두 포함해야 합니다!**
         ```json
         {
@@ -610,7 +612,7 @@ module AiTrainer
             collected_data: new_collected,
             is_complete: is_complete,
             assessment: assessment,
-            suggestions: fallback_suggestions.presence || []
+            suggestions: fallback_suggestions.presence || generate_suggestions_for_plain_text(final_message)
           }
         end
       rescue JSON::ParserError => e
@@ -674,7 +676,7 @@ module AiTrainer
           collected_data: new_collected,
           is_complete: is_complete,
           assessment: assessment,
-          suggestions: rescue_suggestions.presence || []
+          suggestions: rescue_suggestions.presence || generate_suggestions_for_plain_text(final_message)
         }
       end
     end
@@ -1123,6 +1125,44 @@ module AiTrainer
       }
     end
 
+
+    # When LLM returns plain text instead of JSON, ask LLM to generate suggestions
+    # This avoids hardcoding and keeps suggestions contextual
+    def generate_suggestions_for_plain_text(message_text)
+      return [] if message_text.blank?
+
+      Rails.logger.info("[LevelAssessmentService] Generating suggestions for plain text via LLM")
+
+      response = LlmGateway.chat(
+        prompt: message_text,
+        task: :level_assessment,
+        messages: [
+          { role: "user", content: "다음 트레이너의 질문/메시지에 대해 사용자가 탭해서 답할 수 있는 선택지를 2-4개 JSON 배열로만 반환하세요. 다른 텍스트 없이 배열만 출력하세요.\n\n트레이너: #{message_text}" }
+        ],
+        system: "JSON 배열만 반환하세요. 예: [\"아침형\", \"저녁형\", \"상관없어\"]. 다른 텍스트나 설명 없이 JSON 배열만 출력하세요."
+      )
+
+      return [] unless response[:success]
+
+      content = response[:content].strip
+
+      # Try direct JSON array parse
+      if content.start_with?("[")
+        parsed = JSON.parse(content)
+        return Array(parsed).map(&:to_s).first(4) if parsed.is_a?(Array)
+      end
+
+      # Try extracting array from content
+      if content =~ /\[([^\]]+)\]/
+        items = $1.scan(/"([^"]+)"/).flatten
+        return items.first(4) if items.length >= 2
+      end
+
+      []
+    rescue => e
+      Rails.logger.warn("[LevelAssessmentService] Failed to generate suggestions for plain text: #{e.message}")
+      []
+    end
 
     # Strip "suggestions: [...]" and numbered list text from LLM message
     # Defensive measure: LLM sometimes embeds suggestions in message field
