@@ -144,10 +144,8 @@ module AiTrainer
 
       # Use LLM for first greeting (generates both message + suggestions)
       if LlmGateway.configured?(task: :level_assessment)
-        conversation = build_conversation("", next_state)
-        # Add instruction to greet the user first
         greeting_instruction = "사용자가 처음 채팅에 들어왔습니다. 이미 파악된 정보를 확인했다고 언급하고, 첫 번째 질문을 해주세요."
-        conversation[:messages] << { role: "user", content: greeting_instruction }
+        conversation = build_conversation(greeting_instruction, next_state)
 
         response = LlmGateway.chat(
           prompt: greeting_instruction,
