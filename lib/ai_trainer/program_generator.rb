@@ -86,11 +86,14 @@ module AiTrainer
       frequency = @collected_data["frequency"] || "주 3회"
       days_per_week = parse_days_per_week(frequency, DEFAULT_CONFIGS[tier][:days_per_week])
 
-      Rails.logger.info("[ProgramGenerator] collected_data: #{@collected_data.inspect}")
-      Rails.logger.info("[ProgramGenerator] frequency=#{frequency}, days_per_week=#{days_per_week}")
-
       # Get default config for this tier
       config = DEFAULT_CONFIGS[tier]
+
+      # Use user's preferred duration from consultation, fallback to tier default
+      preferred_weeks = parse_program_weeks(@collected_data["program_duration"], config[:weeks])
+
+      Rails.logger.info("[ProgramGenerator] collected_data: #{@collected_data.inspect}")
+      Rails.logger.info("[ProgramGenerator] frequency=#{frequency}, days_per_week=#{days_per_week}, preferred_weeks=#{preferred_weeks}")
 
       {
         # User info
@@ -116,8 +119,8 @@ module AiTrainer
         days_per_week: days_per_week,
         schedule: @collected_data["schedule"],
 
-        # Program defaults (from tier)
-        default_weeks: config[:weeks],
+        # Program defaults (user preference > tier default)
+        default_weeks: preferred_weeks,
         default_periodization: config[:periodization],
         default_split: config[:split],
 
@@ -196,34 +199,24 @@ module AiTrainer
         #{rag_knowledge[:chunks].any? ? "## 참고 지식\n#{rag_knowledge[:chunks].join("\n\n")}" : ""}
 
         ## 요청
-        위 정보를 바탕으로 장기 운동 프로그램 프레임워크를 JSON으로 생성해주세요.
+        위 정보를 바탕으로 **#{context[:default_weeks]}주** 장기 운동 프로그램 프레임워크를 JSON으로 생성해주세요.
+        ⚠️ 사용자가 상담에서 희망한 기간(#{context[:default_weeks]}주)을 반드시 반영하세요!
 
         ## 응답 형식 (JSON)
         ```json
         {
-          "program_name": "프로그램 이름 (예: 12주 근비대 프로그램)",
-          "total_weeks": 12,
+          "program_name": "프로그램 이름 (예: #{context[:default_weeks]}주 다이어트 프로그램)",
+          "total_weeks": #{context[:default_weeks]},
           "periodization_type": "linear|undulating|block",
           "weekly_plan": {
-            "1-3": {
+            "1-N": {
               "phase": "적응기",
               "theme": "기본 동작 학습, 폼 교정",
               "volume_modifier": 0.8,
               "focus": "운동 패턴 익히기, 낮은 무게"
             },
-            "4-8": {
-              "phase": "성장기",
-              "theme": "점진적 과부하",
-              "volume_modifier": 1.0,
-              "focus": "무게/볼륨 증가, 기본 복합운동 마스터"
-            },
-            "9-11": {
-              "phase": "강화기",
-              "theme": "고강도 훈련",
-              "volume_modifier": 1.1,
-              "focus": "개인 기록 도전, 테크닉 정교화"
-            },
-            "12": {
+            "...": "total_weeks에 맞게 주차별 계획 구성",
+            "마지막주": {
               "phase": "디로드",
               "theme": "회복",
               "volume_modifier": 0.6,
@@ -244,7 +237,7 @@ module AiTrainer
         ```
 
         주의사항:
-        - total_weeks는 사용자 레벨과 목표에 맞게 적절히 설정 (8-16주)
+        - total_weeks는 반드시 #{context[:default_weeks]}주로 설정 (사용자가 상담에서 선택한 기간)
         - weekly_plan의 키는 "1-3", "4-8" 등 주차 범위 문자열
         - split_schedule의 키는 요일 번호 (1=월, 7=일)
         - ⚠️ 매우 중요: 사용자의 운동 가능 빈도는 **주 #{context[:days_per_week]}회**입니다
@@ -343,7 +336,7 @@ module AiTrainer
     end
 
     def default_weekly_plan(context)
-      weeks = context[:default_weeks] || 12
+      weeks = context[:default_weeks] || 8
       tier = context[:tier]
 
       case tier
@@ -419,12 +412,21 @@ module AiTrainer
 
     def default_coach_message(context)
       goal = context[:goal] || "건강한 몸"
-      weeks = context[:default_weeks] || 12
+      weeks = context[:default_weeks] || 8
       tier = context[:tier_korean] || "중급자"
 
       "#{context[:name]}님을 위한 #{weeks}주 #{goal} 프로그램을 준비했어요! " \
       "#{tier} 레벨에 맞게 점진적으로 난이도를 높여갈게요. " \
       "매일 컨디션과 피드백을 반영해서 최적의 루틴을 만들어드릴게요! 💪"
+    end
+
+    # Parse program weeks from duration string like "8주", "12주 (장기)", "4주 (단기)"
+    def parse_program_weeks(duration, default)
+      return default if duration.blank?
+
+      match = duration.match(/(\d+)\s*(?:주|weeks?)/)
+      weeks = match ? match[1].to_i : default
+      weeks.clamp(4, 24)
     end
 
     # Parse days_per_week from frequency string like "주 3회", "주 3회, 1시간", "3일"

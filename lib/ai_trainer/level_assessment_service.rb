@@ -105,7 +105,8 @@ module AiTrainer
           message: completion_message,
           is_complete: true,
           assessment: result[:assessment],
-          program: program_result[:program]  # TrainingProgram model instance
+          program: program_result[:program],  # TrainingProgram model instance
+          suggestions: result[:suggestions]
         }
       else
         save_assessment_state(result[:next_state], result[:collected_data])
@@ -332,6 +333,7 @@ module AiTrainer
         #{format_remaining_questions(collected)}
 
         ⚠️ **위에 나열된 항목만 질문하세요!** 이미 값이 있는 항목은 질문하지 마세요!
+        ⚠️ **program_duration은 마지막에 물어보세요!** 다른 정보를 먼저 충분히 파악한 후에 "몇 주짜리 프로그램을 원하세요?" 라고 물어보세요.
 
         ## ⏰ 완료 타이밍 (매우 중요!)
         ❌ **절대 먼저 끝내지 마세요!**
@@ -362,7 +364,8 @@ module AiTrainer
             "environment": "새로 파악했으면 여기에! (예: 헬스장)",
             "focus_areas": "새로 파악했으면 여기에!",
             "schedule": "새로 파악했으면 여기에!",
-            "lifestyle": "새로 파악했으면 여기에!"
+            "lifestyle": "새로 파악했으면 여기에!",
+            "program_duration": "새로 파악했으면 여기에! (예: 8주, 12주)"
           },
           "suggestions": ["선택지1", "선택지2", "선택지3"],
           "is_complete": false,
@@ -375,6 +378,7 @@ module AiTrainer
         - 예: "운동 목표가 뭔가요?" → suggestions: ["근육 키우기", "다이어트", "체력 향상", "건강 유지"]
         - 예: "아침형? 저녁형?" → suggestions: ["아침형", "저녁형", "상관없어"]
         - 예: "헬스장 다니세요?" → suggestions: ["헬스장", "홈트레이닝", "둘 다"]
+        - 예: "몇 주짜리 프로그램?" → suggestions: ["4주 (단기)", "8주 (표준)", "12주 (장기)"]
         - 2~4개가 적당, 사용자가 자유 입력도 가능하므로 대표적인 것만
         - 질문이 아닌 공감/반응만 하는 경우에도 다음 행동 suggestions 제공
 
@@ -469,14 +473,16 @@ module AiTrainer
 
           # ============================================
           # AUTO-COMPLETE: Only if ALL essential info collected
-          # Essential = experience + frequency + goals + environment + injuries
-          # This ensures more thorough consultation before generating routine
+          # Essential = experience + frequency + goals + environment + injuries + schedule + program_duration
+          # Ensures thorough consultation before generating routine
           # ============================================
           has_all_essential = new_collected["experience"].present? &&
                               new_collected["frequency"].present? &&
                               new_collected["goals"].present? &&
                               new_collected["environment"].present? &&
-                              new_collected["injuries"].present?
+                              new_collected["injuries"].present? &&
+                              new_collected["schedule"].present? &&
+                              new_collected["program_duration"].present?
 
           if has_all_essential && !is_complete
             Rails.logger.info("[LevelAssessmentService] All essential info collected! Auto-completing.")
@@ -549,7 +555,9 @@ module AiTrainer
                               new_collected["frequency"].present? &&
                               new_collected["goals"].present? &&
                               new_collected["environment"].present? &&
-                              new_collected["injuries"].present?
+                              new_collected["injuries"].present? &&
+                              new_collected["schedule"].present? &&
+                              new_collected["program_duration"].present?
 
           if has_all_essential && !is_complete
             Rails.logger.info("[LevelAssessmentService] Fallback: All essential info collected! Auto-completing.")
@@ -612,7 +620,9 @@ module AiTrainer
                             new_collected["frequency"].present? &&
                             new_collected["goals"].present? &&
                             new_collected["environment"].present? &&
-                            new_collected["injuries"].present?
+                            new_collected["injuries"].present? &&
+                            new_collected["schedule"].present? &&
+                            new_collected["program_duration"].present?
 
         if has_all_essential && !is_complete
           Rails.logger.info("[LevelAssessmentService] JSON parse error path: All essential info collected! Auto-completing.")
@@ -718,7 +728,8 @@ module AiTrainer
         "injuries" => "부상/통증 여부",
         "focus_areas" => "집중하고 싶은 부위",
         "preferences" => "좋아하는/싫어하는 운동",
-        "lifestyle" => "직업/라이프스타일"
+        "lifestyle" => "직업/라이프스타일",
+        "program_duration" => "희망 프로그램 기간 (몇 주짜리)"
       }
 
       remaining = questions.select { |key, _| collected[key].blank? }
