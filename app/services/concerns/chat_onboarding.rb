@@ -48,11 +48,7 @@ module ChatOnboarding
       data: {
         yesterday_workout: yesterday_summary,
         last_week_workout: last_week_summary,
-        suggestions: [
-          "좋아! 오늘 운동 시작하자",
-          "오늘은 좀 피곤해",
-          "컨디션 좋아! 강도 올려줘"
-        ]
+        suggestions: []
       }
     )
   end
@@ -233,7 +229,7 @@ module ChatOnboarding
       data: {
         routine: result,
         program: program_info,
-        suggestions: ["운동 시작!", "운동 하나 교체해줘", "운동 끝났어"]
+        suggestions: []
       }
     )
   end
@@ -329,11 +325,7 @@ module ChatOnboarding
           },
           long_term_plan: long_term_plan,
           routine: first_routine,
-          suggestions: [
-            "운동 시작할게!",
-            "이 운동 대신 다른 거 추천해줘",
-            "운동 순서 바꿔도 될까?"
-          ]
+          suggestions: []
         }
       )
     else
@@ -349,11 +341,7 @@ module ChatOnboarding
             goal: goal
           },
           long_term_plan: long_term_plan,
-          suggestions: [
-            "오늘 루틴 만들어줘",
-            "내 레벨에 맞는 운동 추천해줘",
-            "운동 어떻게 시작하면 좋을까?"
-          ]
+          suggestions: []
         }
       )
     end

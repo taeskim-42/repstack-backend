@@ -73,7 +73,7 @@ module ChatToolHandlers
       return success_response(
         message: "오늘의 루틴이에요! 💪\n\n특정 운동을 바꾸고 싶으면 'XX 대신 다른 운동'이라고 말씀해주세요.",
         intent: "GENERATE_ROUTINE",
-        data: { routine: routine_data, suggestions: ["운동 끝났어", "운동 하나 교체해줘"] }
+        data: { routine: routine_data, suggestions: [] }
       )
     end
 
@@ -107,7 +107,7 @@ module ChatToolHandlers
       return success_response(
         message: routine[:coach_message] || "오늘은 휴식일이에요! 충분한 회복을 취하세요 💤",
         intent: "REST_DAY",
-        data: { rest_day: true, suggestions: ["내일 루틴 알려줘", "그래도 오늘 운동하고 싶어"] }
+        data: { rest_day: true, suggestions: [] }
       )
     end
 
@@ -125,7 +125,7 @@ module ChatToolHandlers
     success_response(
       message: format_routine_message(routine, program_info),
       intent: "GENERATE_ROUTINE",
-      data: { routine: routine, program: program_info, suggestions: ["운동 끝났어", "운동 하나 교체해줘"] }
+      data: { routine: routine, program: program_info, suggestions: [] }
     )
   end
 
@@ -187,7 +187,7 @@ module ChatToolHandlers
           condition: condition,
           intensity_modifier: result[:intensity_modifier],
           existing_routine_id: today_routine.id,
-          suggestions: ["루틴 보여줘", "운동 시작할게"]
+          suggestions: []
         }
       )
     end
@@ -208,7 +208,7 @@ module ChatToolHandlers
         intent: "CHECK_CONDITION",
         data: {
           condition: condition,
-          suggestions: ["오늘 루틴 만들어줘", "좀 더 쉬울래"]
+          suggestions: []
         }
       )
     end
@@ -220,7 +220,7 @@ module ChatToolHandlers
       return success_response(
         message: message,
         intent: "REST_DAY",
-        data: { rest_day: true, condition: condition, suggestions: ["그래도 오늘 운동하고 싶어", "내일 루틴 알려줘"] }
+        data: { rest_day: true, condition: condition, suggestions: [] }
       )
     end
 
@@ -235,7 +235,7 @@ module ChatToolHandlers
         condition: condition,
         intensity_modifier: result[:intensity_modifier],
         routine: routine_result,
-        suggestions: ["운동 시작!", "운동 하나 교체해줘", "운동 끝났어"]
+        suggestions: []
       }
     )
   end
@@ -279,7 +279,7 @@ module ChatToolHandlers
         intent: "RECORD_EXERCISE",
         data: {
           records: [ record_item ],
-          suggestions: ["다음 운동 기록", "운동 끝났어", "오늘 총 기록 보기"]
+          suggestions: []
         }
       )
     else
@@ -322,7 +322,7 @@ module ChatToolHandlers
         routine: routine.reload,
         new_exercise: exercise.reload,
         remaining_replacements: rate_check[:remaining],
-        suggestions: ["운동 시작할게!", "다른 것도 바꿔줘", "운동 끝났어"]
+        suggestions: []
       }
     )
   end
@@ -351,7 +351,7 @@ module ChatToolHandlers
       data: {
         routine: routine.reload,
         added_exercise: exercise,
-        suggestions: ["운동 시작!", "다른 운동도 추가해줘", "운동 끝났어"]
+        suggestions: []
       }
     )
   end
@@ -384,7 +384,7 @@ module ChatToolHandlers
       data: {
         routine: routine_data,
         deleted_exercise: deleted_name,
-        suggestions: ["운동 시작!", "다른 운동 추가해줘", "운동 끝났어"]
+        suggestions: []
       }
     )
   end
@@ -477,11 +477,7 @@ module ChatToolHandlers
           tier: profile.tier || "beginner",
           goal: profile.fitness_goal
         },
-        suggestions: [
-          "오늘 루틴 만들어줘",
-          "내일은 뭐 해야 해?",
-          "휴식일에는 뭐 하면 좋아?"
-        ]
+        suggestions: []
       }
     )
   end
@@ -531,7 +527,7 @@ module ChatToolHandlers
         feedback_type: feedback_type.to_s,
         feedback_text: feedback_text,
         intensity_adjustment: response_data[:adjustment],
-        suggestions: ["이번 주 기록 보기", "프로그램 진행 상황"]
+        suggestions: []
       }
     )
   end
@@ -634,7 +630,7 @@ module ChatToolHandlers
         completed_sets: completed_sets,
         exercises_performed: exercises_count,
         total_volume: total_volume.to_i,
-        suggestions: ["적당했어", "좀 쉬웠어", "힘들었어", "스쿼트가 어려웠어"]
+        suggestions: []
       }
     )
   end
@@ -686,11 +682,7 @@ module ChatToolHandlers
         condition: condition.to_s,
         intensity: intensity,
         suggested_focus: suggested_focus[:focus],
-        suggestions: [
-          "#{suggested_focus[:focus]} 운동 해줘",
-          "가슴 운동 할래",
-          "하체 운동 해줘"
-        ]
+        suggestions: []
       }
     )
   end

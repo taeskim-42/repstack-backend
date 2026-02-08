@@ -132,10 +132,9 @@ module AiTrainer
     attr_reader :user, :profile
 
     # Handle first greeting when user enters chat after form onboarding
-    # AI proactively greets user with personalized message based on form data
+    # Uses LLM to generate personalized greeting + contextual suggestions
     def handle_first_greeting(analytics)
       form_data = extract_form_data
-      greeting = build_personalized_greeting(form_data)
 
       # Determine next state based on what's already known
       next_state = determine_next_state(form_data)
@@ -143,32 +142,44 @@ module AiTrainer
       # Save state with form data as initial collected data
       save_assessment_state(next_state, form_data)
 
-      # Update analytics
-      update_analytics(analytics, "", {
-        message: greeting,
-        collected_data: form_data
-      })
+      # Use LLM for first greeting (generates both message + suggestions)
+      if LlmGateway.configured?(task: :level_assessment)
+        conversation = build_conversation("", next_state)
+        # Add instruction to greet the user first
+        greeting_instruction = "사용자가 처음 채팅에 들어왔습니다. 이미 파악된 정보를 확인했다고 언급하고, 첫 번째 질문을 해주세요."
+        conversation[:messages] << { role: "user", content: greeting_instruction }
+
+        response = LlmGateway.chat(
+          prompt: greeting_instruction,
+          task: :level_assessment,
+          messages: conversation[:messages],
+          system: conversation[:system]
+        )
+
+        if response[:success]
+          result = parse_response(response, "")
+          update_analytics(analytics, "", { message: result[:message], collected_data: form_data })
+          return {
+            success: true,
+            message: result[:message],
+            is_complete: false,
+            assessment: nil,
+            suggestions: result[:suggestions]
+          }
+        end
+      end
+
+      # Fallback: hardcoded greeting (only if LLM fails or not configured)
+      greeting = build_personalized_greeting(form_data)
+      update_analytics(analytics, "", { message: greeting, collected_data: form_data })
 
       {
         success: true,
         message: greeting,
         is_complete: false,
         assessment: nil,
-        suggestions: greeting_suggestions_for(form_data)
+        suggestions: []
       }
-    end
-
-    # Return suggestions matching the first missing question in greeting
-    def greeting_suggestions_for(form_data)
-      if form_data["frequency"].blank?
-        ["주 3회, 1시간", "주 4회, 1시간", "주 5회 이상"]
-      elsif form_data["environment"].blank?
-        ["헬스장", "홈트레이닝", "둘 다"]
-      elsif form_data["injuries"].blank?
-        ["없어요", "허리 조심", "무릎 조심"]
-      else
-        []
-      end
     end
 
     # Build personalized greeting based on form data
@@ -492,7 +503,6 @@ module AiTrainer
             Rails.logger.info("[LevelAssessmentService] All essential info collected! Auto-completing.")
             is_complete = true
             data["message"] = build_auto_complete_message(new_collected)
-            data["suggestions"] = ["루틴 만들어줘", "더 얘기하고 싶어"]
           end
           
           # Build assessment if completing without one
@@ -997,103 +1007,53 @@ module AiTrainer
       has_focus = collected["focus_areas"].present?
       has_schedule = collected["schedule_details"].present?
 
-      # Conversation flow - ask questions in order, like a real trainer consultation
-      # 1. Goals (from form or ask)
+      # Mock conversation flow (API not configured - dev only)
+      # No hardcoded suggestions - user types freely
       unless has_goals
         if has_experience
           save_assessment_state(STATES[:asking_goals], collected)
-          return {
-            success: true,
-            message: "좋아요! 운동 목표가 어떻게 되시나요? 근육 키우기, 다이어트, 체력 향상, 건강 유지 등 편하게 말씀해주세요 😊",
-            is_complete: false,
-            assessment: nil,
-            suggestions: ["근육 키우기", "다이어트", "체력 향상", "건강 유지"]
-          }
+          return { success: true, message: "운동 목표가 어떻게 되시나요?", is_complete: false, assessment: nil, suggestions: [] }
         end
       end
 
-      # 2. Frequency (must ask)
       unless has_frequency
         save_assessment_state(STATES[:asking_frequency], collected)
-        goal_comment = collected["goals"] ? "#{collected['goals']} 목표시네요! " : ""
-        return {
-          success: true,
-          message: "#{goal_comment}주 몇 회 정도 운동하실 수 있으세요? 한 번에 얼마나 시간을 쓸 수 있는지도 알려주시면 좋아요!",
-          is_complete: false,
-          assessment: nil,
-          suggestions: ["주 3회, 1시간", "주 4회, 1시간", "주 5회 이상"]
-        }
+        return { success: true, message: "주 몇 회 정도 운동하실 수 있으세요?", is_complete: false, assessment: nil, suggestions: [] }
       end
 
-      # 3. Schedule details (when they can workout)
       unless has_schedule
         save_assessment_state("asking_schedule", collected)
-        return {
-          success: true,
-          message: "혹시 특정 요일이나 시간대에 운동하시나요? (예: 평일 저녁, 주말 오전 등) 아니면 유동적인가요?",
-          is_complete: false,
-          assessment: nil,
-          suggestions: ["평일 저녁", "주말 오전", "유동적"]
-        }
+        return { success: true, message: "선호하는 운동 시간대가 있으신가요?", is_complete: false, assessment: nil, suggestions: [] }
       end
 
-      # 4. Environment
       unless has_environment
         save_assessment_state("asking_environment", collected)
-        return {
-          success: true,
-          message: "운동 환경은 어떻게 되시나요? 헬스장을 다니시나요, 아니면 홈트레이닝 위주인가요? 사용 가능한 기구가 있다면 알려주세요!",
-          is_complete: false,
-          assessment: nil,
-          suggestions: ["헬스장", "홈트레이닝", "둘 다"]
-        }
+        return { success: true, message: "운동 환경은 어떻게 되시나요?", is_complete: false, assessment: nil, suggestions: [] }
       end
 
-      # 5. Injuries/limitations
       unless has_injuries
         save_assessment_state("asking_injuries", collected)
-        return {
-          success: true,
-          message: "혹시 부상이나 통증이 있는 부위가 있으신가요? 아니면 피해야 할 동작이 있나요? 없으시면 '없어요'라고 해주세요 😊",
-          is_complete: false,
-          assessment: nil,
-          suggestions: ["없어요", "허리 조심", "무릎 조심", "어깨 조심"]
-        }
+        return { success: true, message: "부상이나 통증이 있는 부위가 있으신가요?", is_complete: false, assessment: nil, suggestions: [] }
       end
 
-      # 6. Focus areas
       unless has_focus
         save_assessment_state("asking_focus", collected)
-        return {
-          success: true,
-          message: "특별히 발달시키고 싶은 부위가 있으신가요? (예: 어깨, 가슴, 등, 하체 등) 전체적으로 균형 있게 하고 싶으시면 그렇게 말씀해주셔도 돼요!",
-          is_complete: false,
-          assessment: nil,
-          suggestions: ["전체 균형", "상체 위주", "하체 위주"]
-        }
+        return { success: true, message: "집중하고 싶은 부위가 있으신가요?", is_complete: false, assessment: nil, suggestions: [] }
       end
 
-      # 7. Preferences
       unless has_preferences
         save_assessment_state("asking_preferences", collected)
-        return {
-          success: true,
-          message: "좋아하는 운동이나 피하고 싶은 운동이 있으신가요? 예를 들어 '스쿼트는 좋아하는데 데드리프트는 무서워요' 같은 거요 😄",
-          is_complete: false,
-          assessment: nil,
-          suggestions: ["딱히 없어요", "머신 위주가 좋아요", "프리웨이트 좋아요"]
-        }
+        return { success: true, message: "좋아하거나 피하고 싶은 운동이 있으신가요?", is_complete: false, assessment: nil, suggestions: [] }
       end
 
-      # All info collected - prompt user to confirm or ask more
       save_assessment_state("ready_to_complete", collected)
       summary = build_consultation_summary(collected)
       {
         success: true,
-        message: "#{summary}\n\n이 정보를 바탕으로 맞춤 루틴을 만들어드릴까요? 더 얘기하고 싶은 게 있으시면 편하게 말씀해주세요! 🏋️",
+        message: "#{summary}\n\n맞춤 루틴을 만들어드릴까요?",
         is_complete: false,
         assessment: nil,
-        suggestions: ["루틴 만들어줘!", "수정할 게 있어", "더 얘기하고 싶어"]
+        suggestions: []
       }
     end
 
