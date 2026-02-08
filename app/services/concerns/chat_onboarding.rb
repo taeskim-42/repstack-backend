@@ -419,15 +419,6 @@ module ChatOnboarding
       # Use explicit suggestions from assessment, or extract from message
       suggestions = result[:suggestions].presence || extract_suggestions_from_message(result[:message])
 
-      # Fallback suggestions based on completion state
-      if suggestions.blank?
-        suggestions = if result[:is_complete]
-          ["오늘 루틴 만들어줘", "더 얘기하고 싶어", "나중에 할게"]
-        else
-          ["네", "아니요", "잘 모르겠어"]
-        end
-      end
-
       # Strip raw "suggestions: [...]" text from message so it doesn't show in chat
       clean_message = strip_suggestions_text(result[:message])
 

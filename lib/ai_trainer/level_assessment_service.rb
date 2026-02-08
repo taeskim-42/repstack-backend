@@ -482,6 +482,7 @@ module AiTrainer
             Rails.logger.info("[LevelAssessmentService] All essential info collected! Auto-completing.")
             is_complete = true
             data["message"] = build_auto_complete_message(new_collected)
+            data["suggestions"] = ["루틴 만들어줘", "더 얘기하고 싶어"]
           end
           
           # Build assessment if completing without one
@@ -508,6 +509,15 @@ module AiTrainer
           assessment = data["assessment"]
           if assessment.is_a?(Hash)
             assessment = assessment.merge("numeric_level" => nil) unless assessment.key?("numeric_level")
+          end
+
+          # Extract suggestions from message text BEFORE stripping (if JSON field is empty)
+          if Array(data["suggestions"]).empty? && data["message"].present?
+            extracted = data["message"].scan(/suggestions\s*:?\s*-?\s*\[([^\]]+)\]/i).flatten.first
+            if extracted
+              items = extracted.scan(/"([^"]+)"/).flatten
+              data["suggestions"] = items.first(4) if items.length >= 2
+            end
           end
 
           # Defensive strip: remove any "suggestions: [...]" text LLM may have embedded in message
