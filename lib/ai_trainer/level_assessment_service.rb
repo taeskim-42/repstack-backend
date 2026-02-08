@@ -523,13 +523,19 @@ module AiTrainer
           # Defensive strip: remove any "suggestions: [...]" text LLM may have embedded in message
           clean_message = strip_suggestions_from_message(data["message"])
 
+          # Final fallback: if still no suggestions, generate contextual ones from collected_data state
+          final_suggestions = Array(data["suggestions"]).first(4)
+          if final_suggestions.empty? && !is_complete
+            final_suggestions = contextual_fallback_suggestions(new_collected)
+          end
+
           {
             message: clean_message,
             next_state: data["next_state"] || STATES[:asking_experience],
             collected_data: new_collected,
             is_complete: is_complete,
             assessment: assessment,
-            suggestions: Array(data["suggestions"]).first(4)
+            suggestions: final_suggestions
           }
         else
           # Fallback: treat as plain text response (Claude returned text instead of JSON)
@@ -592,7 +598,7 @@ module AiTrainer
             collected_data: new_collected,
             is_complete: is_complete,
             assessment: assessment,
-            suggestions: fallback_suggestions.presence
+            suggestions: fallback_suggestions.presence || contextual_fallback_suggestions(new_collected)
           }
         end
       rescue JSON::ParserError => e
@@ -654,7 +660,7 @@ module AiTrainer
           collected_data: new_collected,
           is_complete: is_complete,
           assessment: assessment,
-          suggestions: rescue_suggestions.presence
+          suggestions: rescue_suggestions.presence || contextual_fallback_suggestions(new_collected)
         }
       end
     end
@@ -1150,6 +1156,26 @@ module AiTrainer
           "consultation_data" => collected
         }
       }
+    end
+
+    # Generate contextual suggestions based on what data is still missing
+    # Used as last-resort fallback when LLM fails to provide suggestions
+    def contextual_fallback_suggestions(collected)
+      if collected["frequency"].blank?
+        ["주 3회, 1시간", "주 4회, 1시간", "주 5회 이상"]
+      elsif collected["environment"].blank?
+        ["헬스장", "홈트레이닝", "둘 다"]
+      elsif collected["injuries"].blank?
+        ["없어요", "허리 조심", "무릎 조심", "어깨 조심"]
+      elsif collected["schedule"].blank?
+        ["아침형", "저녁형", "상관없어"]
+      elsif collected["focus_areas"].blank?
+        ["전체 균형", "상체 위주", "하체 위주"]
+      elsif collected["preferences"].blank?
+        ["딱히 없어요", "머신 위주", "프리웨이트 좋아요"]
+      else
+        ["루틴 만들어줘", "더 얘기하고 싶어"]
+      end
     end
 
     # Strip "suggestions: [...]" and numbered list text from LLM message
