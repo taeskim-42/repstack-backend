@@ -426,17 +426,11 @@ module AiTrainer
       # Add current user message
       messages << { role: "user", content: user_message }
 
-      # Assistant prefill: force JSON output by starting with "{"
-      messages << { role: "assistant", content: "{" }
-
       { system: system_prompt, messages: messages }
     end
 
     def parse_response(llm_response, user_message)
       content = llm_response[:content]
-
-      # Prepend "{" that was used as assistant prefill (LLM continues from there)
-      content = "{" + content unless content.strip.start_with?("{")
 
       # Try to parse as JSON
       begin
