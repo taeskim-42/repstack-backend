@@ -523,10 +523,10 @@ module AiTrainer
           # Defensive strip: remove any "suggestions: [...]" text LLM may have embedded in message
           clean_message = strip_suggestions_from_message(data["message"])
 
-          # Final fallback: if still no suggestions, generate contextual ones from collected_data state
+          # Final fallback: if still no suggestions, analyze response message to match suggestions to question
           final_suggestions = Array(data["suggestions"]).first(4)
           if final_suggestions.empty? && !is_complete
-            final_suggestions = contextual_fallback_suggestions(new_collected)
+            final_suggestions = contextual_fallback_suggestions(clean_message)
           end
 
           {
@@ -598,7 +598,7 @@ module AiTrainer
             collected_data: new_collected,
             is_complete: is_complete,
             assessment: assessment,
-            suggestions: fallback_suggestions.presence || contextual_fallback_suggestions(new_collected)
+            suggestions: fallback_suggestions.presence || contextual_fallback_suggestions(final_message)
           }
         end
       rescue JSON::ParserError => e
@@ -660,7 +660,7 @@ module AiTrainer
           collected_data: new_collected,
           is_complete: is_complete,
           assessment: assessment,
-          suggestions: rescue_suggestions.presence || contextual_fallback_suggestions(new_collected)
+          suggestions: rescue_suggestions.presence || contextual_fallback_suggestions(final_message)
         }
       end
     end
@@ -1158,23 +1158,30 @@ module AiTrainer
       }
     end
 
-    # Generate contextual suggestions based on what data is still missing
-    # Used as last-resort fallback when LLM fails to provide suggestions
-    def contextual_fallback_suggestions(collected)
-      if collected["frequency"].blank?
-        ["주 3회, 1시간", "주 4회, 1시간", "주 5회 이상"]
-      elsif collected["environment"].blank?
-        ["헬스장", "홈트레이닝", "둘 다"]
-      elsif collected["injuries"].blank?
+    # Generate contextual suggestions by analyzing the RESPONSE MESSAGE text
+    # Matches the actual question being asked, not stale collected_data
+    def contextual_fallback_suggestions(message)
+      return [] if message.blank?
+      msg = message.to_s
+
+      if msg =~ /부상|통증|다치|아프|피해야/
         ["없어요", "허리 조심", "무릎 조심", "어깨 조심"]
-      elsif collected["schedule"].blank?
+      elsif msg =~ /헬스장|홈트|운동\s*환경|기구|장비/
+        ["헬스장", "홈트레이닝", "둘 다"]
+      elsif msg =~ /주.*몇.*[회번]|빈도|자주/
+        ["주 3회, 1시간", "주 4회, 1시간", "주 5회 이상"]
+      elsif msg =~ /아침|저녁|시간대|언제.*운동/
         ["아침형", "저녁형", "상관없어"]
-      elsif collected["focus_areas"].blank?
+      elsif msg =~ /부위|어깨|가슴|등|하체|발달/
         ["전체 균형", "상체 위주", "하체 위주"]
-      elsif collected["preferences"].blank?
+      elsif msg =~ /좋아하는.*운동|싫어하는|선호|피하고/
         ["딱히 없어요", "머신 위주", "프리웨이트 좋아요"]
-      else
+      elsif msg =~ /목표|뭘.*원|어떤.*결과/
+        ["근육 키우기", "다이어트", "체력 향상", "건강 유지"]
+      elsif msg =~ /루틴.*만들|시작할까|준비/
         ["루틴 만들어줘", "더 얘기하고 싶어"]
+      else
+        []
       end
     end
 
