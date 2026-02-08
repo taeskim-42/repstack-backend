@@ -371,12 +371,19 @@ module AiTrainer
         ```
 
         ## 🔘 suggestions 규칙 (매우 중요!)
-        - 질문할 때 **반드시** 사용자가 탭할 수 있는 선택지를 suggestions에 포함하세요!
+        - 질문할 때 **반드시** 사용자가 탭할 수 있는 선택지를 suggestions JSON 필드에 포함하세요!
         - 예: "운동 목표가 뭔가요?" → suggestions: ["근육 키우기", "다이어트", "체력 향상", "건강 유지"]
         - 예: "아침형? 저녁형?" → suggestions: ["아침형", "저녁형", "상관없어"]
         - 예: "헬스장 다니세요?" → suggestions: ["헬스장", "홈트레이닝", "둘 다"]
         - 2~4개가 적당, 사용자가 자유 입력도 가능하므로 대표적인 것만
         - 질문이 아닌 공감/반응만 하는 경우에도 다음 행동 suggestions 제공
+
+        🚨 **suggestions 분리 절대 규칙**:
+        - "message" 필드에 suggestions: [...] 텍스트를 **절대** 포함하지 마세요!
+        - suggestions는 반드시 별도 JSON 필드("suggestions")에만 넣으세요
+        - ❌ 잘못된 예: {"message": "어떤 운동을 좋아하세요?\nsuggestions: [\"A\", \"B\"]", ...}
+        - ✅ 올바른 예: {"message": "어떤 운동을 좋아하세요?", "suggestions": ["A", "B"], ...}
+        - "message"에는 순수 대화 텍스트만, 선택지 목록(1. 2. 3. 또는 - A\n- B)도 넣지 마세요
 
         ## 완료 시에만 (사용자가 루틴 요청했을 때)
         ```json
@@ -503,8 +510,11 @@ module AiTrainer
             assessment = assessment.merge("numeric_level" => nil) unless assessment.key?("numeric_level")
           end
 
+          # Defensive strip: remove any "suggestions: [...]" text LLM may have embedded in message
+          clean_message = strip_suggestions_from_message(data["message"])
+
           {
-            message: data["message"],
+            message: clean_message,
             next_state: data["next_state"] || STATES[:asking_experience],
             collected_data: new_collected,
             is_complete: is_complete,
@@ -1130,6 +1140,19 @@ module AiTrainer
           "consultation_data" => collected
         }
       }
+    end
+
+    # Strip "suggestions: [...]" and numbered list text from LLM message
+    # Defensive measure: LLM sometimes embeds suggestions in message field
+    def strip_suggestions_from_message(msg)
+      return msg if msg.blank?
+
+      cleaned = msg.dup
+      # Remove "suggestions: [...]" in various formats (unicode spaces, with/without hyphen)
+      cleaned.gsub!(/[[:space:]]*suggestions\s*:?\s*-?\s*\[.*?\]/mi, "")
+      # Remove trailing numbered lists like "1. option\n2. option\n3. option"
+      cleaned.gsub!(/\n+(?:\d+[.)\-]\s*[^\n]+\n*){2,}\z/m, "")
+      cleaned.strip
     end
 
     def build_consultation_summary(collected)

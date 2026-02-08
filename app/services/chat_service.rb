@@ -275,17 +275,27 @@ class ChatService
   end
 
   # Strip "suggestions: ..." text from message so it doesn't show in chat
+  # Handles various LLM output formats: unicode spaces, missing colon, hyphen prefix, etc.
   def strip_suggestions_text(message)
     return message if message.blank?
 
-    # Remove everything from "suggestions:" to end of message (dotall: match across newlines)
-    cleaned = message.sub(/\n*suggestions:.*\z/mi, "").strip
+    cleaned = message.dup
 
-    # Also handle suggestions block in the middle (followed by more content on next lines)
-    cleaned = cleaned.sub(/\n*suggestions:\s*\[.*?\]/mi, "").strip
+    # Pattern 1: "suggestions: [...]" anywhere (with unicode spaces, optional colon/hyphen)
+    # Covers: "suggestions: [...]", "suggestions - [...]", "suggestions[...]", "Suggestions: [...]"
+    cleaned.gsub!(/[[:space:]]*suggestions\s*[:：\-]?\s*-?\s*\[.*?\]/mi, "")
+
+    # Pattern 2: "suggestions:" followed by rest of message (no bracket, free-form text)
+    cleaned.gsub!(/[[:space:]]*suggestions\s*[:：]\s*[^\[].*/mi, "")
+
+    # Pattern 3: Trailing numbered lists that look like suggestions (1. A\n2. B\n3. C at end)
+    cleaned.gsub!(/\n+(?:\d+[.)\-]\s*[^\n]+\n*){2,}\z/m, "")
 
     # Clean up orphaned markdown bold/italic markers left after stripping (e.g., trailing "**")
-    cleaned.sub(/\s*\*{1,3}\s*\z/, "").strip
+    cleaned.gsub!(/\s*\*{1,3}\s*\z/, "")
+
+    # Clean up excessive trailing newlines
+    cleaned.strip
   end
 
   def success_response(message:, intent:, data:)

@@ -53,13 +53,15 @@ gh issue list --repo taeskim-42/repstack-frontend --label testflight-feedback --
 gh issue view <NUMBER> --repo <REPO> --json title,body,labels,createdAt
 ```
 
-### 스크린샷 가져오기 (필수 — 반드시 시도)
+### 🔴 스크린샷 확인 절대 규칙 (모든 Issue 예외 없이)
+
+**모든 Issue에 대해 반드시** 스크린샷 유무를 확인해야 합니다. 하나의 Issue라도 스크린샷 확인 없이 넘어가면 안 됩니다.
 
 **1단계: Issue 본문에서 추출**
 Issue 본문의 `## Screenshots` 섹션에서 이미지 URL을 추출합니다 (`![Screenshot N](URL)` 형식).
 
-**2단계: Fallback - Admin API에서 가져오기**
-Issue 본문에 `## Screenshots` 섹션이 없으면, Admin API에서 스크린샷을 조회합니다:
+**2단계: Admin API에서 반드시 조회 (Fallback이 아닌 필수)**
+Issue 본문에 스크린샷이 있든 없든, **모든 Issue에 대해** Admin API에서 스크린샷 유무를 조회합니다:
 
 ```bash
 curl -s 'https://repstack-backend-production.up.railway.app/admin/testflight_feedbacks?admin_token=repstack_admin_1864a749b23220d903a0c3636c1e83b1&limit=50' | python3 -c "
@@ -67,13 +69,19 @@ import sys, json
 data = json.load(sys.stdin)
 for f in data['feedbacks']:
     issue_url = f.get('github_issue_url', '')
-    if '<REPO>/issues/<NUMBER>' in issue_url and f.get('screenshots'):
-        for i, url in enumerate(f['screenshots']):
-            print(f'SCREENSHOT_{i+1}: {url}')
+    if '<REPO>/issues/<NUMBER>' in issue_url:
+        screenshots = f.get('screenshots', [])
+        print(f'feedback_id={f[\"id\"]}, screenshots={len(screenshots)}개')
+        for i, url in enumerate(screenshots):
+            print(f'  SCREENSHOT_{i+1}: {url}')
+        if not screenshots:
+            print('  (스크린샷 없음)')
 "
 ```
 
-이미지 URL이 있으면 **반드시** 로컬에 다운로드하고 Read로 확인합니다:
+**3단계: 결과를 명시적으로 보고**
+- 스크린샷이 있는 경우: **반드시** 다운로드 + Read로 확인
+- 스크린샷이 0개인 경우: **"Admin API 조회: 0개"를 명시적으로 보고**
 
 ```bash
 mkdir -p /tmp/testflight-feedback
@@ -82,11 +90,13 @@ curl -sL "<IMAGE_URL>" -o /tmp/testflight-feedback/issue-<NUMBER>-screenshot-1.j
 
 다운로드한 스크린샷은 **Read 도구로 직접 확인**합니다 (이미지 파일 읽기 지원).
 
-> 🔴 **스크린샷이 있으면 반드시 다운로드 + Read로 확인해야 합니다.**
-> 스크린샷을 보지 않고 텍스트만으로 추측하면 잘못된 진단을 합니다.
+> 🔴 **모든 Issue의 스크린샷 유무를 보고해야 합니다:**
+> - Issue에 스크린샷이 있으면 → 다운로드 + Read 확인 후 관찰 내용 보고
+> - Issue에 스크린샷이 없으면 → "Admin API 조회: 0개 확인됨" 명시
+> - 스크린샷 확인 결과를 Step 3 보고 테이블에 반드시 포함
+>
+> 🔴 **스크린샷을 보지 않고 텍스트만으로 추측하면 잘못된 진단을 합니다.**
 > 스크린샷에서 UI 상태, 에러 메시지, 데이터 표시 등을 직접 눈으로 확인하세요.
-
-스크린샷이 없는 Issue는 텍스트 정보만으로 진행합니다.
 
 ## Step 3: Opus 독립 분석 (Plan 모드)
 
