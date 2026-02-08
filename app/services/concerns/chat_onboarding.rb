@@ -419,6 +419,8 @@ module ChatOnboarding
       # Use explicit suggestions from assessment, or extract from message
       suggestions = result[:suggestions].presence || extract_suggestions_from_message(result[:message])
 
+      Rails.logger.info("[handle_level_assessment] intent=#{intent}, suggestions_from_result=#{result[:suggestions].inspect}, final_suggestions=#{suggestions.inspect}")
+
       # Strip raw "suggestions: [...]" text from message so it doesn't show in chat
       clean_message = strip_suggestions_text(result[:message])
 
