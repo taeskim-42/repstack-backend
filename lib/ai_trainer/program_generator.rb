@@ -83,11 +83,11 @@ module AiTrainer
       experience = @collected_data["experience"] || @profile&.current_level || "beginner"
       tier = normalize_tier(experience)
 
-      # Pass frequency as-is to LLM (no code parsing!)
       frequency = @collected_data["frequency"] || "주 3회"
+      days_per_week = parse_days_per_week(frequency, DEFAULT_CONFIGS[tier][:days_per_week])
 
       Rails.logger.info("[ProgramGenerator] collected_data: #{@collected_data.inspect}")
-      Rails.logger.info("[ProgramGenerator] frequency=#{frequency}")
+      Rails.logger.info("[ProgramGenerator] frequency=#{frequency}, days_per_week=#{days_per_week}")
 
       # Get default config for this tier
       config = DEFAULT_CONFIGS[tier]
@@ -111,8 +111,9 @@ module AiTrainer
         preferences: @collected_data["preferences"],
         environment: @collected_data["environment"] || "헬스장",
 
-        # Schedule - pass frequency string directly to LLM
+        # Schedule
         frequency: frequency,
+        days_per_week: days_per_week,
         schedule: @collected_data["schedule"],
 
         # Program defaults (from tier)
@@ -246,7 +247,9 @@ module AiTrainer
         - total_weeks는 사용자 레벨과 목표에 맞게 적절히 설정 (8-16주)
         - weekly_plan의 키는 "1-3", "4-8" 등 주차 범위 문자열
         - split_schedule의 키는 요일 번호 (1=월, 7=일)
-        - 사용자의 운동 가능 빈도(#{context[:frequency]})에 맞게 split_schedule 설정
+        - ⚠️ 매우 중요: 사용자의 운동 가능 빈도는 **주 #{context[:days_per_week]}회**입니다
+        - split_schedule에서 운동일(휴식이 아닌 날)은 반드시 **#{context[:days_per_week]}일**이어야 합니다
+        - 나머지 요일은 반드시 {"focus": "휴식", "muscles": []}로 설정하세요
         - 부상이 있다면 해당 부위를 피하는 분할 구성
         - coach_message는 한글로 친근하게
       USER
@@ -268,6 +271,10 @@ module AiTrainer
       json_str = extract_json(content)
       data = JSON.parse(json_str)
 
+      # Validate split_schedule: ensure training days match days_per_week
+      split_schedule = data["split_schedule"] || default_split_schedule(context)
+      split_schedule = enforce_days_per_week(split_schedule, context[:days_per_week])
+
       # Create TrainingProgram
       program = @user.training_programs.create!(
         name: data["program_name"] || "#{context[:tier_korean]} 운동 프로그램",
@@ -277,7 +284,7 @@ module AiTrainer
         goal: context[:goal],
         periodization_type: data["periodization_type"] || context[:default_periodization],
         weekly_plan: data["weekly_plan"] || default_weekly_plan(context),
-        split_schedule: data["split_schedule"] || default_split_schedule(context),
+        split_schedule: split_schedule,
         generation_context: {
           user_context: context.except(:user_id),
           rag_query: rag_knowledge[:query],
@@ -418,6 +425,31 @@ module AiTrainer
       "#{context[:name]}님을 위한 #{weeks}주 #{goal} 프로그램을 준비했어요! " \
       "#{tier} 레벨에 맞게 점진적으로 난이도를 높여갈게요. " \
       "매일 컨디션과 피드백을 반영해서 최적의 루틴을 만들어드릴게요! 💪"
+    end
+
+    # Parse days_per_week from frequency string like "주 3회", "주 3회, 1시간", "3일"
+    def parse_days_per_week(frequency, default)
+      return default if frequency.blank?
+
+      match = frequency.match(/(\d+)\s*(?:회|일|번|days?)/)
+      days = match ? match[1].to_i : default
+      days.clamp(1, 7)
+    end
+
+    # Ensure LLM-generated split_schedule has exactly days_per_week training days
+    def enforce_days_per_week(schedule, days_per_week)
+      return schedule if days_per_week.nil?
+
+      rest_focus_keywords = %w[휴식 rest off]
+      training_days = schedule.select { |_, v| rest_focus_keywords.none? { |kw| v["focus"]&.downcase&.include?(kw) } }
+
+      if training_days.size == days_per_week
+        Rails.logger.info("[ProgramGenerator] split_schedule OK: #{training_days.size} training days match days_per_week=#{days_per_week}")
+        return schedule
+      end
+
+      Rails.logger.warn("[ProgramGenerator] split_schedule mismatch: #{training_days.size} training days vs days_per_week=#{days_per_week}, using default")
+      default_split_schedule({ days_per_week: days_per_week })
     end
 
     def normalize_tier(experience)

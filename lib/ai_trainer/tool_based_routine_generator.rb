@@ -151,6 +151,12 @@ module AiTrainer
         tool_result = execute_tool(response[:tool_use])
         @tool_calls << { tool: response[:tool_use][:name], input: response[:tool_use][:input], result_preview: tool_result.to_s.truncate(200) }
 
+        # If rest day detected, return rest day response immediately
+        if tool_result.is_a?(Hash) && tool_result[:rest_day]
+          Rails.logger.info("[ToolBasedRoutineGenerator] Rest day - skipping routine generation")
+          return build_rest_day_response(tool_result[:message])
+        end
+
         # Continue conversation with tool result
         response = continue_with_tool_result(context, response, tool_result)
         Rails.logger.info("[ToolBasedRoutineGenerator] After tool result: success=#{response[:success]}, tool_use=#{response[:tool_use].present?}")
@@ -259,6 +265,15 @@ module AiTrainer
         parts << "스트레스 #{@condition[:stress_level]}/5" if @condition[:stress_level]
         parts.join(", ")
       end
+    end
+
+    # Check if a schedule entry represents a rest day
+    def rest_day?(schedule_entry)
+      return true if schedule_entry.nil?
+
+      focus = schedule_entry["focus"]&.downcase || ""
+      muscles = schedule_entry["muscles"]
+      %w[휴식 rest off].any? { |kw| focus.include?(kw) } || muscles.blank? || muscles.empty?
     end
 
     def level_to_tier(level)
@@ -392,6 +407,14 @@ module AiTrainer
             focus: program_today["focus"],
             muscles: program_today["muscles"]
           }
+        elsif program_today.nil? || rest_day?(program_today)
+          # This day is not in the program's split_schedule = rest day
+          # If user didn't explicitly request a workout, return rest day
+          if @goal.blank?
+            Rails.logger.info("[ToolBasedRoutineGenerator] Rest day detected (day=#{@day_of_week}, goal=nil)")
+            return { rest_day: true, message: "오늘은 프로그램에 따른 휴식일입니다. 충분한 회복을 취하세요! 💤" }
+          end
+          Rails.logger.info("[ToolBasedRoutineGenerator] Rest day but user has goal: #{@goal}")
         end
 
         # Apply volume modifier from program phase
@@ -1035,6 +1058,26 @@ module AiTrainer
       else
         text
       end
+    end
+
+    def build_rest_day_response(message)
+      day_names = %w[일 월 화 수 목 금 토]
+      day_names_en = %w[sunday monday tuesday wednesday thursday friday saturday]
+
+      {
+        routine_id: "RT-REST-#{Time.current.to_i}",
+        generated_at: Time.current.iso8601,
+        user_level: @level,
+        tier: level_to_tier(@level),
+        day_of_week: day_names_en[@day_of_week] || "wednesday",
+        day_korean: "#{day_names[@day_of_week]}요일",
+        rest_day: true,
+        exercises: [],
+        estimated_duration_minutes: 0,
+        notes: [message],
+        coach_message: message,
+        generation_method: "rest_day"
+      }
     end
 
     def fallback_routine

@@ -34,7 +34,12 @@ module AiTrainer
                  generate_with_creative(day_of_week, condition, recent_feedbacks, goal)
                end
 
-      return nil unless result.is_a?(Hash) && result[:routine_id]
+      return nil unless result.is_a?(Hash)
+
+      # Rest day: return directly without saving
+      return result if result[:rest_day]
+
+      return nil unless result[:routine_id]
 
       # Save to database
       save_routine_to_db(result)

@@ -102,6 +102,15 @@ module ChatToolHandlers
       return error_response(routine[:error] || "루틴 생성에 실패했어요.")
     end
 
+    # Rest day: return rest message without generating routine
+    if routine.is_a?(Hash) && routine[:rest_day]
+      return success_response(
+        message: routine[:coach_message] || "오늘은 휴식일이에요! 충분한 회복을 취하세요 💤",
+        intent: "REST_DAY",
+        data: { rest_day: true, suggestions: ["내일 루틴 알려줘", "그래도 오늘 운동하고 싶어"] }
+      )
+    end
+
     # Add program context to response if available
     program_info = if program
       {
@@ -201,6 +210,17 @@ module ChatToolHandlers
           condition: condition,
           suggestions: ["오늘 루틴 만들어줘", "좀 더 쉬울래"]
         }
+      )
+    end
+
+    # Rest day: return condition + rest message
+    if routine_result.is_a?(Hash) && routine_result[:rest_day]
+      message = build_condition_response_message(condition, result)
+      message += "\n\n오늘은 프로그램에 따른 휴식일이에요! 충분한 회복을 취하세요 💤"
+      return success_response(
+        message: message,
+        intent: "REST_DAY",
+        data: { rest_day: true, condition: condition, suggestions: ["그래도 오늘 운동하고 싶어", "내일 루틴 알려줘"] }
       )
     end
 
