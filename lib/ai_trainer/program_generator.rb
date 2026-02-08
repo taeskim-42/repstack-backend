@@ -420,38 +420,21 @@ module AiTrainer
     end
 
     def weeks_instruction(context)
-      if context[:default_weeks]
-        "위 정보를 바탕으로 **#{context[:default_weeks]}주** 장기 운동 프로그램 프레임워크를 JSON으로 생성해주세요.\n" \
-        "⚠️ 사용자가 상담에서 희망한 기간(#{context[:default_weeks]}주)을 반드시 반영하세요!"
-      else
-        "위 정보를 바탕으로 장기 운동 프로그램 프레임워크를 JSON으로 생성해주세요.\n" \
-        "⚠️ 사용자가 프로그램 기간을 AI에게 맡겼습니다. 사용자의 경험 수준(#{context[:tier_korean]}), " \
-        "목표(#{context[:goal]}), 운동 빈도(주 #{context[:days_per_week]}회)를 종합적으로 고려하여 " \
-        "최적의 프로그램 기간(total_weeks)을 직접 결정하세요.\n" \
-        "일반적 가이드라인: 초보자 4-8주, 중급자 8-12주, 고급자 8-16주"
-      end
+      "위 정보를 바탕으로 **#{context[:default_weeks]}주** 장기 운동 프로그램 프레임워크를 JSON으로 생성해주세요.\n" \
+      "⚠️ 사용자가 상담에서 희망한 기간(#{context[:default_weeks]}주)을 반드시 반영하세요!"
     end
 
     def weeks_note(context)
-      if context[:default_weeks]
-        "total_weeks는 반드시 #{context[:default_weeks]}주로 설정 (사용자가 상담에서 선택한 기간)"
-      else
-        "total_weeks는 사용자의 레벨(#{context[:tier_korean]})과 목표(#{context[:goal]})에 맞게 AI가 최적 값을 결정"
-      end
+      "total_weeks는 반드시 #{context[:default_weeks]}주로 설정 (사용자가 상담에서 선택한 기간)"
     end
 
-    # Parse program weeks from duration string like "8주", "12주", "AI 추천", "알아서 해줘"
-    # Returns nil if user wants AI to decide (LLM will determine optimal duration)
+    # Parse program weeks from duration string like "8주", "12주"
     def parse_program_weeks(duration, default)
       return default if duration.blank?
 
-      # "AI 추천", "알아서 해줘" etc. → return nil to let LLM decide
-      ai_decide_patterns = /알아서|AI\s*추천|자동|맡기|추천대로/i
-      return nil if duration.match?(ai_decide_patterns)
-
       match = duration.match(/(\d+)\s*(?:주|weeks?)/)
       weeks = match ? match[1].to_i : default
-      weeks&.clamp(4, 24)
+      weeks.clamp(4, 24)
     end
 
     # Parse days_per_week from frequency string like "주 3회", "주 3회, 1시간", "3일"
