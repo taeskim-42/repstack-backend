@@ -32,6 +32,14 @@ module Types
       argument :week, Int, required: false, description: "Filter by week number (1-based)"
     end
 
+    # Pre-generated routines
+    field :week_routines, [Types::WorkoutRoutineType], null: false,
+          description: "Pre-generated routines for a specific week" do
+      argument :week, Int, required: true, description: "Week number (1-based)"
+    end
+    field :routines_generated, Boolean, null: false,
+          description: "Whether baseline routines have been generated"
+
     # Today's info
     field :today_focus, String, null: true, description: "Today's training focus"
     field :today_muscles, [String], null: false, description: "Today's target muscles"
@@ -94,6 +102,14 @@ module Types
       end
 
       sessions.order(start_time: :desc)
+    end
+
+    def week_routines(week:)
+      object.routines_for_week(week)
+    end
+
+    def routines_generated
+      object.routines_generated?
     end
 
     def today_focus

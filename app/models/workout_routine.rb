@@ -1,5 +1,6 @@
 class WorkoutRoutine < ApplicationRecord
   belongs_to :user
+  belongs_to :training_program, optional: true
   has_many :routine_exercises, dependent: :destroy
 
   # Validations
@@ -19,6 +20,10 @@ class WorkoutRoutine < ApplicationRecord
   scope :completed, -> { where(is_completed: true) }
   scope :pending, -> { where(is_completed: false) }
   scope :recent, -> { order(generated_at: :desc) }
+  scope :for_program_week, ->(program_id, week) {
+    where(training_program_id: program_id, week_number: week)
+  }
+  scope :baseline, -> { where(generation_source: "program_baseline") }
 
   # Instance methods
   def complete!

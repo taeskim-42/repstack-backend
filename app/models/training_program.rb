@@ -27,6 +27,7 @@
 # }
 class TrainingProgram < ApplicationRecord
   belongs_to :user
+  has_many :workout_routines, dependent: :nullify
 
   # Status values
   STATUSES = %w[active completed paused].freeze
@@ -113,6 +114,47 @@ class TrainingProgram < ApplicationRecord
   def expired?
     return false if started_at.nil? || total_weeks.nil?
     Time.current > started_at + total_weeks.weeks
+  end
+
+  # Get routines for a specific week (latest per day_number)
+  def routines_for_week(week_number)
+    workout_routines.where(week_number: week_number)
+      .includes(:routine_exercises)
+      .order(:day_number, created_at: :desc)
+      .group_by(&:day_number)
+      .transform_values(&:first)
+      .values
+      .sort_by(&:day_number)
+  end
+
+  # Get phase info for a specific week from weekly_plan
+  def phase_info_for_week(week_number)
+    return nil if weekly_plan.blank?
+
+    weekly_plan.each do |week_range, info|
+      range = parse_week_range(week_range)
+      return info if range.include?(week_number)
+    end
+
+    nil
+  end
+
+  # Get training days from split_schedule
+  def training_days
+    return [] if split_schedule.blank?
+
+    rest_keywords = %w[휴식 rest off]
+    split_schedule.filter_map do |day_num, info|
+      focus = info["focus"] || info[:focus] || ""
+      next if rest_keywords.any? { |kw| focus.downcase.include?(kw) }
+
+      { day_number: day_num.to_i, focus: focus, muscles: info["muscles"] || info[:muscles] || [] }
+    end.sort_by { |d| d[:day_number] }
+  end
+
+  # Check if baseline routines have been generated
+  def routines_generated?
+    workout_routines.where(generation_source: "program_baseline").exists?
   end
 
   private

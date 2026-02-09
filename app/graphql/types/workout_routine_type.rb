@@ -17,6 +17,10 @@ module Types
     field :updated_at, String, null: false
     field :routine_exercises, [ Types::RoutineExerciseType ], null: false
     field :user, Types::UserType, null: false
+    field :generation_source, String, null: true, description: "How this routine was generated"
+    field :training_program_id, ID, null: true
+    field :is_today, Boolean, null: false, description: "Whether this is today's routine"
+    field :is_editable, Boolean, null: false, description: "Whether this routine can be modified"
 
     # Computed fields
     field :total_exercises, Integer, null: false
@@ -63,6 +67,22 @@ module Types
 
     def day_name
       object.day_name
+    end
+
+    def is_today
+      program = object.training_program
+      return false unless program&.started_at
+
+      today = Date.current
+      days_since_start = (today - program.started_at.to_date).to_i
+      current_week = (days_since_start / 7) + 1
+      current_day_of_week = today.cwday # 1=Monday
+
+      object.week_number == current_week && object.day_number == current_day_of_week
+    end
+
+    def is_editable
+      is_today && !object.is_completed
     end
   end
 end

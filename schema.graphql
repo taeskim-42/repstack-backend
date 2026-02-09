@@ -291,6 +291,11 @@ type ChatData {
   currentLevel: Int
 
   """
+  Deleted exercise name (DELETE_EXERCISE)
+  """
+  deletedExercise: String
+
+  """
   Deleted routine ID (DELETE_ROUTINE)
   """
   deletedRoutineId: ID
@@ -431,6 +436,26 @@ enum ChatIntentEnum {
   CHECK_CONDITION
 
   """
+  Condition checked and routine generated together
+  """
+  CONDITION_AND_ROUTINE
+
+  """
+  AI consultation for new users (form completed, AI chat in progress)
+  """
+  CONSULTATION
+
+  """
+  Daily greeting for returning users
+  """
+  DAILY_GREETING
+
+  """
+  Exercise deleted from routine
+  """
+  DELETE_EXERCISE
+
+  """
   Routine deleted
   """
   DELETE_ROUTINE
@@ -439,6 +464,11 @@ enum ChatIntentEnum {
   Long-term workout plan explanation
   """
   EXPLAIN_LONG_TERM_PLAN
+
+  """
+  Feedback received and processed
+  """
+  FEEDBACK_RECEIVED
 
   """
   General conversation handled by AI
@@ -486,6 +516,11 @@ enum ChatIntentEnum {
   SUBMIT_FEEDBACK
 
   """
+  Training program created after AI consultation complete
+  """
+  TRAINING_PROGRAM
+
+  """
   Welcome message for newly onboarded users
   """
   WELCOME
@@ -494,6 +529,11 @@ enum ChatIntentEnum {
   Welcome message with long-term plan and first routine
   """
   WELCOME_WITH_ROUTINE
+
+  """
+  Workout session completed
+  """
+  WORKOUT_COMPLETED
 }
 
 """
@@ -2304,7 +2344,14 @@ type Query {
   """
   Get current user's workout sessions
   """
-  mySessions(includeSets: Boolean = true, limit: Int = 10): [WorkoutSession!]!
+  mySessions(
+    """
+    Filter by date (ISO 8601, e.g. '2026-02-06')
+    """
+    date: String
+    includeSets: Boolean = true
+    limit: Int = 10
+  ): [WorkoutSession!]!
 
   """
   Get the current user's active training program
@@ -3204,6 +3251,11 @@ type TrainingProgram {
   progressPercentage: Int!
 
   """
+  Whether baseline routines have been generated
+  """
+  routinesGenerated: Boolean!
+
+  """
   Weekly split schedule
   """
   splitSchedule: [SplitDay!]!
@@ -3231,9 +3283,29 @@ type TrainingProgram {
   updatedAt: ISO8601DateTime!
 
   """
+  Pre-generated routines for a specific week
+  """
+  weekRoutines(
+    """
+    Week number (1-based)
+    """
+    week: Int!
+  ): [WorkoutRoutine!]!
+
+  """
   Weekly plan phases
   """
   weeklyPhases: [WeeklyPhase!]!
+
+  """
+  Workout sessions during this program
+  """
+  workoutSessions(
+    """
+    Filter by week number (1-based)
+    """
+    week: Int
+  ): [WorkoutSession!]!
 }
 
 """
@@ -3310,7 +3382,13 @@ type User {
   updatedAt: String!
   userProfile: UserProfile
   workoutRoutines(limit: Int = 10): [WorkoutRoutine!]!
-  workoutSessions(limit: Int = 10): [WorkoutSession!]!
+  workoutSessions(
+    """
+    Filter by date (ISO 8601)
+    """
+    date: String
+    limit: Int = 10
+  ): [WorkoutSession!]!
 }
 
 """
@@ -3819,13 +3897,34 @@ type WorkoutRoutine {
   dayOfWeek: String
   estimatedDuration: Int
   estimatedDurationFormatted: String
+
+  """
+  Estimated duration in minutes (alias with fallback)
+  """
+  estimatedDurationMinutes: Int!
   generatedAt: String!
+
+  """
+  How this routine was generated
+  """
+  generationSource: String
   id: ID!
   isCompleted: Boolean!
+
+  """
+  Whether this routine can be modified
+  """
+  isEditable: Boolean!
+
+  """
+  Whether this is today's routine
+  """
+  isToday: Boolean!
   level: String!
   routineExercises: [RoutineExercise!]!
   totalExercises: Int!
   totalSets: Int!
+  trainingProgramId: ID
   updatedAt: String!
   user: User!
   weekNumber: Int!

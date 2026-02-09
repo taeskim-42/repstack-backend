@@ -66,6 +66,13 @@ module AiTrainer
         # 4. Parse response and create TrainingProgram
         result = parse_and_create_program(response[:content], context, rag_knowledge)
         Rails.logger.info("[ProgramGenerator] Program created: #{result[:program]&.id}")
+
+        # 5. Queue bulk routine generation for the entire program
+        if result[:success] && result[:program]
+          ProgramRoutineGenerateJob.perform_later(result[:program].id)
+          Rails.logger.info("[ProgramGenerator] Queued routine generation for program #{result[:program].id}")
+        end
+
         result
       else
         Rails.logger.error("[ProgramGenerator] LLM call failed: #{response[:error]}")

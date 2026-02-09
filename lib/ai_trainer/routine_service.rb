@@ -116,10 +116,28 @@ module AiTrainer
       workout_type = result[:training_type] || result[:fitness_factor_korean] || "일반 훈련"
       duration = result[:estimated_duration_minutes] || 45
 
+      # Check for active program and replace baseline routine if exists
+      program = @user.active_training_program
+      week_num = calculate_week_number
+
+      if program
+        existing_baseline = program.workout_routines.find_by(
+          week_number: week_num,
+          day_number: day_num,
+          generation_source: "program_baseline"
+        )
+        if existing_baseline
+          Rails.logger.info("[RoutineService] Replacing baseline routine #{existing_baseline.id} with condition-adjusted")
+          existing_baseline.destroy!
+        end
+      end
+
       # Step 1: Create routine first and get DB ID immediately
       routine = @user.workout_routines.create!(
+        training_program_id: program&.id,
+        generation_source: program ? "condition_adjusted" : "ai",
         level: level,
-        week_number: calculate_week_number,
+        week_number: week_num,
         day_number: day_num,
         workout_type: workout_type,
         day_of_week: day_str,

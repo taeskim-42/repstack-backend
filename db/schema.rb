@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_02_02_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_02_09_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -277,12 +277,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_02_000001) do
     t.string "day_of_week"
     t.integer "estimated_duration"
     t.datetime "generated_at", null: false
+    t.string "generation_source", default: "ai"
     t.boolean "is_completed", default: false
     t.string "level", null: false
+    t.bigint "training_program_id"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
     t.integer "week_number", null: false
     t.string "workout_type"
+    t.index ["training_program_id", "week_number", "day_number"], name: "idx_routines_program_week_day"
+    t.index ["training_program_id"], name: "index_workout_routines_on_training_program_id"
     t.index ["user_id", "is_completed"], name: "index_workout_routines_on_user_id_and_is_completed"
     t.index ["user_id", "level", "week_number", "day_number"], name: "idx_workout_routines_on_user_level_week_day"
   end
@@ -384,6 +388,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_02_000001) do
   add_foreign_key "workout_feedbacks", "users"
   add_foreign_key "workout_records", "users"
   add_foreign_key "workout_records", "workout_sessions"
+  add_foreign_key "workout_routines", "training_programs", name: "fk_rails_workout_routines_training_program", on_delete: :nullify
   add_foreign_key "workout_routines", "users"
   add_foreign_key "workout_sessions", "users"
   add_foreign_key "workout_sets", "workout_sessions"
