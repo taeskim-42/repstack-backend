@@ -60,9 +60,11 @@ module ChatToolHandlers
       profile.update!(numeric_level: 1, current_level: "beginner")
     end
 
-    # Check for today's existing incomplete routine
+    # Check for today's existing incomplete routine (must match today's day_number)
+    today_dow = Time.current.wday == 0 ? 7 : Time.current.wday
     today_routine = WorkoutRoutine.where(user_id: user.id)
                                   .where("created_at >= ?", Time.current.beginning_of_day)
+                                  .where(day_number: today_dow)
                                   .where(is_completed: false)
                                   .order(created_at: :desc)
                                   .first
@@ -80,7 +82,6 @@ module ChatToolHandlers
     # Instant retrieval: check for pre-generated baseline routine from training program
     program = user.active_training_program
     if program
-      today_dow = Time.current.wday == 0 ? 7 : Time.current.wday
       baseline = program.workout_routines
                         .where(week_number: program.current_week, day_number: today_dow)
                         .where(is_completed: false)
