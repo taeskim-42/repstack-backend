@@ -78,7 +78,7 @@ gem "aws-sdk-s3", "~> 1.0"
 gem "sidekiq", "~> 7.0"
 gem "sidekiq-cron", "~> 2.0"  # Periodic job scheduling
 gem "redis", "~> 5.0"
-gem "connection_pool", "~> 2.5"  # Pin to 2.x for Ruby 3.4 compatibility
+gem "connection_pool", "~> 3.0"  # Pin to 2.x for Ruby 3.4 compatibility
 gem "webrick"  # For worker health check endpoint
 
 # Vector Database (pgvector)
