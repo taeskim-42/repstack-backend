@@ -465,7 +465,7 @@ module AiTrainer
 
       match = duration.match(/(\d+)\s*(?:주|weeks?)/)
       weeks = match ? match[1].to_i : default
-      weeks.clamp(4, 24)
+      weeks.clamp(2, 24)
     end
 
     # Parse days_per_week from frequency string like "주 3회", "주 3회, 1시간", "3일"
