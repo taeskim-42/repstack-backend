@@ -10,7 +10,8 @@ TestFlight 피드백을 가져와서 Opus가 **스크린샷 + 코드를 직접 �
 [Step 2] 스크린샷 다운로드 + Read로 직접 확인
 [Step 3] Plan 모드 → 코드 직접 탐색 → 근본 원인 분석
 [Step 4] 사용자 승인 → 1차 수정
-[Step 5] Codex 검증 → 최종 수정
+[Step 5] Opus 리뷰 컨텍스트 생성 → Codex 체크리스트 기반 검증
+[Step 6] 검증 결과 반영 → 최종 수정
 ```
 
 ## Step 0: ASC API에서 최신 피드백 즉시 가져오기
@@ -68,7 +69,7 @@ curl -s 'https://repstack-backend-production.up.railway.app/admin/testflight_fee
 import sys, json
 data = json.load(sys.stdin)
 for f in data['feedbacks']:
-    issue_url = f.get('github_issue_url', '')
+    issue_url = f.get('github_issue_url') or ''
     if '<REPO>/issues/<NUMBER>' in issue_url:
         screenshots = f.get('screenshots', [])
         print(f'feedback_id={f[\"id\"]}, screenshots={len(screenshots)}개')
@@ -145,9 +146,44 @@ Plan 모드에서 다음을 사용자에게 보고합니다:
 
 사용자 승인 후 `ExitPlanMode`로 나와서 코드를 수정합니다.
 
-## Step 5: Codex 5.2 검증
+## Step 5: 리뷰 컨텍스트 생성 + Codex 5.2 검증
 
-1차 수정 후 diff를 저장하고 Codex에게 검증을 요청합니다:
+1차 수정 후, Codex가 **변경 의도를 이해한 상태에서** 코드 품질을 검증합니다.
+
+### 5-1. 리뷰 컨텍스트 파일 생성
+
+Opus가 Codex에게 넘길 컨텍스트 파일을 작성합니다. **변경 의도와 체크리스트를 명시**하여 false positive를 방지합니다:
+
+```bash
+cat > /tmp/testflight-feedback/REVIEW_CONTEXT-<NUMBER>.md << 'CONTEXT_EOF'
+## 이슈
+<Issue 번호 + 피드백 원문 요약>
+
+## 근본 원인
+<Step 3에서 분석한 근본 원인>
+
+## 변경 의도
+<왜 이렇게 바꿨는지 — 코드 변경의 목적>
+
+## 변경 파일
+<수정한 파일 목록 + 각 파일에서 무엇을 바꿨는지>
+
+## 검증 체크리스트
+이 체크리스트 항목만 검증하세요. 체크리스트 외의 코드 스타일, 리팩토링 제안은 하지 마세요.
+
+- [ ] (이슈별 맞춤 항목 — 예: 모든 return path에서 필수 필드가 반환되는가?)
+- [ ] (이슈별 맞춤 항목 — 예: fallback/error 경로에서 빈 값 처리가 되어 있는가?)
+- [ ] (이슈별 맞춤 항목 — 예: 새 메서드에서 예외 처리가 되어 있는가?)
+- [ ] 기존 정상 경로에 사이드이펙트가 없는가?
+- [ ] FE가 기대하는 응답 구조(GraphQL 스키마)와 일치하는가?
+CONTEXT_EOF
+```
+
+> ⚠️ 체크리스트는 **이슈마다 Opus가 맞춤 작성**합니다. 위는 예시이며, 실제로는 해당 수정에 맞는 구체적 항목을 넣으세요.
+
+### 5-2. Codex 코드 품질 검증
+
+diff + 컨텍스트 파일을 Codex에게 전달합니다:
 
 ```bash
 # 수정된 diff 저장
@@ -158,24 +194,27 @@ codex-gn exec \
   --model openai/gpt-5.2-codex \
   --full-auto \
   --sandbox read-only \
-  "다음 git diff를 리뷰해줘. 이 패치는 TestFlight 피드백 Issue #<NUMBER>에 대한 수정이야.
+  "TestFlight 피드백 수정에 대한 코드 품질 검증을 해줘.
 
-피드백 원문: <FEEDBACK_TEXT>
+먼저 리뷰 컨텍스트를 읽어:
+$(cat /tmp/testflight-feedback/REVIEW_CONTEXT-<NUMBER>.md)
 
-리뷰 기준:
-1. 버그가 있는지 (null 체크 누락, 타입 에러, 로직 오류)
-2. 사이드이펙트가 있는지 (다른 기능에 영향)
-3. 피드백이 요구한 문제가 실제로 해결되는지
-4. 누락된 수정이 있는지
-
-diff 내용:
+그리고 변경 사항을 확인해:
 $(cat /tmp/testflight-feedback/patch-issue-<NUMBER>.diff)
+
+## 검증 방법
+1. 위 체크리스트의 각 항목을 **변경된 실제 코드 파일을 읽어서** 검증해
+2. diff만 보지 말고, 변경된 파일 전체를 읽어서 맥락을 파악해
+3. 체크리스트에 없는 항목은 리뷰하지 마 (스타일, 네이밍 등 무시)
+4. 각 항목에 대해 PASS/FAIL + 근거를 제시해
 
 JSON 형식으로 응답해줘:
 {
   \"approved\": true/false,
-  \"issues\": [\"발견된 문제 목록\"],
-  \"suggestions\": [\"개선 제안 목록\"],
+  \"checklist_results\": [
+    {\"item\": \"체크리스트 항목\", \"result\": \"PASS/FAIL\", \"evidence\": \"근거\"}
+  ],
+  \"critical_issues\": [\"FAIL인 항목 중 반드시 수정해야 할 것\"],
   \"verdict\": \"한줄 요약\"
 }" 2>&1 | tee /tmp/testflight-feedback/codex-review-<NUMBER>.txt
 ```
@@ -184,7 +223,7 @@ JSON 형식으로 응답해줘:
 
 Codex 검증 리포트(`/tmp/testflight-feedback/codex-review-<NUMBER>.txt`)를 Read로 읽습니다.
 
-- **approved: true** → 수정 유지, 사용자에게 최종 확인 후 커밋
-- **approved: false** → Codex가 지적한 issues/suggestions를 반영하여 코드 재수정 후 사용자에게 보고
+- **approved: true** (체크리스트 전체 PASS) → 수정 유지, 사용자에게 최종 확인 후 커밋
+- **approved: false** (FAIL 항목 있음) → `critical_issues`만 반영하여 코드 재수정 후 사용자에게 보고
 
 최종 수정 완료 후 `/commit` 여부를 사용자에게 확인합니다.
