@@ -89,14 +89,15 @@ module AiTrainer
         ProgramRoutineGenerateJob.perform_later(program.id)
         Rails.logger.info("[ProgramGenerator] Queued routine generation for program #{program.id}")
       else
-        Rails.logger.info("[ProgramGenerator] No Sidekiq workers — running routine generation in background thread for program #{program.id}")
+        Rails.logger.info("[ProgramGenerator] No Sidekiq — generating routines in background thread for program #{program.id}")
         Thread.new do
           Rails.application.executor.wrap do
-            ProgramRoutineGenerator.new(user: program.user, program: program).generate_all
-            Rails.logger.info("[ProgramGenerator] Background thread completed routine generation for program #{program.id}")
-          rescue StandardError => e
-            Rails.logger.error("[ProgramGenerator] Background thread failed for program #{program.id}: #{e.message}")
+            generator = ProgramRoutineGenerator.new(user: program.user, program: program)
+            generator.generate_all
+            Rails.logger.info("[ProgramGenerator] Background routine generation completed for program #{program.id}")
           end
+        rescue StandardError => e
+          Rails.logger.error("[ProgramGenerator] Background thread crashed for program #{program.id}: #{e.class} #{e.message}")
         end
       end
     end

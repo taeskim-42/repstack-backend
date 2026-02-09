@@ -18,12 +18,31 @@ class ProgramRoutineGenerator
   end
 
   def generate_all
+    failed_weeks = []
     (1..@program.total_weeks).each do |week|
       generate_week(week)
+    rescue StandardError => e
+      Rails.logger.error("[ProgramRoutineGenerator] Week #{week} failed: #{e.message}")
+      failed_weeks << week
+    end
+
+    if failed_weeks.any?
+      Rails.logger.error("[ProgramRoutineGenerator] Failed weeks: #{failed_weeks.join(', ')} for program #{@program.id}")
     end
   end
 
   def generate_week(week_number)
+    # Skip if already generated (idempotent for retries)
+    existing = @user.workout_routines.where(
+      training_program_id: @program.id,
+      week_number: week_number,
+      generation_source: "program_baseline"
+    )
+    if existing.exists?
+      Rails.logger.info("[ProgramRoutineGenerator] Week #{week_number} already generated, skipping")
+      return
+    end
+
     phase_info = @program.phase_info_for_week(week_number)
     training_days = @program.training_days
 
