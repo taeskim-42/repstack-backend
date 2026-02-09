@@ -137,9 +137,7 @@ module ChatRoutineFormatter
       {
         exercise_id: ex.id.to_s,
         exercise_name: ex.exercise_name,
-        exercise_name_english: ex.exercise_name_english,
         target_muscle: ex.target_muscle,
-        target_muscle_korean: ex.target_muscle_korean,
         order: ex.order_index + 1,
         sets: ex.sets,
         reps: ex.reps,
@@ -147,8 +145,6 @@ module ChatRoutineFormatter
         weight_description: ex.weight_description,
         rest_seconds: ex.rest_duration_seconds,
         instructions: ex.how_to,
-        rpe: ex.rpe,
-        tempo: ex.tempo,
         rom: ex.range_of_motion
       }
     end
