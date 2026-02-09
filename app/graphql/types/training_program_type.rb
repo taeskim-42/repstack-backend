@@ -27,6 +27,11 @@ module Types
     field :weekly_phases, [Types::WeeklyPhaseType], null: false, description: "Weekly plan phases"
     field :split_schedule, [Types::SplitDayType], null: false, description: "Weekly split schedule"
 
+    # Workout sessions within this program
+    field :workout_sessions, [Types::WorkoutSessionType], null: false, description: "Workout sessions during this program" do
+      argument :week, Int, required: false, description: "Filter by week number (1-based)"
+    end
+
     # Today's info
     field :today_focus, String, null: true, description: "Today's training focus"
     field :today_muscles, [String], null: false, description: "Today's target muscles"
@@ -75,6 +80,20 @@ module Types
           muscles: info["muscles"] || info[:muscles] || []
         }
       end.sort_by { |d| d[:day_number] }
+    end
+
+    def workout_sessions(week: nil)
+      sessions = object.user.workout_sessions.includes(:workout_sets)
+
+      if week && object.started_at
+        week_start = object.started_at.to_date + ((week - 1) * 7).days
+        week_end = week_start + 7.days
+        sessions = sessions.where(start_time: week_start.beginning_of_day..week_end.beginning_of_day)
+      elsif object.started_at
+        sessions = sessions.where("start_time >= ?", object.started_at)
+      end
+
+      sessions.order(start_time: :desc)
     end
 
     def today_focus
