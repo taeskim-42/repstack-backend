@@ -2,5 +2,6 @@
 :concurrency: 20
 :queues:
   - [video_analysis, 3]
+  - [routine_generation, 2]
   - [default, 2]
   - [low, 1]
