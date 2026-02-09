@@ -10,13 +10,14 @@ module Mutations
     argument :name, String, required: false, description: "테스트 유저 이름 (기본: 테스트유저)"
     argument :level, Integer, required: false, description: "유저 레벨 1-8 (기본: 3)"
     argument :fitness_goal, String, required: false, description: "운동 목표 (기본: 근비대)"
+    argument :program_weeks, Integer, required: false, description: "프로그램 주차 수 (기본: 레벨별 기본값)"
 
     # Return type
     field :user, Types::UserType, null: true
     field :token, String, null: true, description: "JWT 토큰"
     field :errors, [String], null: false
 
-    def resolve(name: nil, level: nil, fitness_goal: nil)
+    def resolve(name: nil, level: nil, fitness_goal: nil, program_weeks: nil)
       # Only allow in development/test environments or when explicitly enabled
       unless Rails.env.development? || Rails.env.test? || ENV["ALLOW_TEST_FEATURES"] == "true"
         return { user: nil, token: nil, errors: ["테스트 환경에서만 사용 가능합니다"] }
@@ -67,8 +68,9 @@ module Mutations
             "collected_data" => {
               "experience" => experience_description(level),
               "frequency" => "주 4회",
-              "goals" => fitness_goal
-            }
+              "goals" => fitness_goal,
+              "program_duration" => program_weeks ? "#{program_weeks}주" : nil
+            }.compact
           }
         )
 
