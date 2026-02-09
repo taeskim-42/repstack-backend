@@ -77,6 +77,35 @@ module ChatToolHandlers
       )
     end
 
+    # Instant retrieval: check for pre-generated baseline routine from training program
+    program = user.active_training_program
+    if program
+      today_dow = Time.current.wday == 0 ? 7 : Time.current.wday
+      baseline = program.workout_routines
+                        .where(week_number: program.current_week, day_number: today_dow)
+                        .where(is_completed: false)
+                        .includes(:routine_exercises)
+                        .order(created_at: :desc)
+                        .first
+
+      if baseline && baseline.routine_exercises.any?
+        Rails.logger.info("[ChatService] Instant retrieval: baseline routine #{baseline.id} (week #{program.current_week}, day #{today_dow})")
+        routine_data = format_existing_routine(baseline)
+        program_info = {
+          name: program.name,
+          current_week: program.current_week,
+          total_weeks: program.total_weeks,
+          phase: program.current_phase,
+          volume_modifier: program.current_volume_modifier
+        }
+        return success_response(
+          message: format_routine_message(routine_data, program_info),
+          intent: "GENERATE_ROUTINE",
+          data: { routine: routine_data, program: program_info, suggestions: [] }
+        )
+      end
+    end
+
     # Ensure user has a training program (create if missing)
     Rails.logger.info("[ChatService] Calling ensure_training_program for user #{user.id}")
     program = ensure_training_program
@@ -170,10 +199,25 @@ module ChatToolHandlers
     condition = result[:condition]
     save_condition_log_from_result(condition)
 
-    # Check if user already has today's routine
+    # Check if user already has today's routine (created today OR baseline from program)
     today_routine = WorkoutRoutine.where(user_id: user.id)
                                    .where("created_at >= ?", Time.current.beginning_of_day)
                                    .first
+
+    # Also check for pre-generated baseline routine from training program
+    unless today_routine
+      prog = user.active_training_program
+      if prog
+        today_dow = Time.current.wday == 0 ? 7 : Time.current.wday
+        today_routine = prog.workout_routines
+                            .where(week_number: prog.current_week, day_number: today_dow)
+                            .where(is_completed: false)
+                            .includes(:routine_exercises)
+                            .order(created_at: :desc)
+                            .first
+        today_routine = nil unless today_routine&.routine_exercises&.any?
+      end
+    end
 
     if today_routine
       # Already has today's routine - just acknowledge condition
@@ -192,7 +236,7 @@ module ChatToolHandlers
       )
     end
 
-    # No today's routine - generate one with condition
+    # No today's routine and no baseline - generate one with condition
     routine_result = AiTrainer.generate_routine(
       user: user,
       day_of_week: Time.current.wday == 0 ? 7 : Time.current.wday,
