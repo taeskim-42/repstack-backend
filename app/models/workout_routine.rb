@@ -72,6 +72,10 @@ class WorkoutRoutine < ApplicationRecord
     %w[Monday Tuesday Wednesday Thursday Friday Saturday Sunday][day_number - 1]
   end
 
+  def day_korean
+    %w[월요일 화요일 수요일 목요일 금요일 토요일 일요일][day_number - 1] || "운동"
+  end
+
   # Class methods
   def self.for_user_current_program(user)
     profile = user.user_profile
