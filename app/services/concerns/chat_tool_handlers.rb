@@ -630,7 +630,7 @@ module ChatToolHandlers
         completed_sets: completed_sets,
         exercises_performed: exercises_count,
         total_volume: total_volume.to_i,
-        suggestions: []
+        suggestions: ["적당했어", "좀 쉬웠어", "힘들었어", "너무 쉬웠어"]
       }
     )
   end
