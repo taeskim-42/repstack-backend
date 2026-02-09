@@ -197,8 +197,8 @@ class ProgramRoutineGenerator
         routine.routine_exercises.create!(
           exercise_name: ex["name"],
           order_index: idx,
-          sets: ex["sets"] || 3,
-          reps: ex["reps"],
+          sets: ex["sets"].to_s.to_i.positive? ? ex["sets"].to_s.to_i : 3,
+          reps: parse_reps(ex["reps"]),
           target_muscle: ex["target_muscle"],
           rest_duration_seconds: ex["rest_seconds"],
           how_to: ex["instructions"],
@@ -222,6 +222,19 @@ class ProgramRoutineGenerator
       text[start_idx..end_idx] if start_idx && end_idx
     else
       text
+    end
+  end
+
+  # Parse reps from LLM output: "10" → 10, "10-12" → 10, 10 → 10
+  def parse_reps(value)
+    return nil if value.nil?
+    return value if value.is_a?(Integer) && value.positive?
+
+    str = value.to_s.strip
+    # "10-12" → take the first number
+    if str =~ /(\d+)/
+      num = ::Regexp.last_match(1).to_i
+      num.positive? ? num : nil
     end
   end
 

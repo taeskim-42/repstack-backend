@@ -164,7 +164,7 @@ module AiTrainer
             exercise_name: ex[:exercise_name] || "Unknown Exercise",
             order_index: ex[:order] || idx,
             sets: ex[:sets] || 3,
-            reps: ex[:reps],
+            reps: parse_reps(ex[:reps]),
             target_muscle: ex[:target_muscle] || "other",
             rest_duration_seconds: ex[:rest_seconds] || default_rest_seconds,
             how_to: ex[:instructions],
@@ -198,6 +198,18 @@ module AiTrainer
     def calculate_week_number
       start_date = @user.user_profile&.onboarding_completed_at || @user.created_at
       ((Time.current - start_date) / 1.week).floor + 1
+    end
+
+    # Parse reps from LLM output: "10" → 10, "10-12" → 10, 10 → 10
+    def parse_reps(value)
+      return nil if value.nil?
+      return value if value.is_a?(Integer) && value.positive?
+
+      str = value.to_s.strip
+      if str =~ /(\d+)/
+        num = ::Regexp.last_match(1).to_i
+        num.positive? ? num : nil
+      end
     end
 
     def day_name(day)

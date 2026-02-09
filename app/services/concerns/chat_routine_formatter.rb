@@ -158,7 +158,7 @@ module ChatRoutineFormatter
       day_of_week: routine.day_number,
       day_korean: routine.day_korean,
       tier: routine.level,
-      user_level: routine.user_level || 1,
+      user_level: user.user_profile&.numeric_level || 1,
       fitness_factor: routine.workout_type,
       fitness_factor_korean: routine.workout_type,
       estimated_duration_minutes: routine.estimated_duration,
