@@ -168,8 +168,8 @@ module ChatOnboarding
   end
 
   def handle_show_today_routine
-    # Get user's training program (should exist after onboarding)
-    program = user.active_training_program
+    # Ensure user has a training program (create if missing)
+    program = ensure_training_program
 
     # Generate today's routine using the same method as handle_generate_routine
     day_of_week = Time.current.wday
