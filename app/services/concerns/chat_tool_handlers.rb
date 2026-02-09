@@ -7,6 +7,73 @@ module ChatToolHandlers
 
   private
 
+  # Instant routine retrieval — bypasses LLM tool selection entirely
+  # Returns nil if no shortcut possible (falls through to process_with_tools)
+  def try_instant_routine_retrieval
+    return nil unless routine_request_message?
+    return nil unless user.user_profile&.onboarding_completed_at.present?
+
+    today_dow = Time.current.wday == 0 ? 7 : Time.current.wday
+
+    # Check 1: routine already created today for today's day
+    today_routine = WorkoutRoutine.where(user_id: user.id)
+                                  .where("created_at >= ?", Time.current.beginning_of_day)
+                                  .where(day_number: today_dow)
+                                  .where(is_completed: false)
+                                  .order(created_at: :desc)
+                                  .first
+
+    if today_routine
+      Rails.logger.info("[ChatService] Instant shortcut: today_routine #{today_routine.id}")
+      routine_data = format_existing_routine(today_routine)
+      return success_response(
+        message: "오늘의 루틴이에요! 💪\n\n특정 운동을 바꾸고 싶으면 'XX 대신 다른 운동'이라고 말씀해주세요.",
+        intent: "GENERATE_ROUTINE",
+        data: { routine: routine_data, suggestions: [] }
+      )
+    end
+
+    # Check 2: pre-generated baseline from active program
+    program = user.active_training_program
+    return nil unless program
+
+    baseline = program.workout_routines
+                      .where(week_number: program.current_week, day_number: today_dow)
+                      .where(is_completed: false)
+                      .includes(:routine_exercises)
+                      .order(created_at: :desc)
+                      .first
+
+    return nil unless baseline&.routine_exercises&.any?
+
+    Rails.logger.info("[ChatService] Instant shortcut: baseline #{baseline.id} (week #{program.current_week}, day #{today_dow})")
+    routine_data = format_existing_routine(baseline)
+    program_info = {
+      name: program.name,
+      current_week: program.current_week,
+      total_weeks: program.total_weeks,
+      phase: program.current_phase,
+      volume_modifier: program.current_volume_modifier
+    }
+    success_response(
+      message: format_routine_message(routine_data, program_info),
+      intent: "GENERATE_ROUTINE",
+      data: { routine: routine_data, program: program_info, suggestions: [] }
+    )
+  end
+
+  # Detect routine request messages (conservative: avoid false positives)
+  def routine_request_message?
+    return false if message.blank?
+    msg = message.strip
+
+    # Skip messages about modifying/completing/recording (not requesting a routine)
+    return false if msg.match?(/끝났|완료|대신|바꿔|빼줘|추가|삭제|기록|했어|kg|세트|피드백|컨디션|피곤|아프/)
+
+    # Match routine generation requests
+    msg.match?(/루틴/) || msg.match?(/오늘.{0,4}운동/)
+  end
+
   def execute_tool(tool_use)
     tool_name = tool_use[:name]
     input = tool_use[:input] || {}

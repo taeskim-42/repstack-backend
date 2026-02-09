@@ -58,6 +58,11 @@ class ChatService
       return handle_level_assessment
     end
 
+    # 2.5. Instant routine shortcut — skip LLM tool selection entirely
+    if (instant = try_instant_routine_retrieval)
+      return instant
+    end
+
     # 3. Tool Use based processing
     process_with_tools
   rescue StandardError => e
