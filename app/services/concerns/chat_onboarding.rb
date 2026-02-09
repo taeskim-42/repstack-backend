@@ -229,7 +229,7 @@ module ChatOnboarding
       data: {
         routine: result,
         program: program_info,
-        suggestions: []
+        suggestions: ["운동 시작할게", "운동 끝났어"]
       }
     )
   end

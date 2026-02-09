@@ -106,7 +106,7 @@ module AiTrainer
           is_complete: true,
           assessment: result[:assessment],
           program: program_result[:program],  # TrainingProgram model instance
-          suggestions: result[:suggestions]
+          suggestions: result[:suggestions].presence || ["오늘 루틴 만들어줘", "프로그램 자세히 설명해줘", "나중에 할게"]
         }
       else
         save_assessment_state(result[:next_state], result[:collected_data])
@@ -898,10 +898,6 @@ module AiTrainer
       lines << "---"
       lines << ""
       lines << "오늘의 첫 운동을 시작할까요? 🔥"
-      lines << ""
-      lines << "1️⃣ 네, 오늘 운동 루틴 보여줘"
-      lines << "2️⃣ 프로그램 자세히 설명해줘"
-      lines << "3️⃣ 나중에 할게"
 
       lines.join("\n")
     end
