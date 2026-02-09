@@ -72,7 +72,7 @@ gem "opentelemetry-exporter-otlp"
 gem "opentelemetry-instrumentation-all"
 
 # AWS S3 for video uploads
-gem "aws-sdk-s3", "~> 1.0"
+gem "aws-sdk-s3", "~> 1.213"
 
 # Background Job Processing
 gem "sidekiq", "~> 7.0"
