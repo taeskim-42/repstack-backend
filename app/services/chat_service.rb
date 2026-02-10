@@ -36,8 +36,8 @@ class ChatService
     def use_agent_service?(user)
       return false unless AgentBridge.available?
       return false unless ENV["AGENT_SERVICE_ENABLED"] == "true"
+      return false unless user.user_profile&.onboarding_completed_at.present?
 
-      # TODO: Add user tier check (e.g., premium-only)
       true
     end
   end

@@ -86,6 +86,11 @@ Rails.application.routes.draw do
     get  "users/:id/today_routine", to: "users#today_routine"
     get  "users/:id/memory", to: "users#memory"
     post "users/:id/memory", to: "users#write_memory"
+
+    # Agent conversation history
+    get  "sessions/:user_id/messages", to: "sessions#messages"
+    post "sessions/:user_id/messages", to: "sessions#save_messages"
+    post "sessions/:user_id/summarize", to: "sessions#summarize"
   end
 
   # Defines the root path route ("/")

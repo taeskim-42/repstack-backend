@@ -2,6 +2,7 @@
 
 class AgentSession < ApplicationRecord
   belongs_to :user
+  has_many :agent_conversation_messages, dependent: :destroy
 
   validates :claude_session_id, presence: true, uniqueness: true
   validates :status, presence: true, inclusion: { in: %w[active expired compacted] }

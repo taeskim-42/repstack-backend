@@ -8,6 +8,22 @@ class AgentBridge
   AGENT_API_TOKEN = ENV["AGENT_API_TOKEN"]
   TIMEOUT = 60 # seconds
 
+  # Map tool names to iOS-compatible intent strings
+  TOOL_TO_INTENT = {
+    "generate_routine" => "GENERATE_ROUTINE",
+    "replace_exercise" => "REPLACE_EXERCISE",
+    "add_exercise" => "ADD_EXERCISE",
+    "delete_exercise" => "DELETE_EXERCISE",
+    "record_exercise" => "RECORD_EXERCISE",
+    "check_condition" => "CHECK_CONDITION",
+    "complete_workout" => "WORKOUT_COMPLETED",
+    "submit_feedback" => "FEEDBACK_RECEIVED",
+    "explain_plan" => "EXPLAIN_LONG_TERM_PLAN"
+  }.freeze
+
+  # Tools that are informational (not primary actions)
+  INFO_TOOLS = %w[get_user_profile get_training_history get_today_routine read_memory write_memory].freeze
+
   class << self
     def process(user:, message:, routine_id: nil, session_id: nil)
       return legacy_fallback(user, message, routine_id, session_id) unless available?
@@ -101,20 +117,80 @@ class AgentBridge
       end
 
       data = JSON.parse(response.body, symbolize_names: true)
+      tool_calls = data[:tool_calls] || []
+      message_text = data[:message] || ""
+
+      # Derive intent + structured data from tool_calls
+      intent, structured_data = extract_intent_and_data(tool_calls)
+
+      # Extract suggestions from message text
+      suggestions = extract_suggestions(message_text)
+      structured_data[:suggestions] = suggestions if suggestions.any?
+
+      # Strip suggestions text from display message
+      clean_message = strip_suggestions_text(message_text)
+
+      # Strip markdown (iOS compatibility)
+      clean_message = clean_message&.gsub(/\*\*([^*]*)\*\*/, '\1')&.gsub(/^##\s+/, "")
 
       {
         success: data[:success] != false,
-        message: data[:message],
-        intent: data[:intent],
-        data: data[:data] || {},
+        message: clean_message,
+        intent: intent,
+        data: structured_data,
         error: data[:error],
         agent_session_id: data[:session_id],
-        cost_usd: data[:cost_usd],
-        tokens_used: data[:tokens_used]
+        cost_usd: calculate_cost(data.dig(:usage, :input_tokens), data.dig(:usage, :output_tokens)),
+        tokens_used: (data.dig(:usage, :input_tokens) || 0) + (data.dig(:usage, :output_tokens) || 0)
       }
     rescue JSON::ParserError => e
       Rails.logger.error("[AgentBridge] JSON parse error: #{e.message}")
       nil
+    end
+
+    def extract_intent_and_data(tool_calls)
+      return ["GENERAL_CHAT", {}] if tool_calls.empty?
+
+      # Find the last "action" tool call (skip info tools like read_memory, get_profile)
+      primary_call = tool_calls.reverse.find { |tc| INFO_TOOLS.exclude?(tc[:name]) }
+      primary_call ||= tool_calls.last
+
+      tool_name = primary_call[:name]
+      intent = TOOL_TO_INTENT[tool_name] || "GENERAL_CHAT"
+      result = primary_call[:result] || {}
+
+      # Extract structured data from tool result
+      structured = result.is_a?(Hash) ? result.deep_symbolize_keys : {}
+
+      [intent, structured]
+    end
+
+    def extract_suggestions(message)
+      return [] if message.blank?
+
+      # Pattern: suggestions: ["a", "b", "c"]
+      if message =~ /suggestions:\s*-?\s*\[([^\]]+)\]/i
+        items = Regexp.last_match(1).scan(/"([^"]+)"/).flatten
+        return items.first(4) if items.length >= 2
+      end
+
+      []
+    end
+
+    def strip_suggestions_text(message)
+      return message if message.blank?
+
+      cleaned = message.dup
+      cleaned.gsub!(/[[:space:]]*suggestions\s*[:：\-]?\s*-?\s*\[.*?\]/mi, "")
+      cleaned.gsub!(/[[:space:]]*suggestions\s*[:：]\s*[^\[].*/mi, "")
+      cleaned.strip
+    end
+
+    def calculate_cost(input_tokens, output_tokens)
+      return nil unless input_tokens && output_tokens
+
+      # Sonnet 4.5 pricing: $3/M input, $15/M output
+      ((input_tokens * 3.0 + output_tokens * 15.0) / 1_000_000).round(6)
     end
 
     def legacy_fallback(user, message, routine_id, session_id)
