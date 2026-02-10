@@ -415,6 +415,12 @@ module AiTrainer
             return { rest_day: true, message: "오늘은 프로그램에 따른 휴식일입니다. 충분한 회복을 취하세요! 💤" }
           end
           Rails.logger.info("[ToolBasedRoutineGenerator] Rest day but user has goal: #{@goal}")
+          # Pick a training day's muscles as fallback (first training day from split)
+          fallback_day = program.training_days.first
+          if fallback_day
+            today_schedule = { focus: fallback_day[:focus], muscles: fallback_day[:muscles] }
+            Rails.logger.info("[ToolBasedRoutineGenerator] Using fallback training day: #{today_schedule}")
+          end
         end
 
         # Apply volume modifier from program phase
@@ -556,9 +562,9 @@ module AiTrainer
     def get_recent_workout_history
       # Get last 7 days of workout sessions
       recent_sessions = @user.workout_sessions
-                             .where("started_at > ?", 7.days.ago)
+                             .where("start_time > ?", 7.days.ago)
                              .includes(:workout_sets)
-                             .order(started_at: :desc)
+                             .order(start_time: :desc)
                              .limit(5)
 
       return [] if recent_sessions.empty?
@@ -566,7 +572,7 @@ module AiTrainer
       recent_sessions.map do |session|
         exercises = session.workout_sets.group_by(&:exercise_name).keys
         {
-          date: session.started_at.strftime("%m/%d"),
+          date: session.start_time.strftime("%m/%d"),
           exercises: exercises.first(6),
           muscle_groups: session.workout_sets.pluck(:target_muscle).uniq.compact
         }

@@ -35,14 +35,6 @@ module Types
     field :submit_level_test_result, mutation: Mutations::SubmitLevelTestResult
     field :submit_level_test_verification, mutation: Mutations::SubmitLevelTestVerification
 
-    # Fitness Test (Initial Level Assessment)
-    field :submit_fitness_test, mutation: Mutations::SubmitFitnessTest
-
-    # Video-based Fitness Test
-    field :create_fitness_test_upload_url, mutation: Mutations::CreateFitnessTestUploadUrl
-    field :submit_fitness_test_videos, mutation: Mutations::SubmitFitnessTestVideos
-    field :analyze_video, mutation: Mutations::AnalyzeVideo
-
     # Offline sync
     field :sync_offline_records, mutation: Mutations::SyncOfflineRecords
 

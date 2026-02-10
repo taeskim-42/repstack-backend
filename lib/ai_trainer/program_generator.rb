@@ -85,15 +85,29 @@ module AiTrainer
     private
 
     def schedule_routine_generation(program)
+      generator = ProgramRoutineGenerator.new(user: program.user, program: program)
+
+      # Generate week 1 synchronously so the first routine request is instant
+      begin
+        generator.generate_week(program.current_week)
+        Rails.logger.info("[ProgramGenerator] Week #{program.current_week} generated synchronously for program #{program.id}")
+      rescue StandardError => e
+        Rails.logger.error("[ProgramGenerator] Sync week #{program.current_week} failed: #{e.class} #{e.message}")
+      end
+
+      # Background the remaining weeks
+      remaining_weeks = (1..program.total_weeks).to_a - [program.current_week]
+      return if remaining_weeks.empty?
+
       if sidekiq_workers_available?
         ProgramRoutineGenerateJob.perform_later(program.id)
-        Rails.logger.info("[ProgramGenerator] Queued routine generation for program #{program.id}")
+        Rails.logger.info("[ProgramGenerator] Queued remaining routine generation for program #{program.id}")
       else
-        Rails.logger.info("[ProgramGenerator] No Sidekiq — generating routines in background thread for program #{program.id}")
+        Rails.logger.info("[ProgramGenerator] No Sidekiq — generating remaining weeks in background thread for program #{program.id}")
         Thread.new do
           Rails.application.executor.wrap do
-            generator = ProgramRoutineGenerator.new(user: program.user, program: program)
-            generator.generate_all
+            generator2 = ProgramRoutineGenerator.new(user: program.user, program: program)
+            generator2.generate_all # generate_all skips already-generated weeks
             Rails.logger.info("[ProgramGenerator] Background routine generation completed for program #{program.id}")
           end
         rescue StandardError => e

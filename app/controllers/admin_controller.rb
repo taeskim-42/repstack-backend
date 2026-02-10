@@ -312,7 +312,6 @@ class AdminController < ApplicationController
     deleted_counts[:workout_feedbacks] = user.workout_feedbacks.delete_all if user.respond_to?(:workout_feedbacks)
     deleted_counts[:workout_records] = user.workout_records.delete_all if user.respond_to?(:workout_records)
     deleted_counts[:level_test_verifications] = user.level_test_verifications.delete_all if user.respond_to?(:level_test_verifications)
-    deleted_counts[:fitness_test_submissions] = user.fitness_test_submissions.delete_all if user.respond_to?(:fitness_test_submissions)
     deleted_counts[:workout_sets] = WorkoutSet.joins(:workout_session).where(workout_sessions: { user_id: user.id }).delete_all
     deleted_counts[:routine_exercises] = RoutineExercise.joins(:workout_routine).where(workout_routines: { user_id: user.id }).delete_all
     deleted_counts[:workout_sessions] = user.workout_sessions.delete_all

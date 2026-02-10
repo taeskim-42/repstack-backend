@@ -49,10 +49,5 @@ FactoryBot.define do
       level_assessed_at { nil }
     end
 
-    # Onboarding completed, waiting for fitness test
-    trait :needs_fitness_test do
-      onboarding_completed_at { Time.current }
-      level_assessed_at { nil }
-    end
   end
 end

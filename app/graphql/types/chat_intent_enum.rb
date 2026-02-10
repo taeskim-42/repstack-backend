@@ -26,5 +26,6 @@ module Types
     value "CONDITION_AND_ROUTINE", "Condition checked and routine generated together"
     value "WORKOUT_COMPLETED", "Workout session completed"
     value "FEEDBACK_RECEIVED", "Feedback received and processed"
+    value "REST_DAY", "Today is a rest day in the training program"
   end
 end

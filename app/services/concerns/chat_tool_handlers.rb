@@ -44,10 +44,21 @@ module ChatToolHandlers
                       .order(created_at: :desc)
                       .first
 
+    # Fallback: if today's day_number has no baseline, pick the nearest training day's baseline
+    if baseline.nil? || baseline.routine_exercises.blank?
+      baseline = program.workout_routines
+                        .where(week_number: program.current_week)
+                        .where(is_completed: false)
+                        .includes(:routine_exercises)
+                        .order(Arel.sql("ABS(day_number - #{today_dow.to_i})"))
+                        .detect { |r| r.routine_exercises.any? }
+    end
+
     return nil unless baseline&.routine_exercises&.any?
 
     Rails.logger.info("[ChatService] Instant shortcut: baseline #{baseline.id} (week #{program.current_week}, day #{today_dow})")
     routine_data = format_existing_routine(baseline)
+    routine_data = apply_routine_adjustments(routine_data)
     program_info = {
       name: program.name,
       current_week: program.current_week,
@@ -156,9 +167,20 @@ module ChatToolHandlers
                         .order(created_at: :desc)
                         .first
 
+      # Fallback: nearest training day's baseline if today has none
+      if baseline.nil? || baseline.routine_exercises.blank?
+        baseline = program.workout_routines
+                          .where(week_number: program.current_week)
+                          .where(is_completed: false)
+                          .includes(:routine_exercises)
+                          .order(Arel.sql("ABS(day_number - #{today_dow.to_i})"))
+                          .detect { |r| r.routine_exercises.any? }
+      end
+
       if baseline && baseline.routine_exercises.any?
         Rails.logger.info("[ChatService] Instant retrieval: baseline routine #{baseline.id} (week #{program.current_week}, day #{today_dow})")
         routine_data = format_existing_routine(baseline)
+        routine_data = apply_routine_adjustments(routine_data)
         program_info = {
           name: program.name,
           current_week: program.current_week,
@@ -199,13 +221,29 @@ module ChatToolHandlers
       return error_response(routine[:error] || "루틴 생성에 실패했어요.")
     end
 
-    # Rest day: return rest message without generating routine
+    # Rest day: user explicitly requested a routine, so generate anyway with a goal
     if routine.is_a?(Hash) && routine[:rest_day]
-      return success_response(
-        message: routine[:coach_message] || "오늘은 휴식일이에요! 충분한 회복을 취하세요 💤",
-        intent: "REST_DAY",
-        data: { rest_day: true, suggestions: [] }
+      Rails.logger.info("[ChatService] Rest day detected but user explicitly requested routine - retrying with goal")
+      routine = AiTrainer.generate_routine(
+        user: user,
+        day_of_week: day_of_week,
+        condition_inputs: condition,
+        recent_feedbacks: recent_feedbacks,
+        goal: "오늘 루틴 생성"
       )
+
+      # If still rest day after retry, return rest message
+      if routine.is_a?(Hash) && routine[:rest_day]
+        return success_response(
+          message: routine[:coach_message] || "오늘은 휴식일이에요! 충분한 회복을 취하세요 💤",
+          intent: "REST_DAY",
+          data: { rest_day: true, suggestions: [] }
+        )
+      end
+
+      if routine.is_a?(Hash) && routine[:success] == false
+        return error_response(routine[:error] || "루틴 생성에 실패했어요.")
+      end
     end
 
     # Add program context to response if available
@@ -288,16 +326,20 @@ module ChatToolHandlers
     end
 
     if today_routine
-      # Already has today's routine - just acknowledge condition
+      # Adjust routine with both feedback history and today's condition
+      routine_data = format_existing_routine(today_routine)
+      routine_data = apply_routine_adjustments(routine_data, condition_modifier: result[:intensity_modifier] || 1.0)
+
       message = build_condition_response_message(condition, result)
-      message += "\n\n오늘 루틴이 이미 있어요! 컨디션을 반영해서 진행해주세요 💪"
+      message += "\n\n컨디션을 반영해서 루틴을 조정했어요! 💪"
 
       return success_response(
         message: message,
-        intent: "CHECK_CONDITION",
+        intent: "CONDITION_AND_ROUTINE",
         data: {
           condition: condition,
           intensity_modifier: result[:intensity_modifier],
+          routine: routine_data,
           existing_routine_id: today_routine.id,
           suggestions: []
         }
