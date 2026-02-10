@@ -154,15 +154,26 @@ module ChatRoutineFormatter
       {
         exercise_id: ex.id.to_s,
         exercise_name: ex.exercise_name,
+        exercise_name_english: ex.exercise_name_english,
         target_muscle: ex.target_muscle,
+        target_muscle_korean: ex.target_muscle_korean,
         order: ex.order_index + 1,
         sets: ex.sets,
         reps: ex.reps,
         target_weight_kg: ex.weight,
         weight_description: ex.weight_description,
+        weight_guide: ex.weight_guide,
         rest_seconds: ex.rest_duration_seconds,
         instructions: ex.how_to,
-        rom: ex.range_of_motion
+        rom: ex.range_of_motion,
+        rpe: ex.rpe,
+        tempo: ex.tempo,
+        bpm: ex.bpm,
+        work_seconds: ex.work_seconds,
+        equipment: ex.equipment,
+        source_program: ex.source_program,
+        expert_tips: ex.expert_tips.presence,
+        form_cues: ex.form_cues.presence
       }
     end
 
@@ -201,9 +212,26 @@ module ChatRoutineFormatter
         workout_routine_id: routine.id,
         exercise_id: ex[:exercise_id] || ex["exercise_id"],
         exercise_name: ex[:exercise_name] || ex["exercise_name"] || ex[:name] || ex["name"],
+        exercise_name_english: ex[:exercise_name_english] || ex["exercise_name_english"],
         sets: ex[:sets] || ex["sets"] || 3,
         reps: ex[:reps] || ex["reps"] || 10,
-        order_index: idx + 1
+        order_index: idx + 1,
+        target_muscle: ex[:target_muscle] || ex["target_muscle"],
+        target_muscle_korean: ex[:target_muscle_korean] || ex["target_muscle_korean"],
+        rest_duration_seconds: ex[:rest_seconds] || ex["rest_seconds"],
+        how_to: ex[:instructions] || ex["instructions"],
+        weight: ex[:target_weight_kg] || ex["target_weight_kg"],
+        weight_description: ex[:weight_description] || ex["weight_description"],
+        weight_guide: ex[:weight_guide] || ex["weight_guide"],
+        range_of_motion: ex[:rom] || ex["rom"],
+        rpe: ex[:rpe] || ex["rpe"],
+        tempo: ex[:tempo] || ex["tempo"],
+        bpm: ex[:bpm] || ex["bpm"],
+        work_seconds: ex[:work_seconds] || ex["work_seconds"],
+        equipment: ex[:equipment] || ex["equipment"],
+        source_program: ex[:source_program] || ex["source_program"],
+        expert_tips: ex[:expert_tips] || ex["expert_tips"] || [],
+        form_cues: ex[:form_cues] || ex["form_cues"] || []
       )
     end
 

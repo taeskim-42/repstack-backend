@@ -162,13 +162,26 @@ module AiTrainer
 
           routine.routine_exercises.create!(
             exercise_name: ex[:exercise_name] || "Unknown Exercise",
+            exercise_name_english: ex[:exercise_name_english],
             order_index: ex[:order] || idx,
             sets: ex[:sets] || 3,
             reps: parse_reps(ex[:reps]),
             target_muscle: ex[:target_muscle] || "other",
+            target_muscle_korean: ex[:target_muscle_korean],
             rest_duration_seconds: ex[:rest_seconds] || default_rest_seconds,
             how_to: ex[:instructions],
-            weight_description: ex[:weight_description] || ex[:weight_guide]
+            weight: ex[:target_weight_kg],
+            weight_description: ex[:weight_description],
+            weight_guide: ex[:weight_guide],
+            range_of_motion: ex[:rom],
+            rpe: ex[:rpe],
+            tempo: ex[:tempo],
+            bpm: ex[:bpm],
+            work_seconds: ex[:work_seconds],
+            equipment: ex[:equipment],
+            source_program: ex[:source_program],
+            expert_tips: ex[:expert_tips] || [],
+            form_cues: ex[:form_cues] || []
           )
         rescue StandardError => ex_error
           Rails.logger.error("[RoutineService] Failed to add exercise '#{ex[:exercise_name]}': #{ex_error.message}")
