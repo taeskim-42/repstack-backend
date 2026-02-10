@@ -130,6 +130,13 @@ module ChatRoutineFormatter
       base_reps = ex[:reps] || 10
       adj_ex[:reps] = [(base_reps * multiplier).round, 1].max
 
+      # Adjust weight proportionally (round to nearest 2.5kg)
+      base_weight = ex[:target_weight_kg] || ex[:weight]
+      if base_weight.is_a?(Numeric) && base_weight > 0
+        weight_key = ex.key?(:target_weight_kg) ? :target_weight_kg : :weight
+        adj_ex[weight_key] = (base_weight * multiplier / 2.5).round * 2.5
+      end
+
       # Adjust sets only for significant changes (|delta| >= 0.15)
       if (multiplier - 1.0).abs >= 0.15
         base_sets = ex[:sets] || 3

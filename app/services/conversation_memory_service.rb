@@ -4,9 +4,10 @@
 # Two-tier memory: session summaries (last 3) + key facts (max 20).
 # Stored in user_profile.fitness_factors JSONB.
 class ConversationMemoryService
-  MAX_KEY_FACTS = 20
-  MAX_SESSION_SUMMARIES = 3
+  MAX_KEY_FACTS = 50
+  MAX_SESSION_SUMMARIES = 10
   MIN_USER_MESSAGES = 2
+  FACT_CATEGORIES = %w[injury goal preference personal habit progress milestone].freeze
 
   class << self
     def extract(user:, session_id:)
@@ -31,6 +32,17 @@ class ConversationMemoryService
       if summaries.present?
         lines = summaries.map { |s| "- [#{s['date']}] #{s['summary']}" }.join("\n")
         parts << "## 최근 대화 요약\n#{lines}"
+      end
+
+      personality = factors["personality_profile"]
+      if personality.present?
+        parts << "## 사용자 성격/대화 스타일\n#{personality}"
+      end
+
+      timeline = factors["progress_timeline"]
+      if timeline.present? && timeline.any?
+        milestones = timeline.last(10).map { |t| "- [#{t['date']}] #{t['event']} (#{t['type']})" }.join("\n")
+        parts << "## 주요 이정표\n#{milestones}"
       end
 
       parts.any? ? parts.join("\n\n") : nil
@@ -100,16 +112,17 @@ class ConversationMemoryService
     <<~PROMPT
       다음 트레이너-사용자 대화에서 두 가지를 추출해주세요:
 
-      1. key_facts: 사용자 개인에 관한 중요 사실 (부상, 선호, 목표, 개인정보 등)
+      1. key_facts: 사용자 개인에 관한 중요 사실
          - 일시적 상태("오늘 피곤해")는 제외, 지속적 사실만 포함
-         - category: injury(부상/통증), goal(목표), preference(선호), personal(개인정보)
+         - category: injury(부상/통증), goal(목표), preference(선호), personal(개인정보), habit(운동 습관), progress(성장/변화), milestone(PR/레벨업 등 이정표)
       2. summary: 대화 전체 요약 (100자 이내, 한국어)
+      3. personality_notes: 사용자의 대화 스타일/성격 관찰 (있으면, 없으면 null)
 
       대화:
       #{conversation_text}
 
       반드시 아래 JSON 형식으로만 답변하세요. 추출할 사실이 없으면 빈 배열:
-      {"key_facts":[{"fact":"내용","category":"injury|goal|preference|personal"}],"summary":"요약"}
+      {"key_facts":[{"fact":"내용","category":"injury|goal|preference|personal|habit|progress|milestone"}],"summary":"요약","personality_notes":"성격/대화 스타일 관찰 또는 null"}
     PROMPT
   end
 
@@ -125,7 +138,7 @@ class ConversationMemoryService
 
     return nil if key_facts.nil? && summary.blank?
 
-    { key_facts: Array(key_facts), summary: summary.to_s }
+    { key_facts: Array(key_facts), summary: summary.to_s, personality_notes: parsed[:personality_notes] }
   rescue JSON::ParserError => e
     Rails.logger.warn("[ConversationMemory] JSON parse error: #{e.message}")
     nil
@@ -153,6 +166,15 @@ class ConversationMemoryService
         "session_id" => session_id
       }
       factors["session_summaries"] = summaries.last(MAX_SESSION_SUMMARIES)
+    end
+
+    # Update personality profile (append observations)
+    if result[:personality_notes].present?
+      existing_personality = factors["personality_profile"] || ""
+      factors["personality_profile"] = [existing_personality, result[:personality_notes]]
+                                        .reject(&:blank?)
+                                        .join(" | ")
+                                        .truncate(500)
     end
 
     # Mark as processed

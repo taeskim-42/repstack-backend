@@ -257,6 +257,9 @@ module ChatToolHandlers
       }
     end
 
+    # Apply stored feedback adjustments (intensity_adjustment from previous sessions)
+    routine = apply_routine_adjustments(routine)
+
     success_response(
       message: format_routine_message(routine, program_info),
       intent: "GENERATE_ROUTINE",

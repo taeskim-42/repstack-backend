@@ -16,7 +16,29 @@ class ChatService
 
   class << self
     def process(user:, message:, routine_id: nil, session_id: nil)
+      # Route to Agent Service if available and user has access
+      if use_agent_service?(user)
+        result = AgentBridge.process(
+          user: user,
+          message: message,
+          routine_id: routine_id,
+          session_id: session_id
+        )
+        return result if result
+      end
+
+      # Legacy stateless processing
       new(user: user, message: message, routine_id: routine_id, session_id: session_id).process
+    end
+
+    private
+
+    def use_agent_service?(user)
+      return false unless AgentBridge.available?
+      return false unless ENV["AGENT_SERVICE_ENABLED"] == "true"
+
+      # TODO: Add user tier check (e.g., premium-only)
+      true
     end
   end
 

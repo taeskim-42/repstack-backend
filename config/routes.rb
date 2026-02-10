@@ -70,6 +70,24 @@ Rails.application.routes.draw do
     get "/debug_asc_api", action: :debug_asc_api
   end
 
+  # Internal API for Agent Service (Bearer token auth)
+  namespace :internal do
+    post "routines/generate", to: "routines#generate"
+    post "conditions/check", to: "conditions#check"
+    post "exercises/record", to: "exercises#record"
+    post "routines/replace_exercise", to: "routines#replace_exercise"
+    post "routines/add_exercise", to: "routines#add_exercise"
+    post "routines/delete_exercise", to: "routines#delete_exercise"
+    post "workouts/complete", to: "workouts#complete"
+    post "feedbacks/submit", to: "feedbacks#submit"
+    get  "programs/explain", to: "programs#explain"
+    get  "users/:id/profile", to: "users#profile"
+    get  "users/:id/history", to: "users#history"
+    get  "users/:id/today_routine", to: "users#today_routine"
+    get  "users/:id/memory", to: "users#memory"
+    post "users/:id/memory", to: "users#write_memory"
+  end
+
   # Defines the root path route ("/")
   # root "posts#index"
 end
