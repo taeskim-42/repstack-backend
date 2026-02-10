@@ -20,33 +20,24 @@ module ChatRoutineFormatter
       end
     end
 
-    msg += "📋 **#{routine[:day_korean] || routine['day_korean']}** - #{routine[:fitness_factor_korean] || routine['fitness_factor_korean']}\n"
-    msg += "⏱️ 예상 시간: #{routine[:estimated_duration_minutes] || routine['estimated_duration_minutes']}분\n\n"
-
     exercises = routine[:exercises] || routine["exercises"] || []
-    msg += "**운동 목록:**\n"
-    exercises.first(5).each do |ex|
-      name = ex[:exercise_name] || ex["exercise_name"]
-      sets = ex[:sets] || ex["sets"]
-      reps = ex[:reps] || ex["reps"]
-      msg += "• #{name} #{sets}세트 x #{reps}회\n"
-    end
+    duration = routine[:estimated_duration_minutes] || routine['estimated_duration_minutes'] || 45
 
-    msg += "• ... 외 #{exercises.length - 5}개\n" if exercises.length > 5
-    msg += "\n운동 시작할 준비가 되면 알려주세요!"
+    msg += "📋 **#{routine[:day_korean] || routine['day_korean']}** - #{routine[:fitness_factor_korean] || routine['fitness_factor_korean']}\n"
+    msg += "⏱️ 약 #{duration}분 · #{exercises.length}개 운동\n\n"
+    msg += "카드를 위로 스와이프하면 상세 내용을 볼 수 있어요.\n"
+    msg += "준비되면 알려주세요!"
     msg
   end
 
   def format_regenerated_routine_message(routine)
     exercises = routine.routine_exercises.order(:order_index)
+    duration = routine.estimated_duration || 45
 
-    msg = "**운동 목록:**\n"
-    exercises.first(5).each do |ex|
-      msg += "• #{ex.exercise_name} #{ex.sets}세트 x #{ex.reps}회\n"
-    end
-
-    msg += "• ... 외 #{exercises.length - 5}개\n" if exercises.length > 5
-    msg += "\n운동 시작할 준비가 되면 알려주세요!"
+    msg = "루틴을 새로 구성했어요! 🔄\n\n"
+    msg += "⏱️ 약 #{duration}분 · #{exercises.length}개 운동\n\n"
+    msg += "카드에서 상세 내용을 확인해주세요.\n"
+    msg += "준비되면 알려주세요!"
     msg
   end
 
@@ -103,31 +94,20 @@ module ChatRoutineFormatter
   end
 
   def format_first_routine_message(routine)
-    msg = "## 🎯 오늘의 첫 루틴이 준비됐어요!\n\n"
-    msg += "📋 **#{routine[:day_korean] || routine['day_korean']}** - #{routine[:fitness_factor_korean] || routine['fitness_factor_korean'] || '맞춤 훈련'}\n"
-    msg += "⏱️ 예상 시간: #{routine[:estimated_duration_minutes] || routine['estimated_duration_minutes'] || 45}분\n\n"
-
     exercises = routine[:exercises] || routine["exercises"] || []
-    msg += "**운동 목록:**\n"
-    exercises.each_with_index do |ex, idx|
-      name = ex[:exercise_name] || ex["exercise_name"]
-      sets = ex[:sets] || ex["sets"]
-      reps = ex[:reps] || ex["reps"]
-      work_seconds = ex[:work_seconds] || ex["work_seconds"]
+    duration = routine[:estimated_duration_minutes] || routine['estimated_duration_minutes'] || 45
 
-      if work_seconds.present?
-        msg += "#{idx + 1}. #{name} - #{sets}세트 x #{work_seconds}초\n"
-      else
-        msg += "#{idx + 1}. #{name} - #{sets}세트 x #{reps}회\n"
-      end
-    end
+    msg = "🎯 첫 루틴이 준비됐어요!\n\n"
+    msg += "📋 **#{routine[:day_korean] || routine['day_korean']}** - #{routine[:fitness_factor_korean] || routine['fitness_factor_korean'] || '맞춤 훈련'}\n"
+    msg += "⏱️ 약 #{duration}분 · #{exercises.length}개 운동\n\n"
 
     # Add coach message if available
     if routine[:notes].present? && routine[:notes].any?
-      msg += "\n💡 **코치 팁:** #{routine[:notes].first}"
+      msg += "💡 **코치 팁:** #{routine[:notes].first}\n\n"
     end
 
-    msg += "\n\n준비되면 \"운동 시작\"이라고 말씀해주세요! 함께 해볼까요? 💪"
+    msg += "카드를 위로 스와이프하면 상세 내용을 볼 수 있어요.\n"
+    msg += "준비되면 \"운동 시작\"이라고 말씀해주세요! 💪"
     msg
   end
 
