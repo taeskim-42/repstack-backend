@@ -7,7 +7,7 @@ module Simulation
       hundred:  { users: 100,  days: 7,   workers: 50 },
       run:      { users: 1000, days: 7,   workers: 50 },
       yearly:   { users: 1,    days: 365, workers: 1, persona_override: :marathon },
-      agent:    { users: 10,   days: 28,  workers: 10, persona_override: :agent_test }
+      agent:    { users: 10,   days: 28,  workers: 5, persona_override: :agent_test }
     }.freeze
 
     PERSONA_DISTRIBUTION = {
