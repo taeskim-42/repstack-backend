@@ -35,7 +35,7 @@ KNOWLEDGE_TOOLS = [
 ]
 
 
-async def handle_knowledge_tool(tool_name: str, tool_input: dict, user_id: int) -> str:
+async def handle_knowledge_tool(tool_name: str, tool_input: dict, user_id: int) -> dict:
     params = {"query": tool_input["query"]}
     if tool_input.get("knowledge_types"):
         params["knowledge_types"] = tool_input["knowledge_types"]
@@ -44,5 +44,4 @@ async def handle_knowledge_tool(tool_name: str, tool_input: dict, user_id: int) 
     if tool_input.get("limit"):
         params["limit"] = tool_input["limit"]
 
-    result = await rails_api_call("GET", "/knowledge/search", user_id, params=params)
-    return result.get("context_prompt") or str(result)
+    return await rails_api_call("GET", "/knowledge/search", user_id, params=params)
