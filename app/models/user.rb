@@ -15,8 +15,9 @@ class User < ApplicationRecord
   has_many :level_test_verifications, dependent: :destroy
   has_many :agent_sessions, dependent: :destroy
   has_many :chat_messages, dependent: :destroy
-  has_many :onboarding_analytics, dependent: :destroy
+  has_many :onboarding_analytics, class_name: "OnboardingAnalytics", dependent: :destroy
   has_many :fitness_test_submissions, dependent: :destroy
+  has_many :subscriptions, dependent: :destroy
 
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }
@@ -80,6 +81,14 @@ class User < ApplicationRecord
   # Get current active training program
   def active_training_program
     training_programs.active.order(created_at: :desc).first
+  end
+
+  def premium?
+    subscriptions.active.exists?
+  end
+
+  def active_subscription
+    subscriptions.active.order(expires_at: :desc).first
   end
 
   private
