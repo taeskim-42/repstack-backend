@@ -3,9 +3,10 @@ class WorkoutSet < ApplicationRecord
 
   # Validations
   validates :exercise_name, presence: true, length: { minimum: 2, maximum: 100 }
-  validates :weight, numericality: { greater_than: 0 }, allow_nil: true
-  validates :reps, numericality: { greater_than: 0 }, allow_nil: true
-  validates :duration_seconds, numericality: { greater_than: 0 }, allow_nil: true
+  validates :weight, numericality: { greater_than: 0, less_than_or_equal_to: 1000 }, allow_nil: true
+  validates :reps, numericality: { greater_than: 0, less_than_or_equal_to: 500, only_integer: true }, allow_nil: true
+  validates :duration_seconds, numericality: { greater_than: 0, less_than_or_equal_to: 7200 }, allow_nil: true
+  validates :rpe, numericality: { greater_than_or_equal_to: 1, less_than_or_equal_to: 10 }, allow_nil: true
   validates :weight_unit, inclusion: { in: %w[kg lbs] }
   validate :has_either_reps_or_duration
 

@@ -4,8 +4,14 @@
 # See: https://github.com/rack/rack-attack
 
 class Rack::Attack
-  # Use Rails cache as the storage backend
-  Rack::Attack.cache.store = Rails.cache
+  # Use Redis for distributed rate limiting if available
+  if ENV["REDIS_URL"].present?
+    Rack::Attack.cache.store = ActiveSupport::Cache::RedisCacheStore.new(
+      url: ENV["REDIS_URL"], namespace: "rack_attack"
+    )
+  else
+    Rack::Attack.cache.store = Rails.cache
+  end
 
   ### Throttling rules ###
 
@@ -38,20 +44,11 @@ class Rack::Attack
     end
   end
 
-  # Exponential backoff for repeated failures
-  # After 5 failed login attempts, block for 1 hour
-  blocklist("fail2ban/login") do |req|
+  # Block IPs with repeated auth failures (tracked at app layer)
+  blocklist("fail2ban/auth") do |req|
     if req.path == "/graphql" && req.post?
-      body = req.body.read
-      req.body.rewind
-      if body.include?("signIn")
-        # Track failed login attempts
-        Rack::Attack::Allow2Ban.filter(req.ip, maxretry: 5, findtime: 1.minute, bantime: 1.hour) do
-          # Return true if it's a failed login (check response later via ActiveSupport::Notifications)
-          # For now, just count attempts - actual fail tracking requires response inspection
-          false
-        end
-      end
+      fail_count = Rails.cache.read("auth_failure:#{req.ip}").to_i
+      fail_count >= 10
     end
   end
 

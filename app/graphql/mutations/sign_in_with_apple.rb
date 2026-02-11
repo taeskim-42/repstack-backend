@@ -35,7 +35,15 @@ module Mutations
       service.verify
     rescue AppleSignInService::InvalidTokenError => e
       MetricsService.record_login(success: false)
+      track_auth_failure
       { error: e.message }
+    end
+
+    def track_auth_failure
+      ip = context[:request]&.ip
+      return unless ip
+
+      Rails.cache.increment("auth_failure:#{ip}", 1, expires_in: 5.minutes)
     end
 
     def find_or_create_user(apple_data, user_name)

@@ -4,8 +4,10 @@ module Types
   class MutationType < Types::BaseObject
     # Authentication
     field :sign_in_with_apple, mutation: Mutations::SignInWithApple
-    field :dev_sign_in, mutation: Mutations::DevSignIn
-    field :dev_sign_in_fresh, mutation: Mutations::DevSignInFresh
+    if Rails.env.development? || Rails.env.test?
+      field :dev_sign_in, mutation: Mutations::DevSignIn
+      field :dev_sign_in_fresh, mutation: Mutations::DevSignInFresh
+    end
 
     # User Profile
     field :update_profile, mutation: Mutations::UpdateProfile
@@ -44,7 +46,12 @@ module Types
     field :replace_exercise, mutation: Mutations::ReplaceExercise
     field :regenerate_routine, mutation: Mutations::RegenerateRoutine
 
+    # Account management
+    field :delete_account, mutation: Mutations::DeleteAccount
+
     # Test utilities (development only)
-    field :create_test_user, mutation: Mutations::CreateTestUser
+    if Rails.env.development? || Rails.env.test?
+      field :create_test_user, mutation: Mutations::CreateTestUser
+    end
   end
 end

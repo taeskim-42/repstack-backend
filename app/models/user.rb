@@ -14,6 +14,9 @@ class User < ApplicationRecord
   has_many :workout_feedbacks, dependent: :destroy
   has_many :level_test_verifications, dependent: :destroy
   has_many :agent_sessions, dependent: :destroy
+  has_many :chat_messages, dependent: :destroy
+  has_many :onboarding_analytics, dependent: :destroy
+  has_many :fitness_test_submissions, dependent: :destroy
 
   # Validations
   validates :email, presence: true, uniqueness: { case_sensitive: false }

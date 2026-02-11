@@ -29,8 +29,16 @@ Rails.application.configure do
   # Don't log any deprecations.
   config.active_support.report_deprecations = false
 
-  # Use memory cache store (no database required)
-  config.cache_store = :memory_store
+  # Use Redis for cache if available, fallback to memory store
+  if ENV["REDIS_URL"].present?
+    config.cache_store = :redis_cache_store, {
+      url: ENV["REDIS_URL"],
+      expires_in: 1.hour,
+      namespace: "repstack_cache"
+    }
+  else
+    config.cache_store = :memory_store
+  end
 
   # Use Sidekiq for Active Job if Redis is configured, otherwise inline
   config.active_job.queue_adapter = ENV["REDIS_URL"].present? ? :sidekiq : :inline
@@ -38,6 +46,11 @@ Rails.application.configure do
   # Enable locale fallbacks for I18n.
   config.i18n.fallbacks = true
 
-  # Allow all hosts for Railway deployment
-  config.hosts.clear
+  # Force SSL in production
+  config.force_ssl = true
+  config.ssl_options = { redirect: { exclude: ->(req) { req.path.start_with?("/health") } } }
+
+  # Host authorization
+  config.hosts << ".railway.app"
+  config.host_authorization = { exclude: ->(req) { req.path.start_with?("/health", "/up") } }
 end
