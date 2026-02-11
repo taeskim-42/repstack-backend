@@ -18,11 +18,13 @@ class AgentBridge
     "check_condition" => "CHECK_CONDITION",
     "complete_workout" => "WORKOUT_COMPLETED",
     "submit_feedback" => "FEEDBACK_RECEIVED",
-    "explain_plan" => "EXPLAIN_LONG_TERM_PLAN"
+    "explain_plan" => "EXPLAIN_LONG_TERM_PLAN",
+    "get_today_routine" => "GENERATE_ROUTINE"
   }.freeze
 
   # Tools that are informational (not primary actions)
-  INFO_TOOLS = %w[get_user_profile get_training_history get_today_routine read_memory write_memory].freeze
+  # NOTE: get_today_routine excluded — it returns routine data that needs GENERATE_ROUTINE intent
+  INFO_TOOLS = %w[get_user_profile get_training_history read_memory write_memory search_fitness_knowledge].freeze
 
   class << self
     def process(user:, message:, routine_id: nil, session_id: nil)
@@ -162,7 +164,47 @@ class AgentBridge
       # Extract structured data from tool result
       structured = result.is_a?(Hash) ? result.deep_symbolize_keys : {}
 
+      # Normalize get_today_routine response to match AiRoutineType format
+      if tool_name == "get_today_routine" && structured[:routine].is_a?(Hash)
+        structured[:routine] = normalize_routine_format(structured[:routine])
+      end
+
       [intent, structured]
+    end
+
+    # Convert UsersController format_routine → AiRoutineType-compatible format
+    def normalize_routine_format(routine)
+      normalized = routine.dup
+
+      # Map :id → :routine_id (UsersController uses :id, AiRoutineType expects :routine_id)
+      normalized[:routine_id] ||= normalized.delete(:id)&.to_s
+      normalized[:tier] ||= "beginner"
+      normalized[:user_level] ||= 1
+      normalized[:fitness_factor] ||= normalized[:workout_type] || "strength"
+      normalized[:fitness_factor_korean] ||= normalized[:workout_type] || "근력"
+      normalized[:estimated_duration_minutes] ||= normalized[:estimated_duration] || 45
+      normalized[:generated_at] ||= Time.current.iso8601
+
+      # Map day_number → day_korean
+      unless normalized[:day_korean]
+        day_names = %w[일요일 월요일 화요일 수요일 목요일 금요일 토요일]
+        normalized[:day_korean] = day_names[normalized[:day_number].to_i] || "월요일"
+      end
+
+      # Normalize exercises
+      if normalized[:exercises].is_a?(Array)
+        normalized[:exercises] = normalized[:exercises].map do |ex|
+          ex = ex.dup
+          ex[:exercise_id] ||= ex.delete(:id)&.to_s
+          ex[:order] ||= (ex[:order_index] || 0) + 1
+          ex[:target_muscle] ||= "전신"
+          ex[:rest_seconds] ||= ex[:rest_duration_seconds]
+          ex[:instructions] ||= ex[:how_to]
+          ex
+        end
+      end
+
+      normalized
     end
 
     def extract_suggestions(message)
