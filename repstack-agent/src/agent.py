@@ -12,7 +12,7 @@ from src.tools import ALL_TOOLS, TOOL_HANDLERS
 logger = logging.getLogger(__name__)
 
 # Tools that are "informational" and don't represent a primary action
-_INFO_TOOLS = {"get_user_profile", "get_training_history", "get_today_routine", "read_memory", "write_memory"}
+_INFO_TOOLS = {"get_user_profile", "get_training_history", "get_today_routine", "read_memory", "write_memory", "search_fitness_knowledge"}
 
 
 def build_system_prompt(user_context: dict) -> str:
@@ -51,7 +51,8 @@ def build_system_prompt(user_context: dict) -> str:
 6. 응답은 간결하게, 핵심 위주로 합니다
 7. 도구 사용 후 응답 끝에 사용자가 다음에 할 수 있는 행동 2-4개를 제안합니다.
    형식: suggestions: ["제안1", "제안2", "제안3"]
-   예: suggestions: ["오늘 루틴 만들어줘", "컨디션 체크해줘", "운동 기록할게"]"""
+   예: suggestions: ["오늘 루틴 만들어줘", "컨디션 체크해줘", "운동 기록할게"]
+8. 운동 테크닉, 자세, 영양, 프로그래밍 관련 질문에는 search_fitness_knowledge 도구로 전문 지식을 검색한 후 답변합니다"""
 
 
 class TrainerAgent:

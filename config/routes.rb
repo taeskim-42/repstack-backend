@@ -88,6 +88,9 @@ Rails.application.routes.draw do
     get  "users/:id/memory", to: "users#memory"
     post "users/:id/memory", to: "users#write_memory"
 
+    # Knowledge search (RAG)
+    get  "knowledge/search", to: "knowledge#search"
+
     # Agent conversation history
     get  "sessions/:user_id/messages", to: "sessions#messages"
     post "sessions/:user_id/messages", to: "sessions#save_messages"
