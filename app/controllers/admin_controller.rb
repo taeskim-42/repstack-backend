@@ -331,11 +331,14 @@ class AdminController < ApplicationController
   end
 
   # POST /admin/run_agent_simulation - Trigger Agent 4-week simulation (background)
+  # POST /admin/run_agent_simulation?cleanup=true - Cleanup then run
   def run_agent_simulation
     Thread.new do
       $stdout.sync = true
       require Rails.root.join("lib/simulation/runner")
-      Simulation::Runner.new(mode: :agent).run
+      runner = Simulation::Runner.new(mode: :agent)
+      runner.cleanup if params[:cleanup].present?
+      runner.run
     rescue StandardError => e
       Rails.logger.error "[AgentSimulation] FATAL: #{e.message}\n#{e.backtrace.first(10).join("\n")}"
     end
@@ -343,6 +346,7 @@ class AdminController < ApplicationController
     render json: {
       status: "started",
       message: "Agent simulation started (10 users × 28 days). Check Railway logs.",
+      cleanup: params[:cleanup].present?,
       monitor: "railway logs --follow"
     }
   end
