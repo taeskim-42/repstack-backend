@@ -330,6 +330,23 @@ class AdminController < ApplicationController
     render json: { error: e.message }, status: :internal_server_error
   end
 
+  # POST /admin/run_agent_simulation - Trigger Agent 4-week simulation (background)
+  def run_agent_simulation
+    Thread.new do
+      $stdout.sync = true
+      require Rails.root.join("lib/simulation/runner")
+      Simulation::Runner.new(mode: :agent).run
+    rescue StandardError => e
+      Rails.logger.error "[AgentSimulation] FATAL: #{e.message}\n#{e.backtrace.first(10).join("\n")}"
+    end
+
+    render json: {
+      status: "started",
+      message: "Agent simulation started (10 users × 28 days). Check Railway logs.",
+      monitor: "railway logs --follow"
+    }
+  end
+
   def create_test_training_program(user, level)
     # Determine periodization based on level
     periodization = level <= 3 ? "linear" : "undulating"

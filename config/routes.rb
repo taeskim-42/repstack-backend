@@ -59,6 +59,7 @@ Rails.application.routes.draw do
     get "/worker_status", action: :worker_status
     post "/random_form_complete", action: :random_form_complete
     delete "/delete_user_data", action: :delete_user_data
+    post "/run_agent_simulation", action: :run_agent_simulation
 
     # TestFlight feedback pipeline
     post "/poll_testflight", action: :poll_testflight
