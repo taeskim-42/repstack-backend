@@ -32,6 +32,14 @@ class SessionManager:
                 if role == "tool_result":
                     role = "user"
 
+                # Skip messages with empty content
+                if not content:
+                    continue
+                if isinstance(content, str) and not content.strip():
+                    continue
+                if isinstance(content, list) and len(content) == 0:
+                    continue
+
                 history.append({"role": role, "content": content})
             return history
         except Exception as e:

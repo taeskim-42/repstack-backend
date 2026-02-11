@@ -80,11 +80,17 @@ class TrainerAgent:
         return self._conversations[user_id]
 
     def _trim_history(self, user_id: int) -> None:
-        """Trim conversation history to stay within token budget."""
+        """Trim conversation history to stay within token budget.
+
+        Preserves tool_use/tool_result pairs to avoid Anthropic API errors.
+        """
         history = self._conversations.get(user_id, [])
-        # Keep last 100 messages (rough limit)
-        if len(history) > 100:
-            self._conversations[user_id] = history[-80:]
+        if len(history) <= 100:
+            return
+
+        trimmed = history[-80:]
+        trimmed = _ensure_valid_history(trimmed)
+        self._conversations[user_id] = trimmed
 
     async def chat(self, user_id: int, message: str, user_context: dict | None = None) -> dict:
         """Process a user message and return agent response."""
@@ -239,7 +245,8 @@ class TrainerAgent:
             return
 
         # Split: summarize older half, keep recent half
-        split_point = len(history) // 2
+        # Find a safe split point that doesn't break tool_use/tool_result pairs
+        split_point = _find_safe_split(history, len(history) // 2)
         old_messages = history[:split_point]
         recent_messages = history[split_point:]
 
@@ -311,3 +318,81 @@ def _try_parse_json(value: str) -> dict | str:
         return json.loads(value)
     except (json.JSONDecodeError, TypeError):
         return value
+
+
+def _has_tool_use(msg: dict) -> bool:
+    """Check if a message contains tool_use blocks."""
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(
+        isinstance(b, dict) and b.get("type") == "tool_use"
+        for b in content
+    )
+
+
+def _has_tool_result(msg: dict) -> bool:
+    """Check if a message contains tool_result blocks."""
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(
+        isinstance(b, dict) and b.get("type") == "tool_result"
+        for b in content
+    )
+
+
+def _ensure_valid_history(messages: list[dict]) -> list[dict]:
+    """Ensure history starts with user role and has no orphan tool_result messages.
+
+    Drops leading tool_result messages that lost their matching tool_use
+    after trimming. Also ensures first message has role="user".
+    """
+    if not messages:
+        return messages
+
+    # Collect all tool_use IDs present in the history
+    tool_use_ids: set[str] = set()
+    for msg in messages:
+        if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
+            for block in msg["content"]:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tool_use_ids.add(block.get("id", ""))
+
+    # Filter out tool_result blocks whose tool_use_id is missing
+    cleaned = []
+    for msg in messages:
+        if msg.get("role") == "user" and isinstance(msg.get("content"), list):
+            filtered_content = []
+            for block in msg["content"]:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    if block.get("tool_use_id") in tool_use_ids:
+                        filtered_content.append(block)
+                    # else: orphan tool_result, drop it
+                else:
+                    filtered_content.append(block)
+
+            if filtered_content:
+                cleaned.append({"role": msg["role"], "content": filtered_content})
+            # else: entire message was orphan tool_results, drop it
+        else:
+            cleaned.append(msg)
+
+    # Ensure first message is role="user"
+    while cleaned and cleaned[0].get("role") != "user":
+        cleaned.pop(0)
+
+    return cleaned
+
+
+def _find_safe_split(history: list[dict], target: int) -> int:
+    """Find a split point that doesn't break tool_use/tool_result pairs.
+
+    Walks backward from target to find a user message that isn't a tool_result.
+    """
+    for i in range(target, 0, -1):
+        msg = history[i]
+        # Safe to split before a regular user message (not tool_result)
+        if msg.get("role") == "user" and not _has_tool_result(msg):
+            return i
+    return target
