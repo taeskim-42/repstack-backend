@@ -5,6 +5,7 @@ module Mutations
     description "Authenticate user with Apple Sign In and return access token"
 
     argument :identity_token, String, required: true, description: "Apple identity token (JWT)"
+    argument :authorization_code, String, required: false, description: "Apple authorization code for token exchange"
     argument :user_name, String, required: false, description: "User's name (only provided on first sign in)"
 
     field :auth_payload, Types::AuthPayloadType, null: true
@@ -12,12 +13,13 @@ module Mutations
 
     TOKEN_EXPIRY_HOURS = 24
 
-    def resolve(identity_token:, user_name: nil)
+    def resolve(identity_token:, authorization_code: nil, user_name: nil)
       with_error_handling(auth_payload: nil) do
         apple_data = verify_apple_token(identity_token)
         return error_response(apple_data[:error], auth_payload: nil) if apple_data[:error]
 
         user = find_or_create_user(apple_data, user_name)
+        exchange_apple_token(user, authorization_code) if authorization_code.present?
         token = generate_token(user)
 
         MetricsService.record_login(success: true)
@@ -52,6 +54,13 @@ module Mutations
         email: apple_data[:email],
         name: user_name
       )
+    end
+
+    def exchange_apple_token(user, authorization_code)
+      refresh_token = AppleTokenService.exchange_code(authorization_code)
+      user.update(apple_refresh_token: refresh_token) if refresh_token
+    rescue StandardError => e
+      Rails.logger.warn("[SignInWithApple] Token exchange failed: #{e.message}")
     end
 
     def generate_token(user)

@@ -33,9 +33,11 @@ module Mutations
     private
 
     def revoke_apple_token(user)
-      # Attempt Apple token revocation (best-effort, don't block deletion)
-      Rails.logger.info("Apple token revocation attempted for user #{user.id}")
+      return unless user.apple_refresh_token.present?
+
+      AppleTokenService.revoke_token(user.apple_refresh_token)
     rescue StandardError => e
+      # Best-effort: don't block deletion if revocation fails
       Rails.logger.warn("Apple token revocation failed for user #{user.id}: #{e.message}")
     end
   end
