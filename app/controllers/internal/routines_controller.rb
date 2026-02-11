@@ -296,25 +296,35 @@ module Internal
     end
 
     def format_routine(routine)
+      day_names = %w[일요일 월요일 화요일 수요일 목요일 금요일 토요일]
+      day_index = routine.day_number || 1
+
       {
-        id: routine.id,
-        day_of_week: routine.day_of_week,
+        routine_id: routine.id.to_s,
+        day_of_week: routine.day_of_week || routine.day_number.to_s,
+        day_korean: day_names[day_index] || "월요일",
         day_number: routine.day_number,
         week_number: routine.week_number,
-        estimated_duration: routine.estimated_duration,
+        tier: routine.level || "beginner",
+        user_level: @user.user_profile&.numeric_level || 1,
+        fitness_factor: routine.workout_type || "strength",
+        fitness_factor_korean: routine.workout_type || "근력",
+        estimated_duration_minutes: routine.estimated_duration || 45,
+        generated_at: routine.created_at&.iso8601 || Time.current.iso8601,
         workout_type: routine.workout_type,
         is_completed: routine.is_completed,
         exercises: routine.routine_exercises.order(:order_index).map do |ex|
           {
-            id: ex.id,
+            exercise_id: ex.id.to_s,
             exercise_name: ex.exercise_name,
+            order: ex.order_index + 1,
             sets: ex.sets,
             reps: ex.reps,
-            weight: ex.weight,
+            target_weight_kg: ex.weight,
             weight_description: ex.weight_description,
-            target_muscle: ex.target_muscle,
-            rest_duration_seconds: ex.rest_duration_seconds,
-            how_to: ex.how_to,
+            target_muscle: ex.target_muscle || "전신",
+            rest_seconds: ex.rest_duration_seconds,
+            instructions: ex.how_to,
             order_index: ex.order_index
           }
         end
