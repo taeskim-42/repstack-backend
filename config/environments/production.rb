@@ -46,11 +46,10 @@ Rails.application.configure do
   # Enable locale fallbacks for I18n.
   config.i18n.fallbacks = true
 
-  # Force SSL in production
-  config.force_ssl = true
-  config.ssl_options = { redirect: { exclude: ->(req) { req.path.start_with?("/health") } } }
+  # SSL is terminated at Railway's edge proxy, so force_ssl is not needed here.
+  # Railway automatically redirects HTTP → HTTPS at the edge.
 
-  # Host authorization
-  config.hosts << ".railway.app"
-  config.host_authorization = { exclude: ->(req) { req.path.start_with?("/health", "/up") } }
+  # Host authorization — Railway uses *.railway.app subdomains
+  config.hosts.clear
+  config.assume_ssl = true
 end
