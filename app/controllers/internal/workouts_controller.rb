@@ -31,9 +31,6 @@ module Internal
         profile.update!(fitness_factors: factors)
       end
 
-      # Save notes if provided
-      today_routine&.update(notes: params[:notes]) if params[:notes].present?
-
       render_success(
         routine_id: today_routine&.id,
         **session_stats
