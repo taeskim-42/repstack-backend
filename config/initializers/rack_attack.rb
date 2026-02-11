@@ -67,6 +67,11 @@ class Rack::Attack
     req.path.start_with?("/health")
   end
 
+  # Allow internal API (Agent Service → Rails, Bearer token auth)
+  safelist("allow-internal-api") do |req|
+    req.path.start_with?("/internal/")
+  end
+
   ### Blocklist rules ###
 
   # Block requests from known bad IPs (can be populated from external source)
