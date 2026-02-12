@@ -320,11 +320,13 @@ module Internal
             order: ex.order_index + 1,
             sets: ex.sets,
             reps: ex.reps,
-            target_weight_kg: ex.weight,
+            target_weight_kg: ex.weight&.to_f,
             weight_description: ex.weight_description,
             target_muscle: ex.target_muscle || "전신",
             rest_seconds: ex.rest_duration_seconds,
             instructions: ex.how_to,
+            bpm: ex.bpm,
+            range_of_motion: ex.range_of_motion,
             order_index: ex.order_index
           }
         end

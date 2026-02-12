@@ -208,6 +208,7 @@ class AgentBridge
           ex[:target_muscle] ||= "전신"
           ex[:rest_seconds] ||= ex[:rest_duration_seconds]
           ex[:instructions] ||= ex[:how_to]
+          ex[:target_weight_kg] ||= ex[:weight]&.to_f if ex[:weight].present?
           ex
         end
       end
