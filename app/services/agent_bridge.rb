@@ -26,6 +26,14 @@ class AgentBridge
   # NOTE: get_today_routine excluded — it returns routine data that needs GENERATE_ROUTINE intent
   INFO_TOOLS = %w[get_user_profile get_training_history read_memory write_memory search_fitness_knowledge].freeze
 
+  # Intent-specific default suggestions (override LLM-generated ones)
+  INTENT_SUGGESTIONS = {
+    "GENERATE_ROUTINE" => ["운동 끝났어", "운동 설명 더 자세히 알려줘", "운동 바꾸고 싶어"],
+    "CHECK_CONDITION" => ["오늘 루틴 만들어줘", "컨디션 다시 체크할게"],
+    "WORKOUT_COMPLETED" => ["오늘 운동 어땠어?", "다음 루틴 만들어줘"],
+    "FEEDBACK_RECEIVED" => ["다음 루틴 만들어줘", "감사합니다"]
+  }.freeze
+
   class << self
     def process(user:, message:, routine_id: nil, session_id: nil)
       return legacy_fallback(user, message, routine_id, session_id) unless available?
@@ -125,8 +133,8 @@ class AgentBridge
       # Derive intent + structured data from tool_calls
       intent, structured_data = extract_intent_and_data(tool_calls)
 
-      # Extract suggestions from message text
-      suggestions = extract_suggestions(message_text)
+      # Use intent-specific default suggestions, fallback to LLM-extracted ones
+      suggestions = INTENT_SUGGESTIONS[intent] || extract_suggestions(message_text)
       structured_data[:suggestions] = suggestions if suggestions.any?
 
       # Strip suggestions text from display message
@@ -223,8 +231,13 @@ class AgentBridge
       return message if message.blank?
 
       cleaned = message.dup
+      # Strip "---" separator + suggestions block at end of message
+      cleaned.gsub!(/\n*-{2,}\s*\n*suggestions\s*[:：\-]?\s*-?\s*\[.*?\]\s*\z/mi, "")
+      # Strip standalone suggestions line anywhere
       cleaned.gsub!(/[[:space:]]*suggestions\s*[:：\-]?\s*-?\s*\[.*?\]/mi, "")
       cleaned.gsub!(/[[:space:]]*suggestions\s*[:：]\s*[^\[].*/mi, "")
+      # Clean trailing "---" separator left behind
+      cleaned.gsub!(/\n*-{2,}\s*\z/m, "")
       cleaned.strip
     end
 
