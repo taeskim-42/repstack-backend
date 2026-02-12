@@ -303,24 +303,7 @@ class AdminController < ApplicationController
     user = User.find_by(email: email)
     return render json: { error: "User not found: #{email}" }, status: :not_found unless user
 
-    deleted_counts = {}
-
-    # Delete related data (order matters due to FK constraints)
-    deleted_counts[:onboarding_analytics] = OnboardingAnalytics.where(user_id: user.id).delete_all
-    deleted_counts[:chat_messages] = ChatMessage.where(user_id: user.id).delete_all
-    deleted_counts[:condition_logs] = user.condition_logs.delete_all if user.respond_to?(:condition_logs)
-    deleted_counts[:workout_feedbacks] = user.workout_feedbacks.delete_all if user.respond_to?(:workout_feedbacks)
-    deleted_counts[:workout_records] = user.workout_records.delete_all if user.respond_to?(:workout_records)
-    deleted_counts[:level_test_verifications] = user.level_test_verifications.delete_all if user.respond_to?(:level_test_verifications)
-    deleted_counts[:workout_sets] = WorkoutSet.joins(:workout_session).where(workout_sessions: { user_id: user.id }).delete_all
-    deleted_counts[:routine_exercises] = RoutineExercise.joins(:workout_routine).where(workout_routines: { user_id: user.id }).delete_all
-    deleted_counts[:workout_sessions] = user.workout_sessions.delete_all
-    deleted_counts[:workout_routines] = user.workout_routines.delete_all
-    deleted_counts[:training_programs] = user.training_programs.delete_all if user.respond_to?(:training_programs)
-    deleted_counts[:fitness_test_submissions] = FitnessTestSubmission.where(user_id: user.id).delete_all rescue 0
-    deleted_counts[:subscriptions] = Subscription.where(user_id: user.id).delete_all rescue 0
-    deleted_counts[:agent_sessions] = AgentSession.where(user_id: user.id).delete_all rescue 0
-    deleted_counts[:user_profile] = UserProfile.where(user_id: user.id).delete_all
+    deleted_counts = UserDataDeleter.delete_all_for(user)
     deleted_counts[:user] = User.where(id: user.id).delete_all
 
     render json: {

@@ -19,6 +19,7 @@ module Mutations
 
       ActiveRecord::Base.transaction do
         revoke_apple_token(user) if user.apple_user?
+        UserDataDeleter.delete_all_for(user)
         user.destroy!
       end
 
