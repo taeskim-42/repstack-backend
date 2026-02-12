@@ -175,6 +175,28 @@ module Internal
       render json: { error: "User not found" }, status: :not_found unless @user
     end
 
+    def enrich_exercises(routine)
+      exercises = routine.routine_exercises.order(:order_index).map do |ex|
+        {
+          exercise_id: ex.id.to_s,
+          exercise_name: ex.exercise_name,
+          order: ex.order_index + 1,
+          sets: ex.sets,
+          reps: ex.reps,
+          target_weight_kg: ex.weight&.to_f,
+          weight_description: ex.weight_description,
+          target_muscle: ex.target_muscle || "전신",
+          rest_seconds: ex.rest_duration_seconds,
+          instructions: ex.how_to,
+          bpm: ex.bpm,
+          range_of_motion: ex.range_of_motion,
+          order_index: ex.order_index
+        }
+      end
+
+      RoutineEnrichmentService.enrich(exercises, user_level: @user.user_profile&.numeric_level)
+    end
+
     def format_routine(routine)
       day_names = %w[일요일 월요일 화요일 수요일 목요일 금요일 토요일]
       day_index = routine.day_number || 1
@@ -195,23 +217,7 @@ module Internal
         generated_at: routine.created_at&.iso8601 || Time.current.iso8601,
         workout_type: routine.workout_type,
         is_completed: routine.is_completed,
-        exercises: routine.routine_exercises.order(:order_index).map do |ex|
-          {
-            exercise_id: ex.id.to_s,
-            exercise_name: ex.exercise_name,
-            order: ex.order_index + 1,
-            sets: ex.sets,
-            reps: ex.reps,
-            target_weight_kg: ex.weight&.to_f,
-            weight_description: ex.weight_description,
-            target_muscle: ex.target_muscle || "전신",
-            rest_seconds: ex.rest_duration_seconds,
-            instructions: ex.how_to,
-            bpm: ex.bpm,
-            range_of_motion: ex.range_of_motion,
-            order_index: ex.order_index
-          }
-        end
+        exercises: enrich_exercises(routine)
       }
     end
   end
