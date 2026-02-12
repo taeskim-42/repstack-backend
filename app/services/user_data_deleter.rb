@@ -9,43 +9,59 @@ class UserDataDeleter
     uid = user.id
 
     # Leaf tables first (no dependents)
-    counts[:onboarding_analytics] = OnboardingAnalytics.where(user_id: uid).delete_all
-    counts[:chat_messages] = ChatMessage.where(user_id: uid).delete_all
-    counts[:condition_logs] = ConditionLog.where(user_id: uid).delete_all
-    counts[:workout_feedbacks] = WorkoutFeedback.where(user_id: uid).delete_all
-    counts[:level_test_verifications] = LevelTestVerification.where(user_id: uid).delete_all
-    counts[:subscriptions] = Subscription.where(user_id: uid).delete_all
+    counts[:onboarding_analytics] = safe_delete { OnboardingAnalytics.where(user_id: uid).delete_all }
+    counts[:chat_messages] = safe_delete { ChatMessage.where(user_id: uid).delete_all }
+    counts[:condition_logs] = safe_delete { ConditionLog.where(user_id: uid).delete_all }
+    counts[:workout_feedbacks] = safe_delete { WorkoutFeedback.where(user_id: uid).delete_all }
+    counts[:level_test_verifications] = safe_delete { LevelTestVerification.where(user_id: uid).delete_all }
+    counts[:subscriptions] = safe_delete { Subscription.where(user_id: uid).delete_all }
 
     # fitness_test_submissions (table may exist in DB even if model is absent)
-    counts[:fitness_test_submissions] = begin
+    counts[:fitness_test_submissions] = safe_delete do
       ActiveRecord::Base.connection.execute(
         "DELETE FROM fitness_test_submissions WHERE user_id = #{uid.to_i}"
       ).cmd_tuples
-    rescue StandardError
-      0
     end
 
     # agent_conversation_messages → agent_sessions (child first)
-    agent_ids = AgentSession.where(user_id: uid).pluck(:id)
-    if agent_ids.any?
-      counts[:agent_conversation_messages] = AgentConversationMessage.where(agent_session_id: agent_ids).delete_all
+    counts[:agent_conversation_messages] = safe_delete do
+      agent_ids = AgentSession.where(user_id: uid).pluck(:id)
+      agent_ids.any? ? AgentConversationMessage.where(agent_session_id: agent_ids).delete_all : 0
     end
-    counts[:agent_sessions] = AgentSession.where(user_id: uid).delete_all
+    counts[:agent_sessions] = safe_delete { AgentSession.where(user_id: uid).delete_all }
 
     # workout_records references workout_sessions
-    counts[:workout_records] = WorkoutRecord.where(user_id: uid).delete_all
+    counts[:workout_records] = safe_delete { WorkoutRecord.where(user_id: uid).delete_all }
 
     # workout_sets → workout_sessions
-    counts[:workout_sets] = WorkoutSet.joins(:workout_session).where(workout_sessions: { user_id: uid }).delete_all
-    counts[:workout_sessions] = WorkoutSession.where(user_id: uid).delete_all
+    counts[:workout_sets] = safe_delete do
+      WorkoutSet.joins(:workout_session).where(workout_sessions: { user_id: uid }).delete_all
+    end
+    counts[:workout_sessions] = safe_delete { WorkoutSession.where(user_id: uid).delete_all }
 
     # routine_exercises → workout_routines
-    counts[:routine_exercises] = RoutineExercise.joins(:workout_routine).where(workout_routines: { user_id: uid }).delete_all
-    counts[:workout_routines] = WorkoutRoutine.where(user_id: uid).delete_all
+    counts[:routine_exercises] = safe_delete do
+      RoutineExercise.joins(:workout_routine).where(workout_routines: { user_id: uid }).delete_all
+    end
+    counts[:workout_routines] = safe_delete { WorkoutRoutine.where(user_id: uid).delete_all }
 
-    counts[:training_programs] = TrainingProgram.where(user_id: uid).delete_all
-    counts[:user_profile] = UserProfile.where(user_id: uid).delete_all
+    counts[:training_programs] = safe_delete { TrainingProgram.where(user_id: uid).delete_all }
+    counts[:user_profile] = safe_delete { UserProfile.where(user_id: uid).delete_all }
 
+    Rails.logger.info("[UserDataDeleter] Deleted for user #{uid}: #{counts}")
     counts
   end
+
+  # Safely execute deletion, returning 0 if table doesn't exist or other DB error
+  def self.safe_delete
+    yield
+  rescue ActiveRecord::StatementInvalid => e
+    Rails.logger.warn("[UserDataDeleter] Skipped (table may not exist): #{e.message}")
+    0
+  rescue StandardError => e
+    Rails.logger.warn("[UserDataDeleter] Error: #{e.message}")
+    0
+  end
+
+  private_class_method :safe_delete
 end

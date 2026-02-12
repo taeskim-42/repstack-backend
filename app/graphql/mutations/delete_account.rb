@@ -17,17 +17,14 @@ module Mutations
         return { success: false, errors: ["확인을 위해 'DELETE'를 입력해주세요."] }
       end
 
-      ActiveRecord::Base.transaction do
-        revoke_apple_token(user) if user.apple_user?
-        UserDataDeleter.delete_all_for(user)
-        user.destroy!
-      end
+      revoke_apple_token(user) if user.apple_user?
+      UserDataDeleter.delete_all_for(user)
+      User.where(id: user.id).delete_all
 
+      Rails.logger.info("[DeleteAccount] Successfully deleted user #{user.id} (#{user.email})")
       { success: true, errors: [] }
-    rescue ActiveRecord::RecordNotDestroyed => e
-      { success: false, errors: e.record.errors.full_messages }
     rescue StandardError => e
-      Rails.logger.error("Account deletion failed: #{e.message}")
+      Rails.logger.error("[DeleteAccount] Failed for user #{user.id}: #{e.class} - #{e.message}")
       { success: false, errors: ["계정 삭제에 실패했습니다. 다시 시도해주세요."] }
     end
 
