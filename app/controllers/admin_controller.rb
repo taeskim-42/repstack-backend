@@ -317,8 +317,11 @@ class AdminController < ApplicationController
     deleted_counts[:workout_sessions] = user.workout_sessions.delete_all
     deleted_counts[:workout_routines] = user.workout_routines.delete_all
     deleted_counts[:training_programs] = user.training_programs.delete_all if user.respond_to?(:training_programs)
-    deleted_counts[:user_profile] = user.user_profile&.destroy ? 1 : 0
-    deleted_counts[:user] = user.destroy ? 1 : 0
+    deleted_counts[:fitness_test_submissions] = FitnessTestSubmission.where(user_id: user.id).delete_all rescue 0
+    deleted_counts[:subscriptions] = Subscription.where(user_id: user.id).delete_all rescue 0
+    deleted_counts[:agent_sessions] = AgentSession.where(user_id: user.id).delete_all rescue 0
+    deleted_counts[:user_profile] = UserProfile.where(user_id: user.id).delete_all
+    deleted_counts[:user] = User.where(id: user.id).delete_all
 
     render json: {
       success: true,

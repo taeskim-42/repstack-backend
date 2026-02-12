@@ -16,7 +16,6 @@ class User < ApplicationRecord
   has_many :agent_sessions, dependent: :destroy
   has_many :chat_messages, dependent: :destroy
   has_many :onboarding_analytics, class_name: "OnboardingAnalytics", dependent: :destroy
-  has_many :fitness_test_submissions, dependent: :destroy
   has_many :subscriptions, dependent: :destroy
 
   # Validations
