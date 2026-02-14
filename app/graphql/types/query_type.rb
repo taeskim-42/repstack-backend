@@ -51,5 +51,8 @@ module Types
 
     # Training Program
     field :my_training_program, resolver: Queries::MyTrainingProgram
+
+    # Subscription & Usage
+    field :my_usage_status, resolver: Queries::MyUsageStatus
   end
 end

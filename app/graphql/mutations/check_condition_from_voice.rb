@@ -2,6 +2,8 @@
 
 module Mutations
   class CheckConditionFromVoice < BaseMutation
+    include SubscriptionGuard
+
     description "Check condition from voice input and get workout adaptations"
 
     argument :voice_text, String, required: true,
@@ -19,6 +21,7 @@ module Mutations
 
     def resolve(voice_text:)
       authenticate_user!
+      require_premium!("음성 컨디션 체크")
 
       # AI directly analyzes voice input and returns condition + adaptations
       result = AiTrainer::ConditionService.analyze_from_voice(user: current_user, text: voice_text)

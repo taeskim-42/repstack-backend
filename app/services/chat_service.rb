@@ -16,6 +16,12 @@ class ChatService
 
   class << self
     def process(user:, message:, routine_id: nil, session_id: nil)
+      # Structured commands bypass Agent Service — handle directly in Ruby
+      # This ensures consistent behavior regardless of Agent Service availability
+      if message.strip.start_with?("/") && STRUCTURED_COMMANDS.key?(message.strip)
+        return new(user: user, message: message.strip, routine_id: routine_id, session_id: session_id).process
+      end
+
       # Route to Agent Service if available and user has access
       if use_agent_service?(user)
         result = AgentBridge.process(
@@ -49,9 +55,24 @@ class ChatService
     @session_id = session_id
   end
 
+  # Structured command mapping: iOS sends language-independent commands
+  STRUCTURED_COMMANDS = {
+    "/start_workout" => :handle_start_workout_command,
+    "/end_workout" => :handle_end_workout_command,
+    "/workout_complete" => :handle_workout_complete_command,
+    "/check_condition" => :handle_check_condition_command,
+    "/generate_routine" => :handle_generate_routine_command
+  }.freeze
+
   def process
     # Reload user to get fresh profile data
     user.reload
+
+    # Structured command routing (language-independent commands from iOS)
+    if message.start_with?("/")
+      handler = STRUCTURED_COMMANDS[message]
+      return send(handler) if handler
+    end
 
     # Pre-load recent messages once (used by memory extraction, context summary, conversation history)
     load_recent_messages

@@ -2,6 +2,8 @@
 
 module Mutations
   class SubmitFeedbackFromVoice < BaseMutation
+    include SubscriptionGuard
+
     description "Submit workout feedback via voice input and get AI analysis"
 
     argument :voice_text, String, required: true,
@@ -17,6 +19,7 @@ module Mutations
 
     def resolve(voice_text:, routine_id: nil)
       authenticate_user!
+      require_premium!("음성 피드백")
 
       # AI analyzes voice feedback and returns insights + recommendations
       result = AiTrainer::FeedbackService.analyze_from_voice(user: current_user, text: voice_text, routine_id: routine_id)

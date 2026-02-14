@@ -23,6 +23,10 @@ module Types
     field :has_active_workout, Boolean, null: false
     field :total_workout_sessions, Integer, null: false
 
+    # Subscription
+    field :subscription_tier, String, null: false, description: "Current tier: free, pro, or max"
+    field :is_premium, Boolean, null: false, description: "True if user has pro or max subscription"
+
     MAX_LIMIT = 100
 
     def created_at
@@ -61,6 +65,14 @@ module Types
 
     def total_workout_sessions
       object.total_workout_sessions
+    end
+
+    def subscription_tier
+      object.subscription_tier.to_s
+    end
+
+    def is_premium
+      object.premium?
     end
   end
 end

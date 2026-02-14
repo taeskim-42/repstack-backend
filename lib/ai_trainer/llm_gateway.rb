@@ -107,6 +107,14 @@ module AiTrainer
         model: "claude-sonnet-4-20250514",
         max_tokens: 4096,
         temperature: 0.7
+      },
+
+      # Voice input normalization - fast, deterministic
+      voice_normalization: {
+        provider: :anthropic,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 200,
+        temperature: 0.0
       }
     }.freeze
 
@@ -314,6 +322,8 @@ module AiTrainer
           mock_assessment_response
         when :intent_classification
           "general_chat"
+        when :voice_normalization
+          '{"exercise":"벤치프레스","weight":60,"reps":10,"sets":null,"intent":"record_set"}'
         else
           "이것은 테스트 응답입니다. API 키가 설정되면 실제 AI 응답을 받을 수 있어요! 💪"
         end

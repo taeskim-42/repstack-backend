@@ -97,6 +97,11 @@ Rails.application.routes.draw do
     post "sessions/:user_id/summarize", to: "sessions#summarize"
   end
 
+  # Webhooks
+  namespace :webhooks do
+    post "app_store", to: "app_store#create"
+  end
+
   # Legal pages (App Store requirement)
   get "/privacy", to: "legal#privacy"
   get "/terms", to: "legal#terms"

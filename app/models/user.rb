@@ -82,8 +82,29 @@ class User < ApplicationRecord
     training_programs.active.order(created_at: :desc).first
   end
 
+  # Returns :free, :pro, or :max
+  def subscription_tier
+    sub = active_subscription
+    return :free unless sub
+
+    sub.tier
+  end
+
+  def free_tier?
+    subscription_tier == :free
+  end
+
+  def pro?
+    subscription_tier == :pro
+  end
+
+  def max?
+    subscription_tier == :max
+  end
+
+  # Backward compatibility: pro or max = premium
   def premium?
-    subscriptions.active.exists?
+    subscription_tier != :free
   end
 
   def active_subscription

@@ -10,9 +10,36 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_02_09_000001) do
+ActiveRecord::Schema[8.1].define(version: 2026_02_11_134124) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "agent_conversation_messages", force: :cascade do |t|
+    t.bigint "agent_session_id", null: false
+    t.jsonb "content", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.string "role", null: false
+    t.integer "token_count", default: 0
+    t.datetime "updated_at", null: false
+    t.index ["agent_session_id", "created_at"], name: "idx_on_agent_session_id_created_at_7c0447a8d5"
+    t.index ["agent_session_id"], name: "index_agent_conversation_messages_on_agent_session_id"
+  end
+
+  create_table "agent_sessions", force: :cascade do |t|
+    t.string "claude_session_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "last_active_at"
+    t.integer "message_count", default: 0
+    t.string "status", default: "active", null: false
+    t.decimal "total_cost_usd", precision: 8, scale: 4, default: "0.0"
+    t.integer "total_tokens", default: 0
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["claude_session_id"], name: "index_agent_sessions_on_claude_session_id", unique: true
+    t.index ["last_active_at"], name: "index_agent_sessions_on_last_active_at"
+    t.index ["user_id", "status"], name: "index_agent_sessions_on_user_id_and_status"
+    t.index ["user_id"], name: "index_agent_sessions_on_user_id"
+  end
 
   create_table "chat_messages", force: :cascade do |t|
     t.text "content", null: false
@@ -103,27 +130,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_09_000001) do
     t.index ["youtube_video_id"], name: "index_fitness_knowledge_chunks_on_youtube_video_id"
   end
 
-  create_table "fitness_test_submissions", force: :cascade do |t|
-    t.jsonb "analyses", default: {}, null: false
-    t.integer "assigned_level"
-    t.string "assigned_tier"
-    t.datetime "completed_at"
-    t.datetime "created_at", null: false
-    t.string "error_message"
-    t.jsonb "evaluation_result", default: {}
-    t.integer "fitness_score"
-    t.string "job_id", null: false
-    t.datetime "started_at"
-    t.string "status", default: "pending", null: false
-    t.datetime "updated_at", null: false
-    t.bigint "user_id", null: false
-    t.jsonb "videos", default: [], null: false
-    t.index ["job_id"], name: "index_fitness_test_submissions_on_job_id", unique: true
-    t.index ["status"], name: "index_fitness_test_submissions_on_status"
-    t.index ["user_id", "created_at"], name: "index_fitness_test_submissions_on_user_id_and_created_at"
-    t.index ["user_id"], name: "index_fitness_test_submissions_on_user_id"
-  end
-
   create_table "level_test_verifications", force: :cascade do |t|
     t.text "ai_feedback"
     t.datetime "completed_at"
@@ -166,21 +172,47 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_09_000001) do
   create_table "routine_exercises", force: :cascade do |t|
     t.integer "bpm"
     t.datetime "created_at", null: false
+    t.string "equipment"
     t.string "exercise_name", null: false
+    t.string "exercise_name_english"
+    t.jsonb "expert_tips", default: []
+    t.jsonb "form_cues", default: []
     t.text "how_to"
     t.integer "order_index", null: false
     t.text "purpose"
     t.string "range_of_motion"
     t.integer "reps"
     t.integer "rest_duration_seconds"
+    t.integer "rpe"
     t.integer "sets"
+    t.string "source_program"
     t.string "target_muscle"
+    t.string "target_muscle_korean"
+    t.string "tempo"
     t.datetime "updated_at", null: false
     t.decimal "weight", precision: 8, scale: 2
     t.string "weight_description"
+    t.text "weight_guide"
+    t.integer "work_seconds"
     t.bigint "workout_routine_id", null: false
     t.index ["exercise_name", "target_muscle"], name: "index_routine_exercises_on_exercise_name_and_target_muscle"
     t.index ["workout_routine_id", "order_index"], name: "index_routine_exercises_on_workout_routine_id_and_order_index"
+  end
+
+  create_table "subscriptions", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.string "environment", default: "production"
+    t.datetime "expires_at"
+    t.string "original_transaction_id", null: false
+    t.string "product_id", null: false
+    t.datetime "purchased_at"
+    t.string "status", default: "active", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["expires_at"], name: "index_subscriptions_on_expires_at"
+    t.index ["original_transaction_id"], name: "index_subscriptions_on_original_transaction_id", unique: true
+    t.index ["user_id", "status"], name: "index_subscriptions_on_user_id_and_status"
+    t.index ["user_id"], name: "index_subscriptions_on_user_id"
   end
 
   create_table "training_programs", force: :cascade do |t|
@@ -227,6 +259,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_09_000001) do
   end
 
   create_table "users", force: :cascade do |t|
+    t.string "apple_refresh_token"
     t.string "apple_user_id"
     t.datetime "created_at", null: false
     t.string "email", null: false
@@ -376,13 +409,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_09_000001) do
     t.index ["youtube_channel_id"], name: "index_youtube_videos_on_youtube_channel_id"
   end
 
+  add_foreign_key "agent_conversation_messages", "agent_sessions"
+  add_foreign_key "agent_sessions", "users"
   add_foreign_key "chat_messages", "users"
   add_foreign_key "condition_logs", "users"
   add_foreign_key "fitness_knowledge_chunks", "youtube_videos"
-  add_foreign_key "fitness_test_submissions", "users"
   add_foreign_key "level_test_verifications", "users"
   add_foreign_key "onboarding_analytics", "users"
   add_foreign_key "routine_exercises", "workout_routines"
+  add_foreign_key "subscriptions", "users"
   add_foreign_key "training_programs", "users"
   add_foreign_key "user_profiles", "users"
   add_foreign_key "workout_feedbacks", "users"

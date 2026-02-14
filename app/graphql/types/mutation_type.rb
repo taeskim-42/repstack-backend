@@ -17,6 +17,7 @@ module Types
     field :start_workout_session, mutation: Mutations::StartWorkoutSession
     field :end_workout_session, mutation: Mutations::EndWorkoutSession
     field :add_workout_set, mutation: Mutations::AddWorkoutSet
+    field :delete_workout_set, mutation: Mutations::DeleteWorkoutSet
 
     # Routines
     field :save_routine, mutation: Mutations::SaveRoutine
@@ -45,6 +46,13 @@ module Types
     field :save_routine_to_calendar, mutation: Mutations::SaveRoutineToCalendar
     field :replace_exercise, mutation: Mutations::ReplaceExercise
     field :regenerate_routine, mutation: Mutations::RegenerateRoutine
+
+    # Subscriptions
+    field :update_subscription, mutation: Mutations::UpdateSubscription
+    field :verify_subscription, mutation: Mutations::VerifySubscription
+
+    # Voice normalization
+    field :normalize_voice_input, mutation: Mutations::NormalizeVoiceInput
 
     # Account management
     field :delete_account, mutation: Mutations::DeleteAccount

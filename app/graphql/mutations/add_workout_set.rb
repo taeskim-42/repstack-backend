@@ -14,6 +14,7 @@ module Mutations
     argument :target_muscle, String, required: false
     argument :rpe, Integer, required: false
     argument :set_number, Integer, required: false
+    argument :client_id, String, required: false, description: "Client-generated UUID for idempotent creation"
 
     field :workout_set, Types::WorkoutSetType, null: true
     field :errors, [ String ], null: false
@@ -28,6 +29,12 @@ module Mutations
         return error_response("Workout session not found", workout_set: nil) unless workout_session
         return error_response("Workout session is not active", workout_set: nil) unless workout_session.active?
 
+        # Idempotent creation: if client_id provided, return existing set
+        if args[:client_id].present?
+          existing = workout_session.workout_sets.find_by(client_id: args[:client_id])
+          return success_response(workout_set: existing) if existing
+        end
+
         workout_set = workout_session.workout_sets.create!(
           exercise_name: exercise_name,
           weight: args[:weight],
@@ -37,7 +44,8 @@ module Mutations
           notes: args[:notes],
           target_muscle: args[:target_muscle],
           rpe: args[:rpe],
-          set_number: args[:set_number]
+          set_number: args[:set_number],
+          client_id: args[:client_id]
         )
 
         MetricsService.record_workout_set_logged

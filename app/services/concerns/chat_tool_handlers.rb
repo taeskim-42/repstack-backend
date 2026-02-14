@@ -73,10 +73,61 @@ module ChatToolHandlers
     )
   end
 
+  # ============================================
+  # Structured Command Handlers (language-independent)
+  # iOS sends /start_workout, /end_workout, etc. instead of Korean text
+  # ============================================
+
+  def handle_start_workout_command
+    active_session = user.workout_sessions.where(end_time: nil).first
+    if active_session
+      return success_response(
+        message: "이미 진행 중인 운동이 있어요! 💪",
+        intent: "START_WORKOUT"
+      )
+    end
+
+    session = user.workout_sessions.create!(
+      start_time: Time.current,
+      source: "app"
+    )
+
+    success_response(
+      message: "운동을 시작합니다! 💪 화이팅!",
+      intent: "START_WORKOUT",
+      data: { session_id: session.id }
+    )
+  end
+
+  def handle_end_workout_command
+    handle_complete_workout({})
+  end
+
+  def handle_workout_complete_command
+    handle_complete_workout({})
+  end
+
+  def handle_check_condition_command
+    handle_check_condition({})
+  end
+
+  def handle_generate_routine_command
+    # Use instant routine shortcut if available, otherwise full generation
+    load_recent_messages
+    if (instant = try_instant_routine_retrieval)
+      instant
+    else
+      handle_generate_routine({})
+    end
+  end
+
   # Detect routine request messages (conservative: avoid false positives)
   def routine_request_message?
     return false if message.blank?
     msg = message.strip
+
+    # Structured command
+    return true if msg == "/generate_routine"
 
     # Skip messages about modifying/completing/recording (not requesting a routine)
     return false if msg.match?(/끝났|완료|대신|바꿔|빼줘|추가|삭제|기록|했어|kg|세트|피드백|컨디션|피곤|아프/)
