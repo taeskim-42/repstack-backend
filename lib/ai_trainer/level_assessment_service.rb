@@ -106,7 +106,7 @@ module AiTrainer
           is_complete: true,
           assessment: result[:assessment],
           program: program_result[:program],  # TrainingProgram model instance
-          suggestions: result[:suggestions].presence || ["오늘 루틴 만들어줘", "프로그램 자세히 설명해줘", "나중에 할게"]
+          suggestions: result[:suggestions].presence || [ "오늘 루틴 만들어줘", "프로그램 자세히 설명해줘", "나중에 할게" ]
         }
       else
         save_assessment_state(result[:next_state], result[:collected_data])
@@ -130,6 +130,8 @@ module AiTrainer
     private
 
     attr_reader :user, :profile
+
+    VOICE_HINT = "\n\n💡 하단의 🎤 버튼을 누르면 음성으로 편하게 대화할 수 있어요!"
 
     # Handle first greeting when user enters chat after form onboarding
     # Uses LLM to generate personalized greeting + contextual suggestions
@@ -159,7 +161,7 @@ module AiTrainer
           update_analytics(analytics, "", { message: result[:message], collected_data: form_data })
           return {
             success: true,
-            message: result[:message],
+            message: result[:message] + VOICE_HINT,
             is_complete: false,
             assessment: nil,
             suggestions: result[:suggestions]
@@ -173,7 +175,7 @@ module AiTrainer
 
       {
         success: true,
-        message: greeting,
+        message: greeting + VOICE_HINT,
         is_complete: false,
         assessment: nil,
         suggestions: []
@@ -185,53 +187,53 @@ module AiTrainer
       name = user.name || "회원"
       goal = form_data["goals"] || profile.fitness_goal
       experience = form_data["experience"]
-      
+
       greeting_parts = []
       greeting_parts << "#{name}님, 안녕하세요! 💪"
-      
+
       # Acknowledge what we already know
       known_info = []
       known_info << "**#{goal}** 목표" if goal.present?
       known_info << "**#{translate_experience(experience)}** 수준" if experience.present?
       known_info << "키 **#{form_data['height']}cm**" if form_data["height"].present?
       known_info << "체중 **#{form_data['weight']}kg**" if form_data["weight"].present?
-      
+
       if known_info.any?
         greeting_parts << ""
         greeting_parts << "입력해주신 정보를 확인했어요:"
         greeting_parts << known_info.map { |info| "- #{info}" }.join("\n")
       end
-      
+
       # Explain what we need for better routine
       greeting_parts << ""
       greeting_parts << "더 정확한 맞춤 루틴을 위해 몇 가지만 더 여쭤볼게요! 😊"
-      
+
       # Ask the first question based on what's missing
       missing_questions = determine_missing_questions(form_data)
       if missing_questions.any?
         greeting_parts << ""
         greeting_parts << missing_questions.first
       end
-      
+
       greeting_parts.join("\n")
     end
 
     # Determine what questions to ask based on missing data
     def determine_missing_questions(form_data)
       questions = []
-      
+
       if form_data["frequency"].blank?
         questions << "우선, **주에 몇 번, 한 번에 몇 시간** 정도 운동하실 수 있으세요?"
       end
-      
+
       if form_data["environment"].blank?
         questions << "운동 환경은 어떻게 되세요? (헬스장/홈트/기구 유무)"
       end
-      
+
       if form_data["injuries"].blank?
         questions << "혹시 부상이나 피해야 할 동작이 있으신가요?"
       end
-      
+
       questions
     end
 
@@ -257,11 +259,11 @@ module AiTrainer
       # Determine next state based on what we already know
       next_state = if form_data["experience"].present? && form_data["goals"].present?
                      STATES[:asking_frequency]
-                   elsif form_data["experience"].present?
+      elsif form_data["experience"].present?
                      STATES[:asking_goals]
-                   else
+      else
                      STATES[:asking_experience]
-                   end
+      end
 
       # Save state with form data as initial collected data
       save_assessment_state(next_state, form_data)
@@ -478,7 +480,7 @@ module AiTrainer
           # Check if user explicitly wants to complete and get routine
           is_complete = data["is_complete"] || false
           user_requested_routine = user_wants_routine?(user_message)
-          
+
           # Force complete if user explicitly requested routine
           if user_requested_routine
             is_complete = true
@@ -502,7 +504,7 @@ module AiTrainer
             is_complete = true
             data["message"] = build_auto_complete_message(new_collected)
           end
-          
+
           # Build assessment if completing without one
           if is_complete && data["assessment"].blank?
             experience_level = new_collected["experience"] || "intermediate"
@@ -691,13 +693,13 @@ module AiTrainer
         level_str = profile.current_level.to_s.downcase
         data["experience"] = if %w[beginner intermediate advanced].include?(level_str)
                                level_str
-                             elsif profile.numeric_level.present?
+        elsif profile.numeric_level.present?
                                case profile.numeric_level.to_i
                                when 1..2 then "beginner"
                                when 3..5 then "intermediate"
                                else "advanced"
                                end
-                             end
+        end
       end
 
       data["goals"] = profile.fitness_goal if profile.fitness_goal.present?
@@ -780,10 +782,10 @@ module AiTrainer
       # This is a starting point - will be refined after fitness test
       experience_level = assessment["experience_level"] || "beginner"
       initial_numeric_level = case experience_level
-        when "beginner" then 1
-        when "intermediate" then 3
-        when "advanced" then 5
-        else 1
+      when "beginner" then 1
+      when "intermediate" then 3
+      when "advanced" then 5
+      else 1
       end
 
       # Set both current_level (tier) and numeric_level so routine generation works immediately
@@ -924,31 +926,31 @@ module AiTrainer
 
       summary_parts.any? ? summary_parts.join(" / ") : "전신 운동"
     end
-    
+
     def build_program_description(goal, experience, days_per_week)
       goal_korean = case goal.to_s.downcase
-        when /근비대|muscle|hypertrophy/ then "근비대 (근육량 증가)"
-        when /strength|근력/ then "근력 향상"
-        when /다이어트|fat|loss|체중/ then "체지방 감소"
-        when /체력|endurance|지구력/ then "체력/지구력 향상"
-        else "균형잡힌 체력 향상"
+      when /근비대|muscle|hypertrophy/ then "근비대 (근육량 증가)"
+      when /strength|근력/ then "근력 향상"
+      when /다이어트|fat|loss|체중/ then "체지방 감소"
+      when /체력|endurance|지구력/ then "체력/지구력 향상"
+      else "균형잡힌 체력 향상"
       end
-      
+
       level_korean = case experience.to_s.downcase
-        when /beginner|초보/ then "입문자"
-        when /intermediate|중급/ then "중급자"
-        when /advanced|고급/ then "고급자"
-        else "입문자"
+      when /beginner|초보/ then "입문자"
+      when /intermediate|중급/ then "중급자"
+      when /advanced|고급/ then "고급자"
+      else "입문자"
       end
-      
+
       split_type = case days_per_week
-        when 1..2 then "전신 운동"
-        when 3 then "3분할 (상체/하체/전신)"
-        when 4 then "상/하체 2분할"
-        when 5..6 then "푸시/풀/레그 분할"
-        else "전신 운동"
+      when 1..2 then "전신 운동"
+      when 3 then "3분할 (상체/하체/전신)"
+      when 4 then "상/하체 2분할"
+      when 5..6 then "푸시/풀/레그 분할"
+      else "전신 운동"
       end
-      
+
       {
         goal_korean: goal_korean,
         level_korean: level_korean,
@@ -1096,10 +1098,10 @@ module AiTrainer
 
       # Calculate initial numeric level from experience
       initial_numeric_level = case experience_level
-        when "beginner" then 1
-        when "intermediate" then 3
-        when "advanced" then 5
-        else 1
+      when "beginner" then 1
+      when "intermediate" then 3
+      when "advanced" then 5
+      else 1
       end
 
       update_profile_with_assessment({
@@ -1189,7 +1191,7 @@ module AiTrainer
       experience = translate_experience(collected["experience"])
       goals = collected["goals"]
       frequency = collected["frequency"]
-      
+
       # Build personalized response based on collected info
       msg = "완벽해요! 💪\n\n"
       msg += "**파악된 정보:**\n"
@@ -1200,7 +1202,7 @@ module AiTrainer
       msg += "- 부상: #{collected['injuries']}\n" if collected["injuries"].present? && collected["injuries"] != "없음"
       msg += "- 선호: #{collected['preferences']}\n" if collected["preferences"].present?
       msg += "\n이 정보를 바탕으로 딱 맞는 루틴을 만들어드릴게요! 🏋️"
-      
+
       msg
     end
 
