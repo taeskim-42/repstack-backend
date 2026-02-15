@@ -20,6 +20,18 @@ class TestflightFeedbackAnalysisJob
       # Trigger GitHub issue creation
       TestflightGithubIssueJob.perform_async(feedback_id)
 
+      # Broadcast to ActionCable for team system real-time consumption
+      ActionCable.server.broadcast("testflight_feedback", {
+        id: feedback.id,
+        severity: feedback.severity,
+        bug_category: feedback.bug_category,
+        affected_repo: feedback.affected_repo,
+        summary: feedback.ai_analysis_json&.dig("summary"),
+        feedback_text: feedback.feedback_text&.truncate(200),
+        app_version: feedback.app_version,
+        classified_at: Time.current.iso8601
+      })
+
       # Send notification
       NotificationService.notify(
         event: :feedback_analyzed,

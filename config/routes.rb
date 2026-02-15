@@ -1,4 +1,7 @@
 Rails.application.routes.draw do
+  # ActionCable WebSocket endpoint
+  mount ActionCable.server => "/cable"
+
   # GraphQL API endpoint
   post "/graphql", to: "graphql#execute"
 
