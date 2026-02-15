@@ -28,10 +28,10 @@ class AgentBridge
 
   # Intent-specific default suggestions (override LLM-generated ones)
   INTENT_SUGGESTIONS = {
-    "GENERATE_ROUTINE" => ["운동 끝났어", "운동 설명 더 자세히 알려줘", "운동 바꾸고 싶어"],
-    "CHECK_CONDITION" => ["오늘 루틴 만들어줘", "컨디션 다시 체크할게"],
-    "WORKOUT_COMPLETED" => ["오늘 운동 어땠어?", "다음 루틴 만들어줘"],
-    "FEEDBACK_RECEIVED" => ["다음 루틴 만들어줘", "감사합니다"]
+    "GENERATE_ROUTINE" => [ "운동 끝났어", "운동 설명 더 자세히 알려줘", "운동 바꾸고 싶어" ],
+    "CHECK_CONDITION" => [ "오늘 루틴 만들어줘", "컨디션 다시 체크할게" ],
+    "WORKOUT_COMPLETED" => [ "오늘 운동 어땠어?", "다음 루틴 만들어줘" ],
+    "FEEDBACK_RECEIVED" => [ "다음 루틴 만들어줘", "감사합니다" ]
   }.freeze
 
   class << self
@@ -45,7 +45,7 @@ class AgentBridge
         session_id: session_id
       )
 
-      parse_response(response)
+      parse_response(response, user)
     rescue Net::ReadTimeout, Net::OpenTimeout => e
       Rails.logger.error("[AgentBridge] Timeout: #{e.message}")
       legacy_fallback(user, message, routine_id, session_id)
@@ -120,7 +120,7 @@ class AgentBridge
       http.request(request)
     end
 
-    def parse_response(response)
+    def parse_response(response, user = nil)
       unless response.is_a?(Net::HTTPSuccess)
         Rails.logger.error("[AgentBridge] HTTP #{response.code}: #{response.body}")
         return nil
@@ -132,6 +132,16 @@ class AgentBridge
 
       # Derive intent + structured data from tool_calls
       intent, structured_data = extract_intent_and_data(tool_calls)
+
+      # Fallback: detect routine content in GENERAL_CHAT text
+      if intent == "GENERAL_CHAT" && routine_text_detected?(message_text)
+        fallback_routine = find_today_routine_for_user(user)
+        if fallback_routine
+          intent = "GENERATE_ROUTINE"
+          structured_data = structured_data.merge(routine: fallback_routine)
+          Rails.logger.warn("[AgentBridge] Fallback: text contained routine content, overriding to GENERATE_ROUTINE")
+        end
+      end
 
       # Use intent-specific default suggestions, fallback to LLM-extracted ones
       suggestions = INTENT_SUGGESTIONS[intent] || extract_suggestions(message_text)
@@ -159,7 +169,7 @@ class AgentBridge
     end
 
     def extract_intent_and_data(tool_calls)
-      return ["GENERAL_CHAT", {}] if tool_calls.empty?
+      return [ "GENERAL_CHAT", {} ] if tool_calls.empty?
 
       # Find the last "action" tool call (skip info tools like read_memory, get_profile)
       primary_call = tool_calls.reverse.find { |tc| INFO_TOOLS.exclude?(tc[:name]) }
@@ -177,7 +187,7 @@ class AgentBridge
         structured[:routine] = normalize_routine_format(structured[:routine])
       end
 
-      [intent, structured]
+      [ intent, structured ]
     end
 
     # Convert UsersController format_routine → AiRoutineType-compatible format
@@ -247,6 +257,53 @@ class AgentBridge
 
       # Sonnet 4.5 pricing: $3/M input, $15/M output
       ((input_tokens * 3.0 + output_tokens * 15.0) / 1_000_000).round(6)
+    end
+
+    def routine_text_detected?(text)
+      return false if text.blank?
+
+      exercise_keywords = %w[세트 회 렙 rep set]
+      keyword_count = exercise_keywords.count { |kw| text.include?(kw) }
+
+      keyword_count >= 2 && text.count("\n") >= 3
+    end
+
+    def find_today_routine_for_user(user)
+      return nil unless user
+
+      routine = user.workout_routines
+                    .where(created_at: Time.current.beginning_of_day..Time.current.end_of_day)
+                    .where(is_completed: false)
+                    .order(created_at: :desc)
+                    .first
+      return nil unless routine
+
+      normalize_routine_format(format_routine_for_response(routine))
+    rescue StandardError => e
+      Rails.logger.error("[AgentBridge] Fallback routine lookup failed: #{e.message}")
+      nil
+    end
+
+    def format_routine_for_response(routine)
+      {
+        id: routine.id,
+        name: "#{routine.day_of_week} #{routine.workout_type}",
+        day_number: routine.day_number,
+        estimated_duration: routine.estimated_duration,
+        workout_type: routine.workout_type,
+        exercises: routine.routine_exercises.order(:order_index).map { |re|
+          {
+            id: re.id,
+            exercise_name: re.exercise_name,
+            sets: re.sets,
+            reps: re.reps,
+            weight_description: re.weight_description,
+            how_to: re.how_to,
+            target_muscle: re.target_muscle,
+            order_index: re.order_index
+          }
+        }
+      }
     end
 
     def legacy_fallback(user, message, routine_id, session_id)
