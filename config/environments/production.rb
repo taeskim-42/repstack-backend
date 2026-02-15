@@ -52,4 +52,8 @@ Rails.application.configure do
   # Host authorization — Railway uses *.railway.app subdomains
   config.hosts.clear
   config.assume_ssl = true
+
+  # ActionCable: allow WebSocket connections from team system
+  config.action_cable.disable_request_forgery_protection = true
+  config.action_cable.url = ENV.fetch("ACTION_CABLE_URL", "wss://repstack-backend-production.up.railway.app/cable")
 end
