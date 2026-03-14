@@ -1,16 +1,21 @@
 # frozen_string_literal: true
 
+require_relative "chat_routine_formatter/adjustment_applier"
+require_relative "chat_routine_formatter/long_term_plan_builder"
+
 # Extracted from ChatService: routine formatting, long-term plan building,
 # weekly split, progression strategy, and routine DB persistence.
 module ChatRoutineFormatter
   extend ActiveSupport::Concern
+
+  include AdjustmentApplier
+  include LongTermPlanBuilder
 
   private
 
   def format_routine_message(routine, program_info = nil)
     msg = "오늘의 루틴을 준비했어요! 💪\n\n"
 
-    # Show program context if available
     if program_info
       phase = program_info[:phase] || program_info["phase"]
       week = program_info[:current_week] || program_info["current_week"]
@@ -21,7 +26,7 @@ module ChatRoutineFormatter
     end
 
     exercises = routine[:exercises] || routine["exercises"] || []
-    duration = routine[:estimated_duration_minutes] || routine['estimated_duration_minutes'] || 45
+    duration = routine[:estimated_duration_minutes] || routine["estimated_duration_minutes"] || 45
 
     msg += "📋 **#{routine[:day_korean] || routine['day_korean']}** - #{routine[:fitness_factor_korean] || routine['fitness_factor_korean']}\n"
     msg += "⏱️ 약 #{duration}분 · #{exercises.length}개 운동\n\n"
@@ -95,13 +100,12 @@ module ChatRoutineFormatter
 
   def format_first_routine_message(routine)
     exercises = routine[:exercises] || routine["exercises"] || []
-    duration = routine[:estimated_duration_minutes] || routine['estimated_duration_minutes'] || 45
+    duration = routine[:estimated_duration_minutes] || routine["estimated_duration_minutes"] || 45
 
     msg = "🎯 첫 루틴이 준비됐어요!\n\n"
     msg += "📋 **#{routine[:day_korean] || routine['day_korean']}** - #{routine[:fitness_factor_korean] || routine['fitness_factor_korean'] || '맞춤 훈련'}\n"
     msg += "⏱️ 약 #{duration}분 · #{exercises.length}개 운동\n\n"
 
-    # Add coach message if available
     if routine[:notes].present? && routine[:notes].any?
       msg += "💡 **코치 팁:** #{routine[:notes].first}\n\n"
     end
@@ -109,50 +113,6 @@ module ChatRoutineFormatter
     msg += "카드를 위로 스와이프하면 상세 내용을 볼 수 있어요.\n"
     msg += "준비되면 \"운동 시작\"이라고 말씀해주세요! 💪"
     msg
-  end
-
-  # Adjust routine exercises based on feedback history and current condition
-  # Returns modified routine_data hash (does NOT mutate original)
-  def apply_routine_adjustments(routine_data, condition_modifier: 1.0)
-    profile = user.user_profile
-    intensity_adj = profile&.fitness_factors&.dig("intensity_adjustment") || 0.0
-
-    # Combined multiplier: feedback history * today's condition
-    multiplier = condition_modifier * (1.0 + intensity_adj)
-
-    return routine_data if (multiplier - 1.0).abs < 0.02 # Skip trivial adjustments
-
-    adjusted = routine_data.dup
-    adjusted[:exercises] = routine_data[:exercises].map do |ex|
-      adj_ex = ex.dup
-
-      # Adjust reps proportionally
-      base_reps = ex[:reps] || 10
-      adj_ex[:reps] = [(base_reps * multiplier).round, 1].max
-
-      # Adjust weight proportionally (round to nearest 2.5kg)
-      base_weight = ex[:target_weight_kg] || ex[:weight]
-      if base_weight.is_a?(Numeric) && base_weight > 0
-        weight_key = ex.key?(:target_weight_kg) ? :target_weight_kg : :weight
-        adj_ex[weight_key] = (base_weight * multiplier / 2.5).round * 2.5
-      end
-
-      # Adjust sets only for significant changes (|delta| >= 0.15)
-      if (multiplier - 1.0).abs >= 0.15
-        base_sets = ex[:sets] || 3
-        adj_ex[:sets] = if multiplier > 1.0
-          [base_sets + 1, 6].min
-        else
-          [base_sets - 1, 1].max
-        end
-      end
-
-      adj_ex
-    end
-
-    adjusted[:adjusted] = true
-    adjusted[:adjustment_multiplier] = multiplier.round(2)
-    adjusted
   end
 
   # Convert existing DB routine to frontend format
@@ -207,7 +167,7 @@ module ChatRoutineFormatter
       user_id: user.id,
       level: user.user_profile&.tier || "beginner",
       week_number: program&.current_week || 1,
-      day_number: today.cwday,  # Day of week (1=Mon, 7=Sun)
+      day_number: today.cwday,
       workout_type: result[:workout_type] || "full_body",
       day_of_week: result[:day_korean] || today.strftime("%A"),
       estimated_duration: result[:estimated_duration_minutes] || 45,
@@ -246,174 +206,5 @@ module ChatRoutineFormatter
   rescue => e
     Rails.logger.error("Failed to save routine: #{e.message}")
     nil
-  end
-
-  # ============================================
-  # Long-Term Plan Builders
-  # ============================================
-
-  def build_long_term_plan(profile, consultation_data)
-    tier = profile&.tier || "beginner"
-    goal = profile&.fitness_goal || "건강"
-    frequency = consultation_data["frequency"] || "주 3회"
-    focus_areas = consultation_data["focus_areas"]
-
-    # Parse frequency
-    freq_match = frequency.match(/(\d+)/)
-    days_per_week = freq_match ? freq_match[1].to_i : 3
-    days_per_week = [[days_per_week, 2].max, 6].min  # Clamp between 2-6
-
-    # Build weekly split based on frequency and level
-    weekly_split = build_weekly_split(tier, days_per_week, focus_areas)
-
-    # Build plan description
-    description = build_plan_description(tier, goal, days_per_week)
-
-    {
-      tier: tier,
-      goal: goal,
-      days_per_week: days_per_week,
-      weekly_split: weekly_split[:description],
-      weekly_schedule: weekly_split[:schedule],
-      description: description,
-      progression_strategy: build_progression_strategy(tier),
-      estimated_timeline: estimate_goal_timeline(tier, goal)
-    }
-  end
-
-  def build_weekly_split(tier, days_per_week, focus_areas)
-    case tier
-    when "beginner"
-      if days_per_week <= 3
-        {
-          description: "전신 운동 (주 #{days_per_week}회)",
-          schedule: (1..days_per_week).map { |d| { day: d, focus: "전신", muscles: %w[legs chest back shoulders core] } }
-        }
-      else
-        {
-          description: "상하체 분할 (주 #{days_per_week}회)",
-          schedule: (1..days_per_week).map { |d| d.odd? ? { day: d, focus: "상체", muscles: %w[chest back shoulders arms] } : { day: d, focus: "하체", muscles: %w[legs core] } }
-        }
-      end
-    when "intermediate"
-      if days_per_week <= 4
-        {
-          description: "상하체 분할 (주 #{days_per_week}회)",
-          schedule: [
-            { day: 1, focus: "상체", muscles: %w[chest back shoulders arms] },
-            { day: 2, focus: "하체", muscles: %w[legs core] },
-            { day: 3, focus: "상체", muscles: %w[chest back shoulders arms] },
-            { day: 4, focus: "하체", muscles: %w[legs core] }
-          ].first(days_per_week)
-        }
-      else
-        {
-          description: "PPL 분할 (주 #{days_per_week}회)",
-          schedule: [
-            { day: 1, focus: "밀기 (Push)", muscles: %w[chest shoulders triceps] },
-            { day: 2, focus: "당기기 (Pull)", muscles: %w[back biceps] },
-            { day: 3, focus: "하체 (Legs)", muscles: %w[legs core] },
-            { day: 4, focus: "밀기 (Push)", muscles: %w[chest shoulders triceps] },
-            { day: 5, focus: "당기기 (Pull)", muscles: %w[back biceps] },
-            { day: 6, focus: "하체 (Legs)", muscles: %w[legs core] }
-          ].first(days_per_week)
-        }
-      end
-    when "advanced"
-      if days_per_week >= 5
-        {
-          description: "5분할 (주 #{days_per_week}회)",
-          schedule: [
-            { day: 1, focus: "가슴", muscles: %w[chest] },
-            { day: 2, focus: "등", muscles: %w[back] },
-            { day: 3, focus: "어깨", muscles: %w[shoulders] },
-            { day: 4, focus: "하체", muscles: %w[legs] },
-            { day: 5, focus: "팔", muscles: %w[biceps triceps] },
-            { day: 6, focus: "약점 보완", muscles: focus_areas&.split(",")&.map(&:strip) || %w[core] }
-          ].first(days_per_week)
-        }
-      else
-        {
-          description: "PPL 분할 (주 #{days_per_week}회)",
-          schedule: [
-            { day: 1, focus: "밀기 (Push)", muscles: %w[chest shoulders triceps] },
-            { day: 2, focus: "당기기 (Pull)", muscles: %w[back biceps] },
-            { day: 3, focus: "하체 (Legs)", muscles: %w[legs core] },
-            { day: 4, focus: "밀기 (Push)", muscles: %w[chest shoulders triceps] }
-          ].first(days_per_week)
-        }
-      end
-    else
-      {
-        description: "전신 운동 (주 3회)",
-        schedule: [
-          { day: 1, focus: "전신", muscles: %w[legs chest back shoulders core] },
-          { day: 2, focus: "전신", muscles: %w[legs chest back shoulders core] },
-          { day: 3, focus: "전신", muscles: %w[legs chest back shoulders core] }
-        ]
-      }
-    end
-  end
-
-  def build_plan_description(tier, goal, days_per_week)
-    goal_strategies = {
-      "근비대" => "근육량 증가를 위해 중량을 점진적으로 늘리고, 8-12회 반복에 집중합니다.",
-      "다이어트" => "체지방 감소를 위해 서킷 트레이닝과 고반복 운동을 병행합니다.",
-      "체력 향상" => "전반적인 체력 증진을 위해 복합 운동과 유산소를 균형있게 배치합니다.",
-      "건강" => "건강 유지를 위해 모든 근육군을 균형있게 훈련합니다.",
-      "strength" => "근력 향상을 위해 무거운 무게로 낮은 반복수(3-6회)에 집중합니다."
-    }
-
-    tier_approaches = {
-      "beginner" => "기본 동작을 완벽히 익히는 것이 우선입니다. 가벼운 무게로 자세를 잡고, 2-3개월 후 무게를 늘려갑니다.",
-      "intermediate" => "이제 점진적 과부하가 핵심입니다. 매주 조금씩 무게나 반복 수를 늘려가세요.",
-      "advanced" => "주기화 훈련으로 근력과 근비대를 번갈아 집중합니다. 디로드 주간도 중요합니다."
-    }
-
-    strategy = goal_strategies[goal] || goal_strategies["건강"]
-    approach = tier_approaches[tier] || tier_approaches["beginner"]
-
-    "#{strategy} #{approach}"
-  end
-
-  def build_progression_strategy(tier)
-    case tier
-    when "beginner"
-      "처음 4-6주: 동작 학습 기간 → 이후 매주 2.5% 또는 1-2회 증가"
-    when "intermediate"
-      "주당 2.5-5% 무게 증가, 4주마다 디로드 주간 포함"
-    when "advanced"
-      "3주 증가 + 1주 디로드 사이클, 비선형 주기화 적용"
-    else
-      "매주 조금씩 무게 또는 반복 수를 늘려가세요"
-    end
-  end
-
-  def estimate_goal_timeline(tier, goal)
-    base_weeks = case goal
-    when "근비대" then 12
-    when "다이어트" then 8
-    when "체력 향상" then 6
-    when "건강" then "지속적"
-    else 8
-    end
-
-    tier_modifier = case tier
-    when "beginner" then 1.5
-    when "intermediate" then 1.0
-    when "advanced" then 0.8
-    else 1.0
-    end
-
-    if base_weeks.is_a?(Integer)
-      adjusted = (base_weeks * tier_modifier).round
-      "약 #{adjusted}주 후 눈에 띄는 변화 기대"
-    else
-      "꾸준히 운동하면 건강 유지 가능"
-    end
-  end
-
-  def tier_korean(tier)
-    { "none" => "입문", "beginner" => "초급", "intermediate" => "중급", "advanced" => "고급" }[tier] || "입문"
   end
 end

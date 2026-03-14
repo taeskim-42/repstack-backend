@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "constants"
-require_relative "llm_gateway"
+require_relative "level_test/weight_calculator"
+require_relative "level_test/promotion_evaluator"
 
 module AiTrainer
   # Handles level testing and promotion (승급 시험)
@@ -9,13 +10,12 @@ module AiTrainer
   # Supports both traditional 1RM testing and AI-based estimation
   class LevelTestService
     include Constants
+    include LevelTest::WeightCalculator
+    include LevelTest::PromotionEvaluator
 
-    # Exercise name mappings for 3 big lifts
-    EXERCISE_MAPPINGS = {
-      bench: %w[벤치프레스 벤치 프레스 bench\ press benchpress],
-      squat: %w[스쿼트 바벨\ 스쿼트 squat barbell\ squat],
-      deadlift: %w[데드리프트 데드 deadlift]
-    }.freeze
+    # Exercise name mappings for 3 big lifts (kept here for backward compat;
+    # WeightCalculator::EXERCISE_MAPPINGS also defines these for PromotionEvaluator)
+    EXERCISE_MAPPINGS = LevelTest::WeightCalculator::EXERCISE_MAPPINGS
 
     attr_reader :user, :current_level
 
@@ -59,30 +59,17 @@ module AiTrainer
       passed_exercises = []
       failed_exercises = []
 
-      # Check each exercise result
       test_results[:exercises]&.each do |result|
         exercise_type = result[:exercise_type]&.to_sym
         weight_lifted = result[:weight_kg].to_f
         reps_completed = result[:reps].to_i
 
         required_weight = calculate_required_weight(criteria, exercise_type, height)
-        required_reps = 1 # 1RM test
 
-        if weight_lifted >= required_weight && reps_completed >= required_reps
-          passed_exercises << {
-            exercise: exercise_type,
-            required: required_weight,
-            achieved: weight_lifted,
-            status: :passed
-          }
+        if weight_lifted >= required_weight && reps_completed >= 1
+          passed_exercises << { exercise: exercise_type, required: required_weight, achieved: weight_lifted, status: :passed }
         else
-          failed_exercises << {
-            exercise: exercise_type,
-            required: required_weight,
-            achieved: weight_lifted,
-            status: :failed,
-            gap: required_weight - weight_lifted
-          }
+          failed_exercises << { exercise: exercise_type, required: required_weight, achieved: weight_lifted, status: :failed, gap: required_weight - weight_lifted }
         end
       end
 
@@ -108,12 +95,9 @@ module AiTrainer
       profile = @user.user_profile
       return { eligible: false, reason: "프로필이 없습니다." } unless profile
 
-      # Check last test date (cooldown period)
       last_test = profile.last_level_test_at
 
-      # Skip workout count check for initial level test (never taken a test before)
       unless last_test.nil?
-        # Check minimum workouts completed (only for promotion tests)
         completed_workouts = @user.workout_sessions.where.not(end_time: nil).count
         min_workouts = minimum_workouts_for_test
 
@@ -130,22 +114,13 @@ module AiTrainer
         end
       end
 
-      # Check cooldown period
       if last_test && last_test > 7.days.ago
         days_remaining = ((last_test + 7.days - Time.current) / 1.day).ceil
-        return {
-          eligible: false,
-          reason: "승급 시험은 7일에 한 번만 가능합니다.",
-          days_until_eligible: days_remaining
-        }
+        return { eligible: false, reason: "승급 시험은 7일에 한 번만 가능합니다.", days_until_eligible: days_remaining }
       end
 
-      # Check if already at max level
       if @current_level >= 8
-        return {
-          eligible: false,
-          reason: "이미 최고 레벨에 도달했습니다!"
-        }
+        return { eligible: false, reason: "이미 최고 레벨에 도달했습니다!" }
       end
 
       {
@@ -164,12 +139,9 @@ module AiTrainer
 
     def determine_test_type
       case Constants.tier_for_level(@current_level + 1)
-      when "beginner"
-        :form_test # Focus on form for beginners
-      when "intermediate"
-        :strength_test # 1RM tests for intermediate
-      when "advanced"
-        :comprehensive_test # Multiple aspects for advanced
+      when "beginner" then :form_test
+      when "intermediate" then :strength_test
+      when "advanced" then :comprehensive_test
       end
     end
 
@@ -180,19 +152,6 @@ module AiTrainer
         deadlift_kg: calculate_required_weight(criteria, :deadlift, height),
         description: criteria[:description]
       }
-    end
-
-    def calculate_required_weight(criteria, exercise_type, height)
-      ratio_key = "#{exercise_type}_ratio".to_sym
-      ratio = criteria[ratio_key] || 1.0
-      base_weight = case exercise_type
-      when :bench then height - 100
-      when :squat then height - 100 + 20
-      when :deadlift then height - 100 + 40
-      else height - 100
-      end
-
-      (base_weight * ratio).round(1)
     end
 
     def generate_test_exercises(criteria, height)
@@ -251,7 +210,7 @@ module AiTrainer
     end
 
     def calculate_time_limit
-      30 # 30 minutes for the test
+      30
     end
 
     def generate_pass_conditions(criteria, height)
@@ -277,18 +236,10 @@ module AiTrainer
 
     def generate_feedback(passed, failed_exercises)
       if passed
-        [
-          "🎉 축하합니다! 승급 시험을 통과했습니다!",
-          "새로운 레벨에서 더 강해진 당신을 기대합니다.",
-          "다음 목표를 향해 계속 도전하세요!"
-        ]
+        [ "🎉 축하합니다! 승급 시험을 통과했습니다!", "새로운 레벨에서 더 강해진 당신을 기대합니다.", "다음 목표를 향해 계속 도전하세요!" ]
       else
         feedback = [ "아쉽게도 이번 시험은 통과하지 못했습니다." ]
-
-        failed_exercises.each do |failed|
-          feedback << "- #{failed[:exercise]}: #{failed[:gap].round(1)}kg 부족"
-        end
-
+        failed_exercises.each { |f| feedback << "- #{f[:exercise]}: #{f[:gap].round(1)}kg 부족" }
         feedback << ""
         feedback << "포기하지 마세요! 꾸준한 훈련으로 반드시 성장할 수 있습니다."
         feedback
@@ -297,213 +248,19 @@ module AiTrainer
 
     def generate_next_steps(passed, failed_exercises)
       if passed
-        [
-          "새로운 레벨에 맞는 루틴이 생성됩니다",
-          "다음 승급까지 열심히 훈련하세요",
-          "7일 후 다시 승급 시험에 도전할 수 있습니다"
-        ]
+        [ "새로운 레벨에 맞는 루틴이 생성됩니다", "다음 승급까지 열심히 훈련하세요", "7일 후 다시 승급 시험에 도전할 수 있습니다" ]
       else
         steps = [ "약점 부위 강화 훈련을 추천합니다" ]
-
         failed_exercises.each do |failed|
           case failed[:exercise]
-          when :bench
-            steps << "- 가슴/삼두 운동 비중 증가 권장"
-          when :squat
-            steps << "- 하체 운동 비중 증가 권장"
-          when :deadlift
-            steps << "- 등/햄스트링 운동 비중 증가 권장"
+          when :bench then steps << "- 가슴/삼두 운동 비중 증가 권장"
+          when :squat then steps << "- 하체 운동 비중 증가 권장"
+          when :deadlift then steps << "- 등/햄스트링 운동 비중 증가 권장"
           end
         end
-
         steps << "7일 후 다시 도전할 수 있습니다"
         steps
       end
-    end
-
-    # ============================================================
-    # AI-BASED PROMOTION EVALUATION (추정 1RM 기반 승급 심사)
-    # ============================================================
-
-    public
-
-    # Evaluate promotion eligibility based on estimated 1RM from workout history
-    # @return [Hash] evaluation result with estimated 1RMs and AI feedback
-    def evaluate_promotion_readiness
-      height = @user.user_profile&.height || 170
-      next_level = [@current_level + 1, 8].min
-      criteria = Constants::LEVEL_TEST_CRITERIA[next_level]
-
-      # Calculate estimated 1RMs from workout history
-      estimated_1rms = calculate_estimated_1rms
-
-      # Check if meets criteria
-      required = {
-        bench: calculate_required_weight(criteria, :bench, height),
-        squat: calculate_required_weight(criteria, :squat, height),
-        deadlift: calculate_required_weight(criteria, :deadlift, height)
-      }
-
-      results = {}
-      all_passed = true
-
-      %i[bench squat deadlift].each do |exercise|
-        estimated = estimated_1rms[exercise]
-        req = required[exercise]
-
-        if estimated.nil?
-          results[exercise] = {
-            estimated_1rm: nil,
-            required: req,
-            status: :no_data,
-            message: "#{exercise_korean(exercise)} 기록이 부족합니다"
-          }
-          all_passed = false
-        elsif estimated >= req
-          results[exercise] = {
-            estimated_1rm: estimated.round(1),
-            required: req,
-            status: :passed,
-            surplus: (estimated - req).round(1)
-          }
-        else
-          results[exercise] = {
-            estimated_1rm: estimated.round(1),
-            required: req,
-            status: :failed,
-            gap: (req - estimated).round(1)
-          }
-          all_passed = false
-        end
-      end
-
-      # Get AI feedback
-      ai_feedback = get_ai_promotion_feedback(results, all_passed, next_level)
-
-      {
-        eligible: all_passed,
-        current_level: @current_level,
-        target_level: next_level,
-        estimated_1rms: estimated_1rms,
-        required_1rms: required,
-        exercise_results: results,
-        ai_feedback: ai_feedback,
-        recommendation: all_passed ? :ready_for_promotion : :continue_training
-      }
-    end
-
-    # Calculate estimated 1RM for each of the 3 big lifts
-    # Uses Epley formula: 1RM = weight × (1 + reps/30)
-    def calculate_estimated_1rms
-      sessions = @user.workout_sessions
-                      .where.not(end_time: nil)
-                      .where("created_at > ?", 8.weeks.ago)
-                      .includes(:workout_sets)
-
-      estimates = { bench: nil, squat: nil, deadlift: nil }
-
-      EXERCISE_MAPPINGS.each do |exercise_type, names|
-        best_estimate = find_best_estimated_1rm(sessions, names)
-        estimates[exercise_type] = best_estimate if best_estimate
-      end
-
-      estimates
-    end
-
-    private
-
-    def find_best_estimated_1rm(sessions, exercise_names)
-      best = nil
-
-      sessions.each do |session|
-        session.workout_sets.each do |set|
-          next unless exercise_names.any? { |name| set.exercise_name&.downcase&.include?(name.downcase) }
-          next unless set.weight.present? && set.reps.present? && set.reps > 0
-
-          weight_kg = set.weight_in_kg
-          next unless weight_kg && weight_kg > 0
-
-          # Epley formula: 1RM = weight × (1 + reps/30)
-          # More accurate for reps <= 10
-          estimated = if set.reps == 1
-                        weight_kg
-                      else
-                        weight_kg * (1 + set.reps / 30.0)
-                      end
-
-          best = estimated if best.nil? || estimated > best
-        end
-      end
-
-      best
-    end
-
-    def get_ai_promotion_feedback(results, all_passed, target_level)
-      prompt = build_promotion_prompt(results, all_passed, target_level)
-
-      response = LlmGateway.chat(
-        prompt: prompt,
-        task: :level_assessment
-      )
-
-      if response[:success]
-        response[:content]
-      else
-        all_passed ? default_pass_message(target_level) : default_fail_message(results)
-      end
-    end
-
-    def build_promotion_prompt(results, all_passed, target_level)
-      tier = Constants.tier_for_level(target_level)
-
-      <<~PROMPT
-        사용자의 승급 심사 결과를 분석하고 피드백을 제공해주세요.
-
-        현재 레벨: #{@current_level}
-        목표 레벨: #{target_level} (#{tier})
-
-        운동 기록 기반 추정 1RM 결과:
-        #{format_results_for_prompt(results)}
-
-        심사 결과: #{all_passed ? '통과' : '미달'}
-
-        #{all_passed ? '축하 메시지와 다음 목표에 대한 조언을 해주세요.' : '부족한 부분에 대한 구체적인 훈련 조언을 해주세요.'}
-
-        2-3문장으로 간결하게 작성해주세요. 이모지를 적절히 사용해주세요.
-      PROMPT
-    end
-
-    def format_results_for_prompt(results)
-      results.map do |exercise, data|
-        name = exercise_korean(exercise)
-        case data[:status]
-        when :passed
-          "- #{name}: #{data[:estimated_1rm]}kg (기준 #{data[:required]}kg) ✅ +#{data[:surplus]}kg"
-        when :failed
-          "- #{name}: #{data[:estimated_1rm]}kg (기준 #{data[:required]}kg) ❌ -#{data[:gap]}kg"
-        when :no_data
-          "- #{name}: 기록 없음 (기준 #{data[:required]}kg)"
-        end
-      end.join("\n")
-    end
-
-    def exercise_korean(exercise)
-      case exercise
-      when :bench then "벤치프레스"
-      when :squat then "스쿼트"
-      when :deadlift then "데드리프트"
-      else exercise.to_s
-      end
-    end
-
-    def default_pass_message(target_level)
-      "🎉 축하합니다! 레벨 #{target_level} 승급 조건을 충족했습니다. 꾸준한 노력의 결과입니다!"
-    end
-
-    def default_fail_message(results)
-      failed = results.select { |_, v| v[:status] != :passed }
-      exercises = failed.keys.map { |e| exercise_korean(e) }.join(", ")
-      "💪 #{exercises} 기록이 조금 더 필요해요. 포기하지 말고 계속 도전하세요!"
     end
   end
 end

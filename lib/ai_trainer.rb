@@ -53,6 +53,13 @@ module AiTrainer
   end
 end
 
+require_relative "ai_trainer/data"
+require_relative "ai_trainer/data/exercise_name_dictionary"
+require_relative "ai_trainer/data/programs/beginner"
+require_relative "ai_trainer/data/programs/intermediate"
+require_relative "ai_trainer/data/programs/advanced"
+require_relative "ai_trainer/data/programs/shimhyundo"
+require_relative "ai_trainer/data/programs/kimsunghwan"
 require_relative "ai_trainer/constants"
 require_relative "ai_trainer/dynamic_routine_config"
 require_relative "ai_trainer/routine_generator"
