@@ -67,7 +67,8 @@ module AiTrainer
 
       def enrich_single_exercise(exercise, contextual_knowledge, training_type)
         # Priority 1: New exercise video clips (direct DB lookup, accurate timestamps)
-        clips = fetch_exercise_clips(exercise[:exercise_name])
+        clip_name = exercise[:exercise_name_english].presence || exercise[:exercise_name]
+        clips = fetch_exercise_clips(clip_name)
         if clips.any?
           exercise[:video_references] = clips.map { |c| ExerciseVideoClipService.format_clip_reference(c) }
           exercise[:expert_tips] = clips.select(&:technique?).map(&:summary).compact.first(2)

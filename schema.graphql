@@ -3491,6 +3491,11 @@ Reference to a YouTube video source
 """
 type VideoReference {
   """
+  YouTube channel name
+  """
+  channelName: String
+
+  """
   Related FitnessKnowledgeChunk ID
   """
   chunkId: ID
@@ -3499,6 +3504,11 @@ type VideoReference {
   Clip type: technique, form_check, pro_tip, common_mistake
   """
   clipType: String
+
+  """
+  One-line summary of the clip
+  """
+  summary: String
 
   """
   End timestamp in seconds

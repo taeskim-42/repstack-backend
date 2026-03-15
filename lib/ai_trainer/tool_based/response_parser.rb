@@ -35,7 +35,8 @@ module AiTrainer
           is_time_based = ex["is_time_based"] || time_based_exercise?(exercise_name)
           work_seconds = is_time_based ? (ex["work_seconds"] || ex["reps"] || 30) : nil
 
-          videos = fetch_video_references(exercise_name, exercise_id: db_exercise&.id)
+          clip_lookup_name = db_exercise&.english_name.presence || exercise_name
+          videos = fetch_video_references(clip_lookup_name, exercise_id: db_exercise&.id)
 
           {
             order: idx,
