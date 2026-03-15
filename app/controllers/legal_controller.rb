@@ -20,7 +20,7 @@ class LegalController < ActionController::Base
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>RepStack 개인정보 처리방침</title>
+        <title>Setora 개인정보 처리방침</title>
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 0 auto; padding: 24px; line-height: 1.6; color: #333; }
           h1 { font-size: 24px; margin-bottom: 8px; }
@@ -30,11 +30,11 @@ class LegalController < ActionController::Base
         </style>
       </head>
       <body>
-        <h1>RepStack 개인정보 처리방침</h1>
+        <h1>Setora 개인정보 처리방침</h1>
         <p class="date">시행일: 2026년 2월 11일</p>
 
         <h2>1. 수집하는 개인정보</h2>
-        <p>RepStack은 서비스 제공을 위해 다음 정보를 수집합니다:</p>
+        <p>Setora은 서비스 제공을 위해 다음 정보를 수집합니다:</p>
         <ul>
           <li><strong>계정 정보:</strong> 이메일 주소, 이름 (Apple 로그인을 통해 제공)</li>
           <li><strong>신체 정보:</strong> 키, 체중 (사용자가 직접 입력)</li>
@@ -53,7 +53,7 @@ class LegalController < ActionController::Base
         <p>회원 탈퇴 시 모든 개인정보가 즉시 삭제됩니다. 관련 법령에 따라 보존이 필요한 정보는 해당 기간 동안 보관 후 삭제합니다.</p>
 
         <h2>4. 개인정보의 제3자 제공</h2>
-        <p>RepStack은 사용자의 동의 없이 개인정보를 제3자에게 제공하지 않습니다. 다만, AI 루틴 생성을 위해 Anthropic Claude API를 사용하며, 이 과정에서 운동 관련 데이터가 처리될 수 있습니다.</p>
+        <p>Setora은 사용자의 동의 없이 개인정보를 제3자에게 제공하지 않습니다. 다만, AI 루틴 생성을 위해 Anthropic Claude API를 사용하며, 이 과정에서 운동 관련 데이터가 처리될 수 있습니다.</p>
 
         <h2>5. 개인정보의 파기</h2>
         <p>앱 내 설정에서 "계정 삭제"를 통해 언제든지 모든 데이터를 삭제할 수 있습니다. 삭제 요청 시 모든 데이터가 즉시 영구 삭제됩니다.</p>
@@ -66,7 +66,7 @@ class LegalController < ActionController::Base
         </ul>
 
         <h2>7. 연락처</h2>
-        <p>개인정보 관련 문의: <a href="mailto:support@repstack.app">support@repstack.app</a></p>
+        <p>개인정보 관련 문의: <a href="mailto:support@setora.app">support@setora.app</a></p>
       </body>
       </html>
     HTML
@@ -79,7 +79,7 @@ class LegalController < ActionController::Base
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>RepStack 이용약관</title>
+        <title>Setora 이용약관</title>
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 800px; margin: 0 auto; padding: 24px; line-height: 1.6; color: #333; }
           h1 { font-size: 24px; margin-bottom: 8px; }
@@ -88,11 +88,11 @@ class LegalController < ActionController::Base
         </style>
       </head>
       <body>
-        <h1>RepStack 이용약관</h1>
+        <h1>Setora 이용약관</h1>
         <p class="date">시행일: 2026년 2월 11일</p>
 
         <h2>제1조 (목적)</h2>
-        <p>본 약관은 RepStack(이하 "서비스")의 이용 조건 및 절차, 이용자와 서비스 제공자의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.</p>
+        <p>본 약관은 Setora(이하 "서비스")의 이용 조건 및 절차, 이용자와 서비스 제공자의 권리, 의무 및 책임사항을 규정함을 목적으로 합니다.</p>
 
         <h2>제2조 (서비스의 내용)</h2>
         <p>서비스는 AI 기반 맞춤형 운동 루틴 생성, 운동 기록 관리, 운동 피드백 및 분석 기능을 제공합니다.</p>
@@ -118,7 +118,7 @@ class LegalController < ActionController::Base
         <p>서비스 이용과 관련하여 분쟁이 발생한 경우, 대한민국 법률을 준거법으로 하며 관할 법원에서 해결합니다.</p>
 
         <h2>연락처</h2>
-        <p>서비스 관련 문의: <a href="mailto:support@repstack.app">support@repstack.app</a></p>
+        <p>서비스 관련 문의: <a href="mailto:support@setora.app">support@setora.app</a></p>
       </body>
       </html>
     HTML

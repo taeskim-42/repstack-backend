@@ -12,7 +12,7 @@ class HealthController < ActionController::API
     render json: {
       status: "ok",
       timestamp: Time.current.iso8601,
-      service: "repstack-backend",
+      service: "setora-backend",
       version: app_version
     }, status: :ok
   end
@@ -50,7 +50,7 @@ class HealthController < ActionController::API
     render json: {
       status: overall_status(checks),
       timestamp: Time.current.iso8601,
-      service: "repstack-backend",
+      service: "setora-backend",
       version: app_version,
       environment: Rails.env,
       ruby_version: RUBY_VERSION,

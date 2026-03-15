@@ -87,24 +87,28 @@ module AiTrainer
         fixed_sets_reps: {
           id: "TM01",
           korean: "정해진 세트/횟수",
+          name: { ko: "정해진 세트/횟수", en: "Fixed Sets & Reps", ja: "固定セット・回数" },
           description: "Perform exactly X sets of Y reps",
           applies_to: [ :strength ]
         },
         total_reps_fill: {
           id: "TM02",
           korean: "채우기",
+          name: { ko: "채우기", en: "Total Reps Fill", ja: "トータルレップ" },
           description: "Complete target total reps regardless of sets",
           applies_to: [ :muscular_endurance ]
         },
         max_sets_at_fixed_reps: {
           id: "TM03",
           korean: "지속력 측정",
+          name: { ko: "지속력 측정", en: "Max Sets at Fixed Reps", ja: "持続力測定" },
           description: "How many sets of fixed reps can you sustain?",
           applies_to: [ :sustainability ]
         },
         tabata: {
           id: "TM04",
           korean: "타바타",
+          name: { ko: "타바타", en: "Tabata", ja: "タバタ" },
           description: "20s work + 10s rest intervals",
           work_duration: 20,
           rest_duration: 10,
@@ -114,6 +118,7 @@ module AiTrainer
         explosive: {
           id: "TM05",
           korean: "폭발적 수행",
+          name: { ko: "폭발적 수행", en: "Explosive", ja: "爆発的実行" },
           description: "Maximum speed/power per rep with full recovery",
           applies_to: [ :power ]
         }
@@ -123,11 +128,11 @@ module AiTrainer
       # WEEKLY STRUCTURE (주간 구조)
       # ============================================================
       WEEKLY_STRUCTURE = {
-        1 => { day: "Monday", korean: "월요일", fitness_factor: :strength },
-        2 => { day: "Tuesday", korean: "화요일", fitness_factor: :muscular_endurance },
-        3 => { day: "Wednesday", korean: "수요일", fitness_factor: :sustainability },
-        4 => { day: "Thursday", korean: "목요일", fitness_factor: :strength },
-        5 => { day: "Friday", korean: "금요일", fitness_factor: :cardiovascular }
+        1 => { day: "Monday", korean: "월요일", day_name: { ko: "월요일", en: "Monday", ja: "月曜日" }, fitness_factor: :strength },
+        2 => { day: "Tuesday", korean: "화요일", day_name: { ko: "화요일", en: "Tuesday", ja: "火曜日" }, fitness_factor: :muscular_endurance },
+        3 => { day: "Wednesday", korean: "수요일", day_name: { ko: "수요일", en: "Wednesday", ja: "水曜日" }, fitness_factor: :sustainability },
+        4 => { day: "Thursday", korean: "목요일", day_name: { ko: "목요일", en: "Thursday", ja: "木曜日" }, fitness_factor: :strength },
+        5 => { day: "Friday", korean: "금요일", day_name: { ko: "금요일", en: "Friday", ja: "金曜日" }, fitness_factor: :cardiovascular }
       }.freeze
     end
   end

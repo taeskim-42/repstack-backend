@@ -10,6 +10,7 @@ module AiTrainer
         full_body: {
           id: "SP01",
           korean: "무분할",
+          name: { ko: "무분할", en: "Full Body", ja: "全身" },
           description: "전신 운동을 매일 수행",
           days_per_week: 3..5,
           muscle_groups_per_day: %w[chest back legs shoulders arms core],
@@ -20,6 +21,7 @@ module AiTrainer
         upper_lower: {
           id: "SP02",
           korean: "2분할 (상/하)",
+          name: { ko: "2분할 (상/하)", en: "Upper/Lower Split", ja: "上半身/下半身" },
           description: "상체와 하체를 번갈아 수행",
           days_per_week: 4,
           schedule: {
@@ -33,6 +35,7 @@ module AiTrainer
         push_pull_legs: {
           id: "SP03",
           korean: "3분할 (밀기/당기기/하체)",
+          name: { ko: "3분할 (밀기/당기기/하체)", en: "Push/Pull/Legs", ja: "プッシュ/プル/レッグ" },
           description: "밀기/당기기/하체로 분할",
           days_per_week: 3..6,
           schedule: {
@@ -47,6 +50,7 @@ module AiTrainer
         four_day: {
           id: "SP04",
           korean: "4분할",
+          name: { ko: "4분할", en: "4-Day Split", ja: "4分割" },
           description: "가슴/등/어깨+팔/하체로 분할",
           days_per_week: 4,
           schedule: {
@@ -62,6 +66,7 @@ module AiTrainer
         five_day: {
           id: "SP05",
           korean: "5분할",
+          name: { ko: "5분할", en: "5-Day Split", ja: "5分割" },
           description: "가슴/등/어깨/팔/하체 각각 분리",
           days_per_week: 5,
           schedule: {
@@ -78,6 +83,7 @@ module AiTrainer
         fitness_factor_based: {
           id: "SP06",
           korean: "체력요인 기반",
+          name: { ko: "체력요인 기반", en: "Fitness Factor Based", ja: "体力要因ベース" },
           description: "요일별로 다른 체력요인 훈련",
           days_per_week: 5,
           schedule: {

@@ -1,0 +1,15 @@
+ja:
+  greeting:
+    onboarding_required: "まずオンボーディングを完了してください。"
+    first_day: "%{name}さん！今日は%{day}です。最初のワークアウトを始めましょうか？今日のフィットネス要素は%{factor}です。💪"
+    already_checked: "%{name}さん、今日のコンディションチェックは完了しています！ルーティンを始めますか？💪"
+    morning: "おはようございます、"
+    afternoon: "こんにちは、"
+    evening: "こんばんは、"
+    default: "こんにちは、"
+    level_context: "現在%{tier} %{week}週目です。"
+    condition_ask: "今日のコンディションはいかがですか？"
+    default_name: "ユーザー"
+    daily_greeting: "%{greeting} %{name}さん！今日は%{day}です。今日のフィットネス要素は%{factor}です。%{level_info}今日のコンディションはいかがですか？"
+  errors:
+    authentication_required: "認証が必要です"

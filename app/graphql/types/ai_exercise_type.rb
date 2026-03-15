@@ -9,7 +9,8 @@ module Types
     field :exercise_name, String, null: false
     field :exercise_name_english, String, null: true
     field :target_muscle, String, null: false
-    field :target_muscle_korean, String, null: true
+    field :target_muscle_name, String, null: true, description: "Target muscle name in user's locale"
+    field :target_muscle_korean, String, null: true, deprecation_reason: "Use targetMuscleName instead"
     field :equipment, String, null: true
 
     # Training parameters
@@ -39,8 +40,18 @@ module Types
     field :source_program, String, null: true, description: "Reference program (e.g., 심현도, 김성환)"
 
     # Knowledge enrichment (from YouTube RAG)
-    field :expert_tips, [String], null: true, description: "Expert tips from fitness knowledge base"
-    field :form_cues, [String], null: true, description: "Form/posture cues for proper execution"
-    field :video_references, [Types::VideoReferenceType], null: true, description: "Related YouTube video references"
+    field :expert_tips, [ String ], null: true, description: "Expert tips from fitness knowledge base"
+    field :form_cues, [ String ], null: true, description: "Form/posture cues for proper execution"
+    field :video_references, [ Types::VideoReferenceType ], null: true, description: "Related YouTube video references"
+
+    def target_muscle_name
+      locale = context[:locale] || "ko"
+      if locale == "ko"
+        val = object.is_a?(Hash) ? (object[:target_muscle_korean] || object["target_muscle_korean"]) : nil
+        val || target_muscle
+      else
+        target_muscle
+      end
+    end
   end
 end

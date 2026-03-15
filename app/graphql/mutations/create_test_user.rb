@@ -29,7 +29,7 @@ module Mutations
 
       # Generate unique email for test user
       timestamp = Time.current.to_i
-      email = "test_#{timestamp}@repstack.test"
+      email = "test_#{timestamp}@setora.test"
 
       ActiveRecord::Base.transaction do
         # Create user (created 2 days ago)

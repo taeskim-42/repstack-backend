@@ -23,7 +23,8 @@ class GraphqlController < ApplicationController
     context = {
       current_user: current_user,
       request: request,
-      request_id: @request_id
+      request_id: @request_id,
+      locale: extract_locale
     }
 
     start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -78,6 +79,14 @@ class GraphqlController < ApplicationController
     logger.error e.backtrace.join("\n")
 
     render json: { errors: [ { message: e.message, backtrace: e.backtrace } ], data: {} }, status: 500
+  end
+
+  def extract_locale
+    accept_language = request.headers["Accept-Language"]
+    return "ko" if accept_language.blank?
+
+    lang = accept_language.split(",").first&.split("-")&.first&.strip&.downcase
+    Localizable::SUPPORTED_LOCALES.include?(lang) ? lang : "ko"
   end
 
   def set_request_id

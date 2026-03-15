@@ -4,7 +4,7 @@
 # Only categorizes — root cause analysis is done by Opus in /poll-feedback
 class TestflightFeedbackAnalyzer
   SYSTEM_PROMPT = <<~PROMPT
-    You are a bug classifier for RepStack, a fitness app.
+    You are a bug classifier for Setora, an AI fitness coaching app.
     Classify TestFlight user feedback into exactly 4 fields.
     Do NOT guess root causes, affected files, or fixes.
     Respond ONLY with valid JSON:

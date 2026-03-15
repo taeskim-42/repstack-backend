@@ -9,6 +9,8 @@ module Queries
     def resolve
       authenticate_user!
 
+      @locale = context[:locale] || "ko"
+
       profile = current_user.user_profile
 
       # New user without profile - should go through onboarding
@@ -49,18 +51,23 @@ module Queries
         message: nil,
         intent: nil,
         data: nil,
-        error: "온보딩을 먼저 완료해주세요."
+        error: I18n.t("greeting.onboarding_required", locale: @locale)
       }
     end
 
     def first_day_response(profile)
-      user_name = current_user.name || "회원"
+      user_name = current_user.name || I18n.t("greeting.default_name", locale: @locale)
       day_info = today_info
 
       {
         success: true,
-        message: "안녕하세요, #{user_name}님! 오늘은 #{day_info[:korean]}이에요. " \
-                 "첫 운동을 시작해볼까요? 오늘의 체력 요인은 #{day_info[:fitness_factor_korean]}입니다. 💪",
+        message: I18n.t(
+          "greeting.first_day",
+          locale: @locale,
+          name: user_name,
+          day: day_info[:localized_day],
+          factor: day_info[:localized_factor]
+        ),
         intent: "GENERATE_ROUTINE",
         data: nil,
         error: nil
@@ -68,11 +75,11 @@ module Queries
     end
 
     def already_checked_response(_profile)
-      user_name = current_user.name || "회원"
+      user_name = current_user.name || I18n.t("greeting.default_name", locale: @locale)
 
       {
         success: true,
-        message: "#{user_name}님, 오늘 컨디션 체크는 완료했어요! 루틴을 시작할까요? 💪",
+        message: I18n.t("greeting.already_checked", locale: @locale, name: user_name),
         intent: "GENERATE_ROUTINE",
         data: nil,
         error: nil
@@ -80,7 +87,7 @@ module Queries
     end
 
     def greeting_response(profile)
-      user_name = current_user.name || "회원"
+      user_name = current_user.name || I18n.t("greeting.default_name", locale: @locale)
       day_info = today_info
 
       message = build_greeting_message(user_name, day_info, profile)
@@ -97,22 +104,29 @@ module Queries
     end
 
     def build_greeting_message(user_name, day_info, profile)
-      greetings = time_based_greeting
+      greeting = time_based_greeting
       level_info = level_context(profile)
 
-      "#{greetings} #{user_name}님! 오늘은 #{day_info[:korean]}이에요. " \
-      "오늘의 체력 요인은 #{day_info[:fitness_factor_korean]}입니다. " \
-      "#{level_info}오늘 컨디션은 어떠세요?"
+      I18n.t(
+        "greeting.daily_greeting",
+        locale: @locale,
+        greeting: greeting,
+        name: user_name,
+        day: day_info[:localized_day],
+        factor: day_info[:localized_factor],
+        level_info: level_info
+      )
     end
 
     def time_based_greeting
       hour = Time.current.hour
-      case hour
-      when 5..11 then "좋은 아침이에요,"
-      when 12..17 then "안녕하세요,"
-      when 18..21 then "좋은 저녁이에요,"
-      else "안녕하세요,"
+      key = case hour
+      when 5..11 then "morning"
+      when 12..17 then "afternoon"
+      when 18..21 then "evening"
+      else "default"
       end
+      I18n.t("greeting.#{key}", locale: @locale)
     end
 
     def level_context(profile)
@@ -120,14 +134,9 @@ module Queries
       week = profile.week_number || 1
 
       tier = AiTrainer::Constants.tier_for_level(level)
-      tier_korean = case tier
-                    when "beginner" then "초급"
-                    when "intermediate" then "중급"
-                    when "advanced" then "고급"
-                    else "초급"
-                    end
+      tier_name = Localizable.translate(:tiers, tier, @locale)
 
-      "현재 #{tier_korean} #{week}주차 진행 중이시네요. "
+      I18n.t("greeting.level_context", locale: @locale, tier: tier_name, week: week)
     end
 
     def today_info
@@ -141,8 +150,10 @@ module Queries
       {
         day_number: day_of_week,
         korean: weekly_structure[:korean],
+        localized_day: Localizable.translate(:days, day_of_week, @locale),
         fitness_factor: fitness_factor,
-        fitness_factor_korean: fitness_factor_info[:korean]
+        fitness_factor_korean: fitness_factor_info[:korean],
+        localized_factor: Localizable.translate(:fitness_factors, fitness_factor.to_s, @locale)
       }
     end
   end

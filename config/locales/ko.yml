@@ -1,0 +1,15 @@
+ko:
+  greeting:
+    onboarding_required: "온보딩을 먼저 완료해주세요."
+    first_day: "%{name}님! 오늘은 %{day}이에요. 첫 운동을 시작해볼까요? 오늘의 체력 요인은 %{factor}입니다. 💪"
+    already_checked: "%{name}님, 오늘 컨디션 체크는 완료했어요! 루틴을 시작할까요? 💪"
+    morning: "좋은 아침이에요,"
+    afternoon: "안녕하세요,"
+    evening: "좋은 저녁이에요,"
+    default: "안녕하세요,"
+    level_context: "현재 %{tier} %{week}주차 진행 중이시네요. "
+    condition_ask: "오늘 컨디션은 어떠세요?"
+    default_name: "회원"
+    daily_greeting: "%{greeting} %{name}님! 오늘은 %{day}이에요. 오늘의 체력 요인은 %{factor}입니다. %{level_info}오늘 컨디션은 어떠세요?"
+  errors:
+    authentication_required: "인증이 필요합니다"

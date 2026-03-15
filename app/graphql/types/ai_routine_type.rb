@@ -9,9 +9,11 @@ module Types
     field :user_level, Integer, null: false, description: "User's numeric level (1-8)"
     field :tier, String, null: false, description: "Level tier (beginner/intermediate/advanced)"
     field :day_of_week, String, null: false
-    field :day_korean, String, null: false
+    field :day_name, String, null: false, description: "Day name in user's locale"
+    field :day_korean, String, null: false, deprecation_reason: "Use dayName instead"
     field :fitness_factor, String, null: false, description: "Today's fitness factor"
-    field :fitness_factor_korean, String, null: false
+    field :fitness_factor_name, String, null: false, description: "Fitness factor name in user's locale"
+    field :fitness_factor_korean, String, null: false, deprecation_reason: "Use fitnessFactorName instead"
     field :training_method, String, null: true
     field :training_method_info, Types::TrainingMethodInfoType, null: true
     field :condition, Types::ConditionStatusType, null: false
@@ -60,6 +62,21 @@ module Types
       end
     end
 
+    def day_name
+      locale = context[:locale] || "ko"
+      if object.is_a?(Hash)
+        day_num = object[:day_number] || object["day_number"]
+        if day_num
+          Localizable.translate(:days, day_num, locale)
+        else
+          object[:day_korean] || object["day_korean"] || Localizable.translate(:days, 1, locale)
+        end
+      else
+        day_index = object.day_number || 1
+        Localizable.translate(:days, day_index, locale)
+      end
+    end
+
     def day_korean
       if object.is_a?(Hash)
         object[:day_korean] || object["day_korean"] || "월요일"
@@ -75,6 +92,17 @@ module Types
         object[:fitness_factor] || object["fitness_factor"] || "strength"
       else
         object.workout_type || "strength"
+      end
+    end
+
+    def fitness_factor_name
+      locale = context[:locale] || "ko"
+      if object.is_a?(Hash)
+        factor = object[:fitness_factor] || object["fitness_factor"] || "strength"
+        Localizable.translate(:fitness_factors, factor, locale)
+      else
+        factor = object.workout_type || "strength"
+        Localizable.translate(:fitness_factors, factor, locale)
       end
     end
 

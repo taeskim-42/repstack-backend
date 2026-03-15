@@ -13,7 +13,7 @@ class AdminController < ApplicationController
 
   # GET /admin/test_users - List available test users
   def test_users_list
-    users = User.where("email LIKE ?", "testuser_%@repstack.test")
+    users = User.where("email LIKE ?", "testuser_%@setora.test")
                 .includes(:user_profile, :workout_sessions)
                 .order(:id)
                 .limit(100)
@@ -72,7 +72,7 @@ class AdminController < ApplicationController
   # GET /admin/test_user_info
   def test_user_info
     user_type = params[:user_type] || "existing"
-    email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
+    email = user_type == "new" ? "test_new@setora.io" : "test@setora.io"
     user = User.find_by(email: email)
 
     return render json: { error: "Test user not found", user_type: user_type }, status: :not_found unless user
@@ -94,7 +94,7 @@ class AdminController < ApplicationController
   # POST /admin/reset_test_user
   def reset_test_user
     user_type = params[:user_type] || "existing_with_data"
-    email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
+    email = user_type == "new" ? "test_new@setora.io" : "test@setora.io"
     user = User.find_by(email: email)
 
     return render json: { error: "Test user not found" }, status: :not_found unless user
@@ -459,7 +459,7 @@ class AdminController < ApplicationController
   # POST /admin/random_form_complete - Set random form completion state for testing AI consultation
   def random_form_complete
     user_type = params[:user_type] || "existing"
-    email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
+    email = user_type == "new" ? "test_new@setora.io" : "test@setora.io"
     user = User.find_by(email: email)
 
     return render json: { error: "Test user not found" }, status: :not_found unless user
@@ -520,7 +520,7 @@ class AdminController < ApplicationController
   # POST /admin/delete_test_routines
   def delete_test_routines
     user_type = params[:user_type] || "existing"
-    email = user_type == "new" ? "test_new@repstack.io" : "test@repstack.io"
+    email = user_type == "new" ? "test_new@setora.io" : "test@setora.io"
     user = User.find_by(email: email)
 
     return render json: { error: "Test user not found" }, status: :not_found unless user
@@ -2344,13 +2344,13 @@ class AdminController < ApplicationController
   def get_or_create_test_user(level = 5, user_type: "existing_with_data")
     if user_type == "new"
       # 신규 유저: 레벨 1, form_onboarding 완료 but AI onboarding 미완료
-      email = "test_new@repstack.io"
+      email = "test_new@setora.io"
       name = "신규 테스트 유저"
       target_level = 1
       onboarding_complete = false
     else
       # 기존 유저: 선택한 레벨, 온보딩 완료 상태
-      email = "test@repstack.io"
+      email = "test@setora.io"
       name = "기존 테스트 유저"
       target_level = level
       onboarding_complete = true
