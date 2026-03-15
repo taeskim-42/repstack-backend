@@ -53,7 +53,7 @@ class ExerciseClipExtractionService
       You are a fitness knowledge extraction expert.
 
       Analyze this YouTube video transcript and extract exercise-specific knowledge clips.
-      Each clip should cover ONE specific topic about ONE exercise.
+      Each clip must teach the viewer HOW to do something — technique, form cues, programming advice, or specific actionable tips.
 
       Video: "#{@video.title}"
       Channel language: #{language}
@@ -61,12 +61,18 @@ class ExerciseClipExtractionService
       Captions:
       #{numbered_captions}
 
-      For each exercise knowledge clip found, return:
-      - exercise_name: English snake_case (e.g., "bench_press", "squat", "lat_pulldown")
+      QUALITY CRITERIA — only extract clips that meet ALL of these:
+      1. EDUCATIONAL VALUE: The clip must teach something specific and actionable (e.g., "keep your elbows at 45 degrees during bench press", "use 3-second eccentric for hypertrophy")
+      2. EXERCISE-SPECIFIC: Must be about a concrete, named exercise (bench_press, squat, lat_pulldown, etc.) — NOT general categories like "back_exercise", "general_training", "cardio_cycling"
+      3. SUFFICIENT DEPTH: The segment must contain at least 3+ sentences of actual instruction. Brief mentions like "I did 10 sets of push-ups" or "we trained chest today" are NOT clips.
+      4. NOT a vlog moment: Skip personal stories, travel logs, meals, lifestyle content, massage/recovery mentions without technique detail.
+
+      For each qualifying clip, return:
+      - exercise_name: English snake_case of a SPECIFIC exercise (e.g., "bench_press", "squat", "lat_pulldown", "barbell_row", "overhead_press"). Never use vague names like "back_exercise" or "general_training".
       - muscle_group: One of "chest", "back", "legs", "shoulders", "arms", "core", "cardio"
       - clip_type: One of "technique", "form_check", "pro_tip", "common_mistake"
       - title: Short descriptive title in #{language == "ko" ? "Korean" : "English"}
-      - content: Detailed knowledge in #{language == "ko" ? "Korean" : "English"} (2-4 sentences)
+      - content: Detailed, actionable knowledge in #{language == "ko" ? "Korean" : "English"} (3-5 sentences). Must contain specific cues, angles, rep ranges, or technique details that a trainee can immediately apply.
       - summary: One-line summary in #{language == "ko" ? "Korean" : "English"}
       - caption_start_index: The [index] where this clip starts
       - caption_end_index: The [index] where this clip ends
@@ -75,8 +81,8 @@ class ExerciseClipExtractionService
       IMPORTANT:
       - caption_start_index and caption_end_index MUST be valid indices from the captions above
       - Each clip should reference a continuous segment of captions
-      - Extract ALL distinct exercise knowledge segments (typically 3-10 per video)
-      - If the video doesn't contain exercise knowledge, return an empty array
+      - QUALITY OVER QUANTITY: It is better to return 0-3 high-quality clips than 10 low-quality ones
+      - If the video is a vlog, lifestyle content, or does not contain actionable exercise instruction, return an EMPTY array: {"exercise_clips": []}
 
       Return ONLY valid JSON:
       {"exercise_clips": [...]}
