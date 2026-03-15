@@ -58,4 +58,7 @@ Rails.application.configure do
 
   # ActionCable: allow local WebSocket connections (feedback-watcher, team system)
   config.action_cable.disable_request_forgery_protection = true
+
+  # Allow physical devices to connect via Mac's local IP (e.g., 192.168.x.x).
+  config.hosts.clear
 end

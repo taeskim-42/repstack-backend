@@ -5,10 +5,11 @@
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
-    origins(
-      "https://repstack-backend-production.up.railway.app",
-      *(Rails.env.development? ? ["http://localhost:3000"] : [])
-    )
+    if Rails.env.development?
+      origins "*"
+    else
+      origins "https://repstack-backend-production.up.railway.app"
+    end
 
     resource "*",
       headers: :any,
