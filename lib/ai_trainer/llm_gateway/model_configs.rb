@@ -69,7 +69,15 @@ module AiTrainer
       knowledge_extraction: {
         provider: :anthropic,
         model: "claude-haiku-4-5-20251001",
-        max_tokens: 16384, # Increased for long transcripts with many chunks
+        max_tokens: 16384,
+        temperature: 0.3
+      },
+
+      # Exercise video clip extraction from structured transcripts
+      clip_extraction: {
+        provider: :anthropic,
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 4096,
         temperature: 0.3
       },
 

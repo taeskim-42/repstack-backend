@@ -3,6 +3,8 @@
 # Exercise pool for dynamic routine generation
 # Stores all available exercises with their attributes
 class Exercise < ApplicationRecord
+  has_many :exercise_video_clips
+
   # Validations
   validates :name, presence: true, uniqueness: true
   validates :english_name, presence: true, uniqueness: true

@@ -36,19 +36,16 @@ class ExerciseClipExtractionService
   end
 
   def call_claude(numbered_captions)
-    client = Anthropic::Client.new(access_token: ENV.fetch("ANTHROPIC_API_KEY"))
     language = @video.youtube_channel&.language || "ko"
 
-    response = client.messages(
-      parameters: {
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4096,
-        messages: [ { role: "user", content: build_prompt(numbered_captions, language) } ]
-      }
+    response = AiTrainer::LlmGateway.chat(
+      prompt: build_prompt(numbered_captions, language),
+      task: :clip_extraction
     )
 
-    text = response.dig("content", 0, "text")
-    parse_response(text)
+    return [] unless response[:success]
+
+    parse_response(response[:content])
   end
 
   def build_prompt(numbered_captions, language)

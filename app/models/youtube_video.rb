@@ -3,6 +3,7 @@
 class YoutubeVideo < ApplicationRecord
   belongs_to :youtube_channel
   has_many :fitness_knowledge_chunks, dependent: :destroy
+  has_many :exercise_video_clips, dependent: :destroy
 
   # Analysis statuses
   STATUSES = %w[pending analyzing completed failed].freeze
