@@ -44,7 +44,7 @@ class YoutubeChannelScraper
         "--flat-playlist",
         "--print", "%(url)s|||%(title)s|||%(upload_date)s"
       ]
-      cmd_args += ["--playlist-end", limit.to_s] if limit
+      cmd_args += [ "--playlist-end", limit.to_s ] if limit
       cmd_args << videos_url
 
       output, status = Open3.capture2(*cmd_args)
@@ -76,6 +76,40 @@ class YoutubeChannelScraper
     # Check if yt-dlp is installed
     def yt_dlp_installed?
       system("which yt-dlp > /dev/null 2>&1")
+    end
+
+    # Extract raw structured subtitles (preserves timestamps + indices)
+    # Returns: [{ "start" => 0.0, "text" => "...", "duration" => 2.5 }, ...] or nil
+    def extract_structured_subtitles(video_url, language: "ko")
+      require "youtube_rb/transcript"
+
+      video_id = extract_video_id(video_url)
+      return nil unless video_id
+
+      begin
+        api = YoutubeRb::Transcript::YouTubeTranscriptApi.new
+        languages = language == "en" ? %w[en en-US] : %w[ko ko-KR]
+
+        begin
+          transcript_list = api.list(video_id)
+          transcript_obj = transcript_list.find_generated_transcript(languages)
+          transcript_obj ||= transcript_list.find_transcript(languages)
+          return transcript_obj.fetch if transcript_obj
+        rescue StandardError
+          # Fall back to direct fetch
+        end
+
+        api.fetch(video_id, languages: languages)
+      rescue YoutubeRb::Transcript::NoTranscriptFound,
+             YoutubeRb::Transcript::NoTranscriptAvailable,
+             YoutubeRb::Transcript::TranscriptsDisabled,
+             YoutubeRb::Transcript::TooManyRequests => e
+        Rails.logger.warn("No structured transcript for #{video_url}: #{e.message}")
+        nil
+      rescue StandardError => e
+        Rails.logger.error("Failed to extract structured transcript for #{video_url}: #{e.message}")
+        nil
+      end
     end
 
     # Extract subtitles from a video using youtube-transcript-rb
@@ -175,7 +209,7 @@ class YoutubeChannelScraper
         "--print", "url"
       ]
 
-      args += ["--playlist-end", limit.to_s] if limit
+      args += [ "--playlist-end", limit.to_s ] if limit
 
       args << url
 

@@ -18,7 +18,7 @@ class ExtractTranscriptsJob
   # @param pipeline [Boolean] If true, trigger analysis + embedding after transcript (default: true)
   # @param language [String] Filter by channel language: "en", "ko", or nil for all
   def perform(limit = 100, pipeline = true, language = nil)
-    scope = YoutubeVideo.where(transcript: [nil, ""])
+    scope = YoutubeVideo.where(transcript: [ nil, "" ])
                         .joins(:youtube_channel)
                         .where(youtube_channels: { active: true })
 
@@ -54,7 +54,7 @@ class ExtractTranscriptsJob
     )
 
     # Auto-continue: if there are more videos, queue the next batch
-    remaining_scope = YoutubeVideo.where(transcript: [nil, ""])
+    remaining_scope = YoutubeVideo.where(transcript: [ nil, "" ])
                                   .joins(:youtube_channel)
                                   .where(youtube_channels: { active: true })
     remaining_scope = remaining_scope.where(youtube_channels: { language: language }) if language.present?
@@ -65,7 +65,7 @@ class ExtractTranscriptsJob
       ExtractTranscriptsJob.perform_in(5.seconds, limit, pipeline, language)
     elsif language == "en"
       # English done, start Korean automatically
-      ko_remaining = YoutubeVideo.where(transcript: [nil, ""])
+      ko_remaining = YoutubeVideo.where(transcript: [ nil, "" ])
                                  .joins(:youtube_channel)
                                  .where(youtube_channels: { active: true, language: "ko" })
                                  .count
@@ -88,13 +88,15 @@ class ExtractTranscriptsJob
     language = video.youtube_channel&.language || "ko"
     Rails.logger.info("[ExtractTranscripts] [#{current}/#{total}] Processing: #{video.title.truncate(50)} (#{language})")
 
-    transcript = YoutubeChannelScraper.extract_subtitles(video.youtube_url, language: language)
+    # Extract structured transcript first (raw caption array)
+    structured = YoutubeChannelScraper.extract_structured_subtitles(video.youtube_url, language: language)
 
-    if transcript.present?
-      video.update!(transcript: transcript)
-      Rails.logger.info("[ExtractTranscripts] [#{current}/#{total}] Transcript: #{transcript.length} chars")
+    if structured.present?
+      # Build flat transcript from structured data
+      transcript = YoutubeChannelScraper.format_transcript(structured)
+      video.update!(transcript: transcript, structured_transcript: structured)
+      Rails.logger.info("[ExtractTranscripts] [#{current}/#{total}] Transcript: #{transcript.length} chars (#{structured.length} captions)")
 
-      # Trigger pipeline: analyze with Claude + generate embeddings
       if pipeline
         Rails.logger.info("[ExtractTranscripts] [#{current}/#{total}] Queuing analysis+embedding...")
         ReanalyzeVideoJob.perform_async(video.id, true)
@@ -102,8 +104,21 @@ class ExtractTranscriptsJob
 
       :success
     else
-      Rails.logger.warn("[ExtractTranscripts] [#{current}/#{total}] No subtitles available")
-      :no_subs
+      # Fallback: try old method for flat transcript only
+      transcript = YoutubeChannelScraper.extract_subtitles(video.youtube_url, language: language)
+      if transcript.present?
+        video.update!(transcript: transcript)
+        Rails.logger.info("[ExtractTranscripts] [#{current}/#{total}] Flat transcript only: #{transcript.length} chars")
+
+        if pipeline
+          ReanalyzeVideoJob.perform_async(video.id, true)
+        end
+
+        :success
+      else
+        Rails.logger.warn("[ExtractTranscripts] [#{current}/#{total}] No subtitles available")
+        :no_subs
+      end
     end
   rescue StandardError => e
     Rails.logger.error("[ExtractTranscripts] [#{current}/#{total}] Failed: #{e.message}")

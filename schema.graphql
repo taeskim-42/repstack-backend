@@ -3496,6 +3496,16 @@ type VideoReference {
   chunkId: ID
 
   """
+  Clip type: technique, form_check, pro_tip, common_mistake
+  """
+  clipType: String
+
+  """
+  End timestamp in seconds
+  """
+  timestampEnd: Float
+
+  """
   Start timestamp in seconds
   """
   timestampStart: Int

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_02_11_134124) do
+ActiveRecord::Schema[8.1].define(version: 2026_03_15_000002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -68,6 +68,33 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_11_134124) do
     t.bigint "user_id", null: false
     t.index ["user_id", "date"], name: "index_condition_logs_on_user_id_and_date"
     t.index ["user_id"], name: "index_condition_logs_on_user_id"
+  end
+
+  create_table "exercise_video_clips", force: :cascade do |t|
+    t.jsonb "caption_indices", default: []
+    t.string "clip_type", null: false
+    t.text "content", null: false
+    t.text "content_original"
+    t.datetime "created_at", null: false
+    t.string "difficulty_level"
+    t.bigint "exercise_id"
+    t.string "exercise_name", null: false
+    t.jsonb "metadata", default: {}
+    t.string "muscle_group"
+    t.string "source_language", default: "ko", null: false
+    t.text "summary"
+    t.float "timestamp_end", null: false
+    t.float "timestamp_start", null: false
+    t.text "title", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "youtube_video_id", null: false
+    t.index ["exercise_id"], name: "index_exercise_video_clips_on_exercise_id"
+    t.index ["exercise_name", "clip_type"], name: "index_exercise_video_clips_on_exercise_name_and_clip_type"
+    t.index ["exercise_name", "source_language"], name: "idx_on_exercise_name_source_language_de41bb4bac"
+    t.index ["exercise_name"], name: "index_exercise_video_clips_on_exercise_name"
+    t.index ["source_language"], name: "index_exercise_video_clips_on_source_language"
+    t.index ["youtube_video_id", "exercise_name"], name: "idx_on_youtube_video_id_exercise_name_f3b0c57c94"
+    t.index ["youtube_video_id"], name: "index_exercise_video_clips_on_youtube_video_id"
   end
 
   create_table "exercises", force: :cascade do |t|
@@ -395,6 +422,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_11_134124) do
     t.integer "like_count"
     t.datetime "published_at"
     t.jsonb "raw_analysis", default: {}
+    t.jsonb "structured_transcript"
     t.string "thumbnail_url"
     t.string "title", null: false
     t.text "transcript"
@@ -413,6 +441,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_02_11_134124) do
   add_foreign_key "agent_sessions", "users"
   add_foreign_key "chat_messages", "users"
   add_foreign_key "condition_logs", "users"
+  add_foreign_key "exercise_video_clips", "exercises"
+  add_foreign_key "exercise_video_clips", "youtube_videos"
   add_foreign_key "fitness_knowledge_chunks", "youtube_videos"
   add_foreign_key "level_test_verifications", "users"
   add_foreign_key "onboarding_analytics", "users"

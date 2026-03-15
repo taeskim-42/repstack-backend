@@ -93,6 +93,7 @@ Rails.application.routes.draw do
 
     # Knowledge search (RAG)
     get  "knowledge/search", to: "knowledge#search"
+    get  "knowledge/exercise_clips", to: "knowledge#exercise_clips"
 
     # Agent conversation history
     get  "sessions/:user_id/messages", to: "sessions#messages"

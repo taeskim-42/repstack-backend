@@ -184,6 +184,22 @@ module AiTrainer
       def fetch_video_references(exercise_name, exercise_id: nil)
         return [] if exercise_name.blank? && exercise_id.blank?
 
+        # Priority 1: ExerciseVideoClip (accurate timestamps from caption indices)
+        if defined?(ExerciseVideoClipService)
+          clips = ExerciseVideoClipService.clips_for_exercise(exercise_name, limit: 3)
+          if clips.any?
+            return clips.map do |clip|
+              {
+                title: clip.title,
+                url: clip.video_url_with_timestamp,
+                summary: clip.summary,
+                knowledge_type: clip.clip_type
+              }
+            end
+          end
+        end
+
+        # Priority 2: Exercise.video_references (legacy)
         exercise = if exercise_id.present?
           Exercise.find_by(id: exercise_id)
         else

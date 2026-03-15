@@ -9,5 +9,7 @@ module Types
     field :url, String, null: true, description: "YouTube video URL"
     field :timestamp_start, Integer, null: true, description: "Start timestamp in seconds"
     field :chunk_id, ID, null: true, description: "Related FitnessKnowledgeChunk ID"
+    field :timestamp_end, Float, null: true, description: "End timestamp in seconds"
+    field :clip_type, String, null: true, description: "Clip type: technique, form_check, pro_tip, common_mistake"
   end
 end

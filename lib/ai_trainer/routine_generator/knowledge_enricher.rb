@@ -66,20 +66,33 @@ module AiTrainer
       end
 
       def enrich_single_exercise(exercise, contextual_knowledge, training_type)
-        relevant = contextual_knowledge.select do |k|
-          matches_exercise?(k, exercise[:exercise_name], exercise[:target_muscle])
+        # Priority 1: New exercise video clips (direct DB lookup, accurate timestamps)
+        clips = fetch_exercise_clips(exercise[:exercise_name])
+        if clips.any?
+          exercise[:video_references] = clips.map { |c| ExerciseVideoClipService.format_clip_reference(c) }
+          exercise[:expert_tips] = clips.select(&:technique?).map(&:summary).compact.first(2)
+          exercise[:form_cues] = clips.select(&:form_check?).map(&:summary).compact.first(2)
         end
 
-        relevant = direct_exercise_search(exercise[:exercise_name], exercise[:target_muscle]) if relevant.empty?
+        # Priority 2: RAG knowledge (fallback for tips/form_cues if clips didn't provide them)
+        if exercise[:expert_tips].blank? || exercise[:form_cues].blank?
+          relevant = contextual_knowledge.select do |k|
+            matches_exercise?(k, exercise[:exercise_name], exercise[:target_muscle])
+          end
+          relevant = direct_exercise_search(exercise[:exercise_name], exercise[:target_muscle]) if relevant.empty?
 
-        tips = build_expert_tips(relevant, training_type)
+          tips = build_expert_tips(relevant, training_type)
+          exercise[:expert_tips] ||= tips[:tips] if tips[:tips].present?
+          exercise[:form_cues] ||= tips[:form_cues] if tips[:form_cues].present?
+          exercise[:video_references] ||= tips[:sources] if tips[:sources].present?
+        end
 
-        exercise[:expert_tips] = tips[:tips] if tips[:tips].present?
-        exercise[:form_cues] = tips[:form_cues] if tips[:form_cues].present?
         exercise[:instructions] = enrich_instructions(
-          exercise[:instructions], tips, exercise[:exercise_name], training_type
+          exercise[:instructions],
+          { tips: exercise[:expert_tips], form_cues: exercise[:form_cues] },
+          exercise[:exercise_name],
+          training_type
         )
-        exercise[:video_references] = tips[:sources] if tips[:sources].present?
 
         exercise
       end
@@ -310,6 +323,16 @@ module AiTrainer
         end
 
         base ? "#{base}#{suffix}" : "정확한 자세로 천천히 수행하세요. 호흡을 유지하고, 목표 근육에 집중합니다."
+      end
+
+      def fetch_exercise_clips(exercise_name)
+        return [] unless defined?(ExerciseVideoClipService)
+
+        locale = @locale || "ko"
+        ExerciseVideoClipService.clips_for_exercise(exercise_name, locale: locale, limit: 5)
+      rescue StandardError => e
+        Rails.logger.warn("Exercise clip fetch failed for '#{exercise_name}': #{e.message}")
+        []
       end
     end
   end
