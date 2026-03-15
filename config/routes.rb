@@ -53,6 +53,9 @@ Rails.application.routes.draw do
     post "/test_search", action: :test_search
     get "/check_pgvector", action: :check_pgvector
     post "/extract_transcripts", action: :extract_transcripts
+    post "/backfill_structured_transcripts", action: :backfill_structured_transcripts
+    post "/extract_clips", action: :extract_clips
+    get "/clip_stats", action: :clip_stats
     get "/transcript_status", action: :transcript_status
     get "/channel_status", action: :channel_status
     post "/bulk_import_videos", action: :bulk_import_videos
