@@ -3,13 +3,13 @@
 FactoryBot.define do
   factory :exercise_video_clip do
     youtube_video
-    sequence(:exercise_name) { |n| "bench_press_#{n}" }
+    sequence(:exercise_name) { |n| "exercise_#{n}" }
     clip_type { "technique" }
-    sequence(:title) { |n| "Bench Press Technique #{n}" }
-    content { "Keep your shoulder blades retracted throughout the movement." }
-    summary { "어깨 견갑골을 모으고 가슴을 활짝 핀 상태에서 수행하세요." }
-    timestamp_start { 30.0 }
-    timestamp_end { 60.0 }
+    sequence(:title) { |n| "Exercise Guide #{n}" }
+    content { "Detailed technique explanation for proper form." }
+    summary { "Key technique points" }
+    timestamp_start { 10.0 }
+    timestamp_end { 90.0 }
     source_language { "ko" }
 
     trait :technique do

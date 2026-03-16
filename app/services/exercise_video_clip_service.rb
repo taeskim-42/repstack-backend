@@ -11,6 +11,43 @@ class ExerciseVideoClipService
       scope.order(:clip_type, :timestamp_start).limit(limit)
     end
 
+    # Type-diverse clip selection: picks one clip per type (technique, form_check,
+    # pro_tip, common_mistake) then fills remaining slots from different videos.
+    def diverse_clips_for_exercise(name, locale: "ko", limit: 3)
+      normalized = normalize(name)
+
+      # Try locale-matched first, fallback to all languages
+      base_scope = ExerciseVideoClip.for_exercise(normalized)
+      locale_scope = base_scope.for_locale(locale)
+      scope = locale_scope.exists? ? locale_scope : base_scope
+
+      return [] unless scope.exists?
+
+      # Priority order: technique > form_check > pro_tip > common_mistake
+      selected = []
+
+      %w[technique form_check pro_tip common_mistake].each do |type|
+        break if selected.size >= limit
+
+        clip = scope.where(clip_type: type)
+                    .where.not(youtube_video_id: selected.map(&:youtube_video_id))
+                    .order("RANDOM()")
+                    .first
+        selected << clip if clip
+      end
+
+      # Fill remaining slots with clips from different videos
+      if selected.size < limit
+        remaining = scope.where.not(id: selected.map(&:id))
+                         .where.not(youtube_video_id: selected.map(&:youtube_video_id))
+                         .order("RANDOM()")
+                         .limit(limit - selected.size)
+        selected.concat(remaining.to_a)
+      end
+
+      selected
+    end
+
     def batch_clips(names, locale: "ko")
       normalized_names = names.map { |n| normalize(n) }
       ExerciseVideoClip

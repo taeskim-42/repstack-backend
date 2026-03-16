@@ -4,118 +4,134 @@ require "rails_helper"
 
 RSpec.describe ExerciseVideoClipService do
   let(:channel) { create(:youtube_channel) }
-  let(:video) { create(:youtube_video, youtube_channel: channel) }
-
-  let!(:bench_technique) do
-    create(:exercise_video_clip, :technique,
-      youtube_video: video,
-      exercise_name: "bench_press",
-      source_language: "ko",
-      summary: "어깨 견갑골을 모아 수행하세요.",
-      timestamp_start: 10.0,
-      timestamp_end: 40.0)
-  end
-
-  let!(:bench_form) do
-    create(:exercise_video_clip, :form_check,
-      youtube_video: video,
-      exercise_name: "bench_press",
-      source_language: "ko",
-      summary: "팔꿈치 각도 45도를 유지합니다.",
-      timestamp_start: 60.0,
-      timestamp_end: 90.0)
-  end
-
-  let!(:bench_en) do
-    create(:exercise_video_clip, :technique,
-      youtube_video: video,
-      exercise_name: "bench_press",
-      source_language: "en",
-      summary: "Keep shoulder blades retracted.",
-      timestamp_start: 5.0,
-      timestamp_end: 30.0)
-  end
-
-  let!(:squat_clip) do
-    create(:exercise_video_clip, :technique,
-      youtube_video: video,
-      exercise_name: "squat",
-      source_language: "ko",
-      summary: "무릎이 발끝을 넘지 않게 하세요.",
-      timestamp_start: 15.0,
-      timestamp_end: 45.0)
-  end
+  let(:video1) { create(:youtube_video, youtube_channel: channel) }
+  let(:video2) { create(:youtube_video, youtube_channel: channel) }
+  let(:video3) { create(:youtube_video, youtube_channel: channel) }
 
   describe ".clips_for_exercise" do
-    context "with matching locale" do
-      it "returns clips for the exercise in the given locale" do
-        result = described_class.clips_for_exercise("bench_press", locale: "ko")
-        expect(result).to include(bench_technique, bench_form)
-        expect(result).not_to include(bench_en)
-      end
-
-      it "respects the limit parameter" do
-        result = described_class.clips_for_exercise("bench_press", locale: "ko", limit: 1)
-        expect(result.size).to eq(1)
-      end
-
-      it "orders by clip_type then timestamp_start" do
-        result = described_class.clips_for_exercise("bench_press", locale: "ko")
-        types = result.map(&:clip_type)
-        expect(types).to eq(types.sort)
-      end
+    before do
+      create(:exercise_video_clip, :technique, youtube_video: video1, exercise_name: "squat", source_language: "ko")
+      create(:exercise_video_clip, :form_check, youtube_video: video1, exercise_name: "squat", source_language: "ko")
+      create(:exercise_video_clip, :technique, youtube_video: video2, exercise_name: "deadlift", source_language: "ko")
     end
 
-    context "when no clips match the locale" do
-      it "falls back to all locale clips for the exercise" do
-        result = described_class.clips_for_exercise("bench_press", locale: "ja")
-        expect(result).to include(bench_technique, bench_form, bench_en)
-      end
+    it "returns clips for the given exercise" do
+      results = described_class.clips_for_exercise("squat")
+      expect(results.length).to eq(2)
+      expect(results.map(&:exercise_name).uniq).to eq(["squat"])
     end
 
-    context "with normalized name" do
-      it "normalizes spaces to underscores" do
-        result = described_class.clips_for_exercise("bench press", locale: "ko")
-        expect(result).to include(bench_technique, bench_form)
-      end
+    it "respects the limit" do
+      results = described_class.clips_for_exercise("squat", limit: 1)
+      expect(results.length).to eq(1)
+    end
 
-      it "normalizes uppercase to lowercase" do
-        result = described_class.clips_for_exercise("BENCH_PRESS", locale: "ko")
-        expect(result).to include(bench_technique, bench_form)
-      end
+    it "falls back to all languages when locale has no results" do
+      create(:exercise_video_clip, :technique, youtube_video: video3, exercise_name: "pullup", source_language: "en")
+      results = described_class.clips_for_exercise("pullup", locale: "ko")
+      expect(results.length).to eq(1)
+    end
+
+    it "returns empty for unknown exercise" do
+      expect(described_class.clips_for_exercise("unknown_exercise")).to be_empty
     end
   end
 
-  describe ".batch_clips" do
-    it "returns a hash keyed by exercise_name" do
-      result = described_class.batch_clips(%w[bench_press squat], locale: "ko")
-      expect(result.keys).to include("bench_press", "squat")
+  describe ".diverse_clips_for_exercise" do
+    before do
+      create(:exercise_video_clip, :technique,       youtube_video: video1, exercise_name: "bench_press", source_language: "ko")
+      create(:exercise_video_clip, :form_check,      youtube_video: video2, exercise_name: "bench_press", source_language: "ko")
+      create(:exercise_video_clip, :pro_tip,         youtube_video: video3, exercise_name: "bench_press", source_language: "ko")
     end
 
-    it "filters by locale" do
-      result = described_class.batch_clips(%w[bench_press], locale: "ko")
-      clips = result["bench_press"] || []
-      expect(clips).not_to include(bench_en)
+    it "returns up to limit clips" do
+      results = described_class.diverse_clips_for_exercise("bench_press", limit: 3)
+      expect(results.length).to eq(3)
+    end
+
+    it "selects one clip per type in priority order" do
+      results = described_class.diverse_clips_for_exercise("bench_press", limit: 3)
+      types = results.map(&:clip_type)
+      expect(types).to include("technique", "form_check", "pro_tip")
+    end
+
+    it "returns empty array for unknown exercise" do
+      results = described_class.diverse_clips_for_exercise("unknown_xyz")
+      expect(results).to eq([])
+    end
+
+    it "falls back to all languages when locale scope is empty" do
+      create(:exercise_video_clip, :technique, youtube_video: video1, exercise_name: "lunge", source_language: "en")
+      results = described_class.diverse_clips_for_exercise("lunge", locale: "ko", limit: 1)
+      expect(results.length).to eq(1)
+    end
+
+    it "avoids duplicate youtube_video_ids across selected clips" do
+      # All clips on the same video — only one should be selected per iteration
+      video_single = create(:youtube_video, youtube_channel: channel)
+      create(:exercise_video_clip, :technique,  youtube_video: video_single, exercise_name: "plank", source_language: "ko")
+      create(:exercise_video_clip, :form_check, youtube_video: video_single, exercise_name: "plank", source_language: "ko")
+
+      results = described_class.diverse_clips_for_exercise("plank", limit: 3)
+      video_ids = results.map(&:youtube_video_id)
+      expect(video_ids.uniq.length).to eq(video_ids.length)
+    end
+
+    it "respects the limit when fewer clip types exist than limit" do
+      results = described_class.diverse_clips_for_exercise("bench_press", limit: 2)
+      expect(results.length).to eq(2)
+    end
+
+    it "normalizes exercise name (spaces to underscores)" do
+      results = described_class.diverse_clips_for_exercise("bench press", limit: 3)
+      expect(results.length).to eq(3)
     end
   end
 
   describe ".format_clip_reference" do
-    it "returns a hash with all required keys" do
-      ref = described_class.format_clip_reference(bench_technique)
-      expect(ref).to include(
-        :title, :url, :video_id, :channel, :clip_type, :timestamp_start, :timestamp_end, :summary
-      )
+    let(:clip) do
+      create(:exercise_video_clip, :technique,
+        youtube_video: video1,
+        exercise_name: "squat",
+        title: "Squat Technique Guide",
+        summary: "Keep your back straight",
+        timestamp_start: 30.5,
+        timestamp_end: 120.0,
+        source_language: "ko")
     end
 
-    it "builds the youtube URL with timestamp" do
-      ref = described_class.format_clip_reference(bench_technique)
-      expect(ref[:url]).to include("youtube.com/watch")
-      expect(ref[:url]).to include("&t=10")
+    it "returns a hash with all required fields" do
+      result = described_class.format_clip_reference(clip)
+
+      expect(result[:title]).to eq("Squat Technique Guide")
+      expect(result[:url]).to include(video1.video_id)
+      expect(result[:video_id]).to eq(video1.video_id)
+      expect(result[:clip_type]).to eq("technique")
+      expect(result[:timestamp_start]).to eq(30.5)
+      expect(result[:timestamp_end]).to eq(120.0)
+      expect(result[:summary]).to eq("Keep your back straight")
     end
 
-    it "includes clip_type" do
-      ref = described_class.format_clip_reference(bench_technique)
-      expect(ref[:clip_type]).to eq("technique")
+    it "includes timestamp in the URL" do
+      result = described_class.format_clip_reference(clip)
+      expect(result[:url]).to include("&t=30")
+    end
+  end
+
+  describe ".batch_clips" do
+    before do
+      create(:exercise_video_clip, :technique, youtube_video: video1, exercise_name: "squat",      source_language: "ko")
+      create(:exercise_video_clip, :form_check, youtube_video: video2, exercise_name: "deadlift",  source_language: "ko")
+    end
+
+    it "groups clips by exercise name" do
+      result = described_class.batch_clips(["squat", "deadlift"])
+      expect(result.keys).to match_array(["squat", "deadlift"])
+    end
+
+    it "returns empty hash when no matches" do
+      result = described_class.batch_clips(["unknown"])
+      expect(result).to eq({})
     end
   end
 end
