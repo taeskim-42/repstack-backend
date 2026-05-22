@@ -10,7 +10,8 @@ module Types
     end
 
     # User Profile
-    field :update_profile, mutation: Mutations::UpdateProfile
+    field :update_profile, mutation: Mutations::UpdateProfile,
+          deprecation_reason: "Use updateUserProfile instead. Removed in next release once App Store coverage allows."
     field :update_user_profile, mutation: Mutations::UpdateUserProfile
 
     # Workout Sessions

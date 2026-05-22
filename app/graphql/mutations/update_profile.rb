@@ -2,7 +2,7 @@
 
 module Mutations
   class UpdateProfile < BaseMutation
-    description "Update user profile with body information and fitness settings"
+    description "[DEPRECATED] Use updateUserProfile instead. Will be removed once App Store coverage allows."
 
     argument :profile_input, Types::UserProfileInputType, required: true
 
