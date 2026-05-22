@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "voice_json_parser"
+
 module AiTrainer
   class VoiceNormalizerService
     def self.normalize(transcript:, exercise_names:)
@@ -37,9 +39,7 @@ module AiTrainer
     def parse_response(response)
       return { success: false, error: "LLM 호출 실패" } unless response[:success]
 
-      json = JSON.parse(
-        response[:content].gsub(/```json\n?/, "").gsub(/```\n?/, "").strip
-      )
+      json = JSON.parse(VoiceJsonParser.extract(response[:content]))
       {
         success: true,
         exercise: json["exercise"],

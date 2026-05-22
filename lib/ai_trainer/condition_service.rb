@@ -2,6 +2,7 @@
 
 require_relative "constants"
 require_relative "llm_gateway"
+require_relative "voice_json_parser"
 require_relative "condition/prompt_templates"
 require_relative "condition/response_parser"
 
@@ -83,15 +84,7 @@ module AiTrainer
     attr_reader :user
 
     def extract_json(text)
-      if text =~ /```(?:json)?\s*(\{.*?\})\s*```/m
-        Regexp.last_match(1)
-      elsif text.include?("{")
-        start_idx = text.index("{")
-        end_idx = text.rindex("}")
-        text[start_idx..end_idx] if start_idx && end_idx
-      else
-        text
-      end
+      VoiceJsonParser.extract(text)
     end
 
     def save_condition_log(parsed_condition)
