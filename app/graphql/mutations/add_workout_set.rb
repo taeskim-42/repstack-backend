@@ -50,6 +50,13 @@ module Mutations
 
         MetricsService.record_workout_set_logged
         success_response(workout_set: workout_set)
+      rescue ActiveRecord::RecordNotUnique
+        # Race close: concurrent request hit DB unique constraint on (workout_session_id, client_id)
+        # AFTER our find_by short-circuit returned nil. Re-fetch and return success — caller sees
+        # the same idempotent shape as if their request had been the winner.
+        existing = workout_session.workout_sets.find_by(client_id: args[:client_id])
+        return success_response(workout_set: existing) if existing
+        raise
       end
     end
 

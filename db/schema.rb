@@ -10,9 +10,10 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_03_15_000002) do
+ActiveRecord::Schema[8.1].define(version: 2026_05_22_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+  enable_extension "vector"
 
   create_table "agent_conversation_messages", force: :cascade do |t|
     t.bigint "agent_session_id", null: false
@@ -52,6 +53,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_15_000002) do
     t.index ["user_id", "created_at"], name: "index_chat_messages_on_user_id_and_created_at"
     t.index ["user_id", "session_id", "created_at"], name: "index_chat_messages_on_user_id_and_session_id_and_created_at"
     t.index ["user_id"], name: "index_chat_messages_on_user_id"
+  end
+
+  create_table "chat_response_caches", force: :cascade do |t|
+    t.text "answer", null: false
+    t.datetime "created_at", null: false
+    t.vector "embedding", limit: 1536
+    t.integer "hit_count", default: 0
+    t.text "question", null: false
+    t.datetime "updated_at", null: false
+    t.index ["created_at"], name: "index_chat_response_caches_on_created_at"
+    t.index ["embedding"], name: "chat_response_caches_embedding_idx", opclass: :vector_cosine_ops, using: :ivfflat
   end
 
   create_table "condition_logs", force: :cascade do |t|
@@ -242,6 +254,32 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_15_000002) do
     t.index ["user_id"], name: "index_subscriptions_on_user_id"
   end
 
+  create_table "testflight_feedbacks", force: :cascade do |t|
+    t.string "affected_repo"
+    t.text "ai_analysis"
+    t.jsonb "ai_analysis_json", default: {}
+    t.string "app_version"
+    t.string "asc_feedback_id", null: false
+    t.string "bug_category"
+    t.string "build_number"
+    t.text "crash_log"
+    t.datetime "created_at", null: false
+    t.string "device_model"
+    t.text "feedback_text"
+    t.string "github_issue_url"
+    t.string "github_pr_url"
+    t.string "os_version"
+    t.jsonb "pipeline_log", default: []
+    t.jsonb "screenshots", default: []
+    t.string "severity"
+    t.string "status", default: "received", null: false
+    t.datetime "updated_at", null: false
+    t.index ["asc_feedback_id"], name: "index_testflight_feedbacks_on_asc_feedback_id", unique: true
+    t.index ["bug_category"], name: "index_testflight_feedbacks_on_bug_category"
+    t.index ["severity"], name: "index_testflight_feedbacks_on_severity"
+    t.index ["status"], name: "index_testflight_feedbacks_on_status"
+  end
+
   create_table "training_programs", force: :cascade do |t|
     t.datetime "completed_at"
     t.datetime "created_at", null: false
@@ -382,7 +420,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_15_000002) do
     t.decimal "weight", precision: 8, scale: 2
     t.string "weight_unit", default: "kg"
     t.bigint "workout_session_id", null: false
-    t.index ["client_id"], name: "index_workout_sets_on_client_id", unique: true
+    t.index ["client_id"], name: "index_workout_sets_on_client_id", unique: true, where: "(client_id IS NOT NULL)"
     t.index ["source"], name: "index_workout_sets_on_source"
     t.index ["target_muscle"], name: "index_workout_sets_on_target_muscle"
     t.index ["workout_session_id", "exercise_name"], name: "index_workout_sets_on_workout_session_id_and_exercise_name"
