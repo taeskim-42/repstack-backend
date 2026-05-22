@@ -26,7 +26,8 @@ module Mutations
           else
             failed_records << {
               client_id: record[:client_id],
-              error: result[:error]
+              error: result[:error],
+              reason: result[:reason] || "INTERNAL_ERROR"
             }
           end
         end
@@ -75,10 +76,15 @@ module Mutations
       end
 
       { success: true }
+    rescue ActiveRecord::RecordNotUnique
+      # Race against the partial UNIQUE index on workout_sets.client_id (R9):
+      # another concurrent sync inserted the same client_id first. iOS can
+      # safely drop this record.
+      { success: false, error: "Already synced (client_id conflict)", reason: "ALREADY_EXISTS" }
     rescue ActiveRecord::RecordInvalid => e
-      { success: false, error: e.message }
+      { success: false, error: e.message, reason: "VALIDATION_FAILED" }
     rescue StandardError => e
-      { success: false, error: e.message }
+      { success: false, error: e.message, reason: "INTERNAL_ERROR" }
     end
 
     def find_or_create_offline_session(recorded_at)
