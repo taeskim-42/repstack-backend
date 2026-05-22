@@ -6,146 +6,92 @@ RSpec.describe AiTrainer::RoutineService do
   let(:user) { create(:user) }
   let!(:user_profile) { create(:user_profile, user: user, numeric_level: 3, height: 175, weight: 70) }
 
-  describe '.generate' do
-    context 'with valid WorkoutPrograms data' do
-      it 'returns routine from WorkoutPrograms' do
-        result = described_class.generate(user: user)
-        expect(result[:routine_id]).to start_with('RT-')
-        expect(result[:exercises]).to be_an(Array)
+  describe '#merge_feedback_preferences (D12)' do
+    let(:service) { described_class.new(user: user) }
+
+    let(:hard_feedback) do
+      double('feedback', feedback_type: 'too_hard', exercise_name: '벤치프레스')
+    end
+
+    let(:easy_feedback) do
+      double('feedback', feedback_type: 'too_easy', exercise_name: nil)
+    end
+
+    let(:enjoyed_feedback) do
+      double('feedback', feedback_type: 'enjoyed', exercise_name: '데드리프트')
+    end
+
+    context 'with no feedbacks' do
+      it 'returns the original condition unchanged' do
+        expect(service.send(:merge_feedback_preferences, 'cond', nil)).to eq('cond')
+        expect(service.send(:merge_feedback_preferences, { notes: 'x' }, [])).to eq(notes: 'x')
       end
     end
 
-    context 'when generator returns error response' do
-      before do
-        # Simulate WorkoutPrograms returning nil (no program found)
-        allow(AiTrainer::WorkoutPrograms).to receive(:get_workout).and_return(nil)
-      end
-
-      it 'returns nil when generator returns error' do
-        result = described_class.generate(user: user)
-        expect(result).to be_nil
+    context 'with nil condition' do
+      it 'wraps preferences in a notes hash' do
+        result = service.send(:merge_feedback_preferences, nil, [ hard_feedback ])
+        expect(result[:notes]).to include('회피 운동: 벤치프레스')
+        expect(result[:notes]).to include('강도 조정: lower')
       end
     end
 
-    context 'with mocked generator' do
-      let(:mock_routine) do
-        {
-          routine_id: 'RT-123',
-          exercises: [
-            { exercise_name: '벤치프레스', sets: 3, reps: 10 }
-          ],
-          notes: [ '오늘의 포인트' ]
-        }
-      end
-
-      before do
-        allow_any_instance_of(AiTrainer::RoutineGenerator).to receive(:generate).and_return(mock_routine)
-      end
-
-      it 'returns routine' do
-        result = described_class.generate(user: user)
-        expect(result[:routine_id]).to eq('RT-123')
-      end
-
-      it 'passes day_of_week to generator' do
-        expect(AiTrainer::RoutineGenerator).to receive(:new)
-          .with(user: user, day_of_week: 3)
-          .and_call_original
-
-        described_class.generate(user: user, day_of_week: 3)
-      end
-
-      context 'with condition' do
-        let(:condition) { { sleep: 4, fatigue: 2 } }
-
-        it 'applies condition to generator' do
-          generator = instance_double(AiTrainer::RoutineGenerator)
-          allow(AiTrainer::RoutineGenerator).to receive(:new).and_return(generator)
-          allow(generator).to receive(:with_condition).and_return(generator)
-          allow(generator).to receive(:generate).and_return(mock_routine)
-
-          expect(generator).to receive(:with_condition).with(condition)
-          described_class.generate(user: user, condition: condition)
-        end
-      end
-
-      context 'with recent feedbacks' do
-        let(:feedback1) do
-          create(:workout_feedback, user: user, feedback_type: 'DIFFICULTY',
-                                    feedback: '오늘 운동 좋았어요')
-        end
-
-        let(:feedbacks) { [ feedback1 ] }
-
-        it 'applies feedbacks to generator' do
-          generator = instance_double(AiTrainer::RoutineGenerator)
-          allow(AiTrainer::RoutineGenerator).to receive(:new).and_return(generator)
-          allow(generator).to receive(:with_feedbacks).and_return(generator)
-          allow(generator).to receive(:generate).and_return(mock_routine)
-
-          expect(generator).to receive(:with_feedbacks).with(feedbacks)
-          described_class.generate(user: user, recent_feedbacks: feedbacks)
-        end
-
-        it 'adds feedback context to notes' do
-          result = described_class.generate(user: user, recent_feedbacks: feedbacks)
-          notes = result[:notes]
-          expect(notes.last).to include('최근 피드백')
-        end
+    context 'with string condition' do
+      it 'appends preferences to the condition text' do
+        result = service.send(:merge_feedback_preferences, '에너지 낮음', [ enjoyed_feedback ])
+        expect(result).to start_with('에너지 낮음')
+        expect(result).to include('선호 운동: 데드리프트')
       end
     end
 
-    context 'when error occurs' do
-      before do
-        allow_any_instance_of(AiTrainer::RoutineGenerator).to receive(:generate)
-          .and_raise(StandardError, 'Test error')
+    context 'with hash condition having existing notes' do
+      it 'concatenates preferences into notes' do
+        cond = { energy_level: 2, notes: 'existing' }
+        result = service.send(:merge_feedback_preferences, cond, [ easy_feedback ])
+        expect(result[:energy_level]).to eq(2)
+        expect(result[:notes]).to include('existing')
+        expect(result[:notes]).to include('강도 조정: higher')
+      end
+    end
+
+    context 'with feedbacks that produce no preferences' do
+      let(:noisy_feedback) do
+        double('feedback', feedback_type: 'unknown_type', exercise_name: nil)
       end
 
-      it 'returns nil' do
-        result = described_class.generate(user: user)
-        expect(result).to be_nil
-      end
-
-      it 'logs error' do
-        expect(Rails.logger).to receive(:error).with(/RoutineService error/)
-        described_class.generate(user: user)
+      it 'returns the original condition unchanged' do
+        expect(service.send(:merge_feedback_preferences, 'x', [ noisy_feedback ])).to eq('x')
       end
     end
   end
 
-  describe '#format_feedback_context' do
-    let(:service) { described_class.new(user: user) }
+  describe '.generate dispatch (D12)' do
+    it 'routes through ToolBasedRoutineGenerator (single path)' do
+      generator = instance_double(AiTrainer::ToolBasedRoutineGenerator)
+      allow(AiTrainer::ToolBasedRoutineGenerator).to receive(:new).and_return(generator)
+      allow(generator).to receive(:with_goal).and_return(generator)
+      allow(generator).to receive(:with_condition).and_return(generator)
+      allow(generator).to receive(:generate).and_return(nil)
 
-    it 'returns nil for empty feedbacks' do
-      result = service.send(:format_feedback_context, [])
-      expect(result).to be_nil
+      described_class.generate(user: user, goal: 'hypertrophy')
+
+      expect(AiTrainer::ToolBasedRoutineGenerator).to have_received(:new).with(hash_including(user: user))
+      expect(generator).to have_received(:with_goal).with('hypertrophy')
     end
 
-    it 'formats feedback entries' do
-      feedback = create(:workout_feedback, user: user, feedback_type: 'DIFFICULTY',
-                                           feedback: '운동이 힘들었어요')
-      result = service.send(:format_feedback_context, [ feedback ])
-      expect(result).to include('최근 피드백')
-      expect(result).to include('DIFFICULTY')
-    end
+    it 'merges feedback preferences into condition before calling generator' do
+      hard_feedback = double('feedback', feedback_type: 'too_hard', exercise_name: '벤치프레스')
+      generator = instance_double(AiTrainer::ToolBasedRoutineGenerator)
+      allow(AiTrainer::ToolBasedRoutineGenerator).to receive(:new).and_return(generator)
+      allow(generator).to receive(:with_goal).and_return(generator)
+      allow(generator).to receive(:with_condition).and_return(generator)
+      allow(generator).to receive(:generate).and_return(nil)
 
-    it 'truncates long feedback' do
-      long_feedback = create(:workout_feedback, user: user, feedback_type: 'DIFFICULTY',
-                                                feedback: 'a' * 100)
-      result = service.send(:format_feedback_context, [ long_feedback ])
-      expect(result.length).to be < 200
-    end
+      described_class.generate(user: user, recent_feedbacks: [ hard_feedback ])
 
-    it 'limits to first 3 feedbacks' do
-      feedbacks = 5.times.map do |i|
-        create(:workout_feedback, user: user, feedback_type: 'DIFFICULTY',
-                                  feedback: "피드백 #{i}")
+      expect(generator).to have_received(:with_condition) do |arg|
+        expect(arg[:notes]).to include('벤치프레스')
       end
-      result = service.send(:format_feedback_context, feedbacks)
-      # Should only include first 3
-      expect(result).to include('피드백 0')
-      expect(result).to include('피드백 2')
-      expect(result).not_to include('피드백 4')
     end
   end
 end

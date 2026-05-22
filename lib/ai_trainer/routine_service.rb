@@ -1,17 +1,19 @@
 # frozen_string_literal: true
 
 require_relative "constants"
-require_relative "creative_routine_generator"
 require_relative "tool_based_routine_generator"
 
 module AiTrainer
-  # Wrapper service for routine generation
-  # Uses ToolBasedRoutineGenerator (LLM Tool Use) for creative, variable-aware routines
-  # Falls back to CreativeRoutineGenerator if needed
+  # Wrapper service for routine generation.
+  #
+  # Single path: ToolBasedRoutineGenerator. The legacy CreativeRoutineGenerator
+  # branch (gated by USE_TOOL_BASED_GENERATOR) and the rescue fallback to it
+  # were removed (R13 consensus, D12) — feature flag was always true in prod
+  # so the Creative path was effectively dead while still confusing reads.
+  #
+  # `recent_feedbacks` preferences are now merged into the condition text
+  # instead of being passed to a separate `with_preferences` builder.
   class RoutineService
-    # Set to true to use the new Tool Use based generator
-    USE_TOOL_BASED_GENERATOR = true
-
     class << self
       def generate(user:, day_of_week: nil, condition: nil, recent_feedbacks: nil, goal: nil)
         new(user: user).generate(
@@ -28,11 +30,8 @@ module AiTrainer
     end
 
     def generate(day_of_week: nil, condition: nil, recent_feedbacks: nil, goal: nil)
-      result = if USE_TOOL_BASED_GENERATOR
-                 generate_with_tool_based(day_of_week, condition, goal)
-               else
-                 generate_with_creative(day_of_week, condition, recent_feedbacks, goal)
-               end
+      merged_condition = merge_feedback_preferences(condition, recent_feedbacks)
+      result = generate_with_tool_based(day_of_week, merged_condition, goal)
 
       return nil unless result.is_a?(Hash)
 
@@ -41,22 +40,13 @@ module AiTrainer
 
       return nil unless result[:routine_id]
 
-      # Save to database
       save_routine_to_db(result)
 
       result
-    rescue StandardError => e
-      Rails.logger.error("RoutineService error: #{e.message}")
-      # Fallback to creative generator if tool-based fails
-      if USE_TOOL_BASED_GENERATOR
-        Rails.logger.info("Falling back to CreativeRoutineGenerator")
-        generate_with_creative(day_of_week, condition, recent_feedbacks, goal)
-      end
     end
 
     private
 
-    # New: Tool Use based generator (LLM decides which tools to call)
     def generate_with_tool_based(day_of_week, condition, goal)
       generator = ToolBasedRoutineGenerator.new(user: @user, day_of_week: day_of_week)
 
@@ -66,43 +56,52 @@ module AiTrainer
       generator.generate
     end
 
-    # Legacy: Creative generator (pre-defined prompt with exercise pool)
-    def generate_with_creative(day_of_week, condition, recent_feedbacks, goal)
-      generator = CreativeRoutineGenerator.new(user: @user, day_of_week: day_of_week)
+    # Merge recent_feedbacks-derived preferences into the condition payload so
+    # ToolBased sees them in the prompt (R13: preserve Creative's prefs
+    # semantics by promoting them to free-text notes).
+    def merge_feedback_preferences(condition, feedbacks)
+      return condition if feedbacks.blank?
 
-      generator.with_goal(goal) if goal.present?
-      generator.with_condition(condition) if condition.present?
+      prefs_note = build_preferences_note(feedbacks)
+      return condition if prefs_note.blank?
 
-      if recent_feedbacks.present?
-        preferences = extract_preferences_from_feedbacks(recent_feedbacks)
-        generator.with_preferences(preferences)
+      case condition
+      when nil
+        { notes: prefs_note }
+      when String
+        "#{condition}\n#{prefs_note}".strip
+      when Hash
+        merged = condition.dup
+        existing = merged[:notes].presence || merged["notes"].presence
+        merged[:notes] = [ existing, prefs_note ].compact.join("\n").strip
+        merged
+      else
+        condition
       end
-
-      generator.generate
     end
 
-    private
-
-    def extract_preferences_from_feedbacks(feedbacks)
-      preferences = {
-        avoid_exercises: [],
-        preferred_exercises: [],
-        intensity_preference: nil
-      }
+    def build_preferences_note(feedbacks)
+      avoid = []
+      preferred = []
+      intensity = nil
 
       feedbacks.each do |fb|
         case fb.feedback_type
         when "too_hard", "injury_risk"
-          preferences[:avoid_exercises] << fb.exercise_name if fb.exercise_name
-          preferences[:intensity_preference] = "lower"
+          avoid << fb.exercise_name if fb.exercise_name
+          intensity = "lower"
         when "too_easy"
-          preferences[:intensity_preference] = "higher"
+          intensity = "higher"
         when "enjoyed"
-          preferences[:preferred_exercises] << fb.exercise_name if fb.exercise_name
+          preferred << fb.exercise_name if fb.exercise_name
         end
       end
 
-      preferences
+      parts = []
+      parts << "최근 피드백 기반 회피 운동: #{avoid.uniq.join(', ')}" if avoid.any?
+      parts << "선호 운동: #{preferred.uniq.join(', ')}" if preferred.any?
+      parts << "강도 조정: #{intensity}" if intensity
+      parts.join(" / ").presence
     end
 
     def save_routine_to_db(result)

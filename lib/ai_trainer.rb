@@ -3,11 +3,11 @@
 # AI Trainer module - handles workout routine generation and level management
 module AiTrainer
   class << self
-    # Generate routine using CreativeRoutineGenerator (RAG + LLM)
-    # Always uses AI-based creative generation for personalized routines
-    # @param dynamic [Boolean] Ignored - kept for backwards compatibility
+    # Generate routine via RoutineService → ToolBasedRoutineGenerator (D12).
+    # `dynamic`/`preferences` are no-op aliases kept for backward compatibility
+    # with older callers; preferences are now derived from recent_feedbacks
+    # inside RoutineService.
     def generate_routine(user:, day_of_week: nil, condition_inputs: {}, recent_feedbacks: nil, dynamic: false, preferences: {}, goal: nil)
-      # Always use CreativeRoutineGenerator via RoutineService
       RoutineService.generate(
         user: user,
         day_of_week: day_of_week,
