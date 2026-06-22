@@ -4,7 +4,10 @@ module Types
   class MutationType < Types::BaseObject
     # Authentication
     field :sign_in_with_apple, mutation: Mutations::SignInWithApple
-    if Rails.env.development? || Rails.env.test?
+    # Also register when explicitly enabled via env (e.g. personal prod for
+    # Flutter dev where Sign in with Apple is unavailable on the simulator).
+    # The resolver in DevSignIn already honors ALLOW_DEV_SIGN_IN.
+    if Rails.env.development? || Rails.env.test? || ENV["ALLOW_DEV_SIGN_IN"] == "true"
       field :dev_sign_in, mutation: Mutations::DevSignIn
       field :dev_sign_in_fresh, mutation: Mutations::DevSignInFresh
     end
