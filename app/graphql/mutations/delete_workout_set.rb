@@ -18,8 +18,9 @@ module Mutations
           .find_by(id: set_id)
 
         return error_response("Set not found", success: false) unless workout_set
-        return error_response("Session is not active", success: false) unless workout_set.workout_session.active?
 
+        # Allow deleting any of the user's own sets so the log stays editable
+        # (not just active-session undo). Ownership is enforced by the scope above.
         workout_set.destroy!
         success_response(success: true)
       end

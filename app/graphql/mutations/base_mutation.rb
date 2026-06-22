@@ -30,10 +30,13 @@ module Mutations
 
     # Build a standard error response hash
     # @param errors [Array<String>, String] - error message(s)
-    # @param fields [Hash] - additional fields to include (all set to nil)
+    # @param fields [Hash] - additional fields to include, kept as-is
     def error_response(errors, **fields)
       errors = Array(errors)
-      fields.transform_values { nil }.merge(errors: errors)
+      # Keep caller-provided values as-is. Callers pass the exact error-state
+      # value they want (e.g. success: false, workout_set: nil); nil-ing them
+      # broke non-nullable fields like DeleteWorkoutSetPayload.success.
+      fields.merge(errors: errors)
     end
 
     # Build a standard success response hash
