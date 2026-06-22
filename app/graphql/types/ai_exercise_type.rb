@@ -46,11 +46,12 @@ module Types
 
     def target_muscle_name
       locale = context[:locale] || "ko"
+      tm = object.is_a?(Hash) ? (object[:target_muscle] || object["target_muscle"]) : object.target_muscle
       if locale == "ko"
         val = object.is_a?(Hash) ? (object[:target_muscle_korean] || object["target_muscle_korean"]) : nil
-        val || target_muscle
+        val || tm
       else
-        target_muscle
+        tm
       end
     end
   end
