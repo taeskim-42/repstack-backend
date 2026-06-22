@@ -26,7 +26,10 @@ module RepstackBackend
     # Please, add to the `ignore` list any other `lib` subdirectories that do
     # not contain `.rb` files, or that should not be reloaded or eager loaded.
     # Common ones are `templates`, `generators`, or `middleware`, for example.
-    config.autoload_lib(ignore: %w[assets tasks])
+    # `simulation` is a dev/test harness loaded on demand by rake tasks
+    # (lib/tasks/simulation.rake); it must not be eager loaded at boot — its
+    # runner.rb require_relatives several uncommitted files and crashes boot.
+    config.autoload_lib(ignore: %w[assets tasks simulation])
 
     # Configuration for the application, engines, and railties goes here.
     #
